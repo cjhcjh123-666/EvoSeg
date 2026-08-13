@@ -1,38 +1,30 @@
 # ===== EvoSeg: never commit weights/data/results =====
-# model weights & checkpoints
+# model weights & checkpoints (any location)
 *.pt
 *.pth
 *.safetensors
 *.bin
 *.onnx
 *.msgpack
-checkpoints/
-pretrained/
-models/
-weights/
 
-# training artifacts / results / logs
-outputs/
-results/
-runs/
+# training artifacts / results / logs (any location)
+work_dirs/
 wandb/
 *.log
 *.tensorboard
 tensorboard/
 
-# data (images, videos, manifests are generated; raw data lives outside repo)
-data/
-datasets/
-*.jsonl
-*.json
-*.pkl
-*.pickle
-*.npy
-*.npz
-*.mp4
-*.jpg
-*.jpeg
-*.png
+# top-level data & model dirs ONLY (do NOT ignore nested source dirs like projects/*/datasets)
+/data/
+/datasets/
+/outputs/
+/results/
+/runs/
+/pretrained/
+/models/
+/weights/
+/checkpoints/
+/cache/
 
 # caches / envs
 .cache/
