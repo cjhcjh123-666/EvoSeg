@@ -18,16 +18,16 @@ IMG_ROOT = "/9950backfile/chenjiahui/evo_artifacts/datasets/coco2014/train2014"
 DATA_ROOT = sys.argv[1] if len(sys.argv) > 1 else \
     "/9950backfile/chenjiahui/evo_artifacts/datasets/s4b/pixel_llm_data"
 
-VARIANTS = [  # (variant, refs_filename)
-    ("refcoco", "refs(unc).p"),
-    ("refcocoplus", "refs(unc).p"),
-    ("refcocog", "refs(umd).p"),
+VARIANTS = [  # (variant, out_dir, refs_filename) -- Pixel-LLM uses 'refcoco+'
+    ("refcoco", "refcoco", "refs(unc).p"),
+    ("refcocoplus", "refcoco+", "refs(unc).p"),
+    ("refcocog", "refcocog", "refs(umd).p"),
 ]
 
-def build(variant, refs_name):
+def build(variant, out_dir, refs_name):
     parq = os.path.join(PARQUET_ROOT, variant, "train.parquet")
     df = pd.read_parquet(parq)
-    out = os.path.join(DATA_ROOT, "ref_seg", variant)
+    out = os.path.join(DATA_ROOT, "ref_seg", out_dir)
     os.makedirs(out, exist_ok=True)
 
     images, annotations, refs = {}, {}, []
@@ -92,6 +92,6 @@ def build(variant, refs_name):
             missing += 1
     print(f"[{variant}] missing images: {missing}")
 
-for v, rn in VARIANTS:
-    build(v, rn)
+for v, od, rn in VARIANTS:
+    build(v, od, rn)
 print("ALL DONE")
