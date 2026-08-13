@@ -1,0 +1,44 @@
+# ===== EvoSeg: never commit weights/data/results =====
+# model weights & checkpoints
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.onnx
+*.msgpack
+checkpoints/
+pretrained/
+models/
+weights/
+
+# training artifacts / results / logs
+outputs/
+results/
+runs/
+wandb/
+*.log
+*.tensorboard
+tensorboard/
+
+# data (images, videos, manifests are generated; raw data lives outside repo)
+data/
+datasets/
+*.jsonl
+*.json
+*.pkl
+*.pickle
+*.npy
+*.npz
+*.mp4
+*.jpg
+*.jpeg
+*.png
+
+# caches / envs
+.cache/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+.DS_Store
