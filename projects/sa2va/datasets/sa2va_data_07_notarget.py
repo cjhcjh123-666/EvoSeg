@@ -87,6 +87,7 @@ class Sa2VA07NoTargetDataset(RefCocoDataset, Sa2VABaseDataset):
         image = self._read_image(image_path)
         if image is None:
             return None
+        width, height = image.size
 
         conversation = []
         for phrase, resp in zip(ann_info['text'], [ann_info['response']]):
@@ -99,12 +100,15 @@ class Sa2VA07NoTargetDataset(RefCocoDataset, Sa2VABaseDataset):
             conversation.append({'from': 'human', 'value': question})
             conversation.append({'from': 'gpt', 'value': resp})
 
+        # Emit a zero mask so batches can mix no-target and present samples
+        # (collate keys masks per sample). With no [SEG] in the answer the
+        # forward attaches a zero embedding whose GT is this zero mask,
+        # reinforcing empty masks (abstention).
         ann_info.update({
+            'masks': torch.zeros((1, height, width), dtype=torch.uint8),
             'conversations': conversation,
             'image': image_path,
         })
-        # NOTE: intentionally no 'masks' key -> pseudo-zero-mask path in
-        # Sa2VA.forward (seg_valid=False), reinforcing empty masks.
         return ann_info
 
     def prepare_data(self, index):
@@ -114,6 +118,9 @@ class Sa2VA07NoTargetDataset(RefCocoDataset, Sa2VABaseDataset):
             return None
 
         out_data_dict = {}
+        if 'masks' in data_dict:
+            out_data_dict['masks'] = data_dict['masks']
+
         if data_dict.get('image', None) is not None:
             image_file = data_dict['image']
             image = self._read_image(image_file)
@@ -139,3 +146,23 @@ class Sa2VA07NoTargetDataset(RefCocoDataset, Sa2VABaseDataset):
 
     def __len__(self):
         return self.real_len() * self.repeats
+
+    # !DO NOT CHANGE!
+    # Re-write __getitem__ to override the default multi-inheritance behavior
+    # (same pattern as Sa2VA01RefSeg / Sa2VABaseDataset): mmengine's
+    # BaseDataset.__getitem__ would otherwise win the MRO and bypass the
+    # repeats index mapping.
+    def __getitem__(self, index):
+        """Unified __getitem__ implementation with refetch logic."""
+        index_mapping = self._get_index_mapping()
+        mapped_index = index_mapping[index]
+
+        for _ in range(self._max_refetch + 1):
+            data = self.prepare_data(mapped_index)
+            if data is None:
+                mapped_index = self._rand_another_index()
+                continue
+            return data
+
+        raise RuntimeError(f'Failed to get valid data after '
+                           f'{self._max_refetch + 1} attempts')

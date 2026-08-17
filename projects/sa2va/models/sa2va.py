@@ -257,6 +257,16 @@ class Sa2VAModel(BaseModel):
         for item in pred_embeddings_list_:
             if len(item) != 0:
                 pred_embeddings_list.append(item)
+            else:
+                # no-target sample: the response carries no [SEG], so its group
+                # is empty. Attach one zero embedding so batch alignment with
+                # frames_per_batch holds; its GT mask is zero, which pushes the
+                # predicted mask to empty (abstention). The zero is graph-
+                # connected (_zero = hidden_states.mean() * 0.0) so the seg-head
+                # params stay in the autograd graph every iteration (DDP
+                # requires a consistent set of used parameters).
+                pred_embeddings_list.append(
+                    _zero.expand(1, hidden_states.shape[-1]))
         pred_embeddings_list_video = self.generate_video_pred_embeddings(
             pred_embeddings_list, frames_per_batch)
 

@@ -1,15 +1,15 @@
-"""EvoSeg no-target (abstain) SFT -- Stage A: teach the model to say "no".
+"""EvoSeg no-target (abstain) SFT: teach the model to say "no".
 
 Diagnosis: the multitask SFT (sa2va_qwen3_4b_multitask_sft) never included
 no-target samples (build_pixel_llm_grefcoco.py skips them), so the model
 hallucinates 100% on empty-target queries and RL alone cannot explore the
-abstain path. Stage A LoRA-fine-tunes the 4B-MultiTask on PURE gRefCOCO train
-no-target abstain data. Every batch is mask-free, so the model's pseudo-zero-
-mask path (seg_valid=False) reinforces empty masks while the LLM learns the
-refusal text. (Stage B, a short present-only recovery SFT, restores
-segmentation afterwards. Mixing no-target and present samples in one batch is
-not supported by the current collate/forward: seg embeddings are keyed by
-[SEG] tokens, so a mixed batch asserts length mismatch.)
+abstain path. This stage LoRA-fine-tunes the 4B-MultiTask on a faithfulness-
+balanced mix: gRefCOCO train no-target abstain data (majority, x4) + a small
+present mix (RefCOCO / gRefCOCO present, x1) to preserve segmentation. The
+no-target samples carry a zero mask and no [SEG] token; Sa2VA.forward attaches
+a zero embedding for them (empty-mask supervision) while the LLM learns the
+refusal text. This requires the mixed-batch fix in Sa2VA.forward (an additive
+branch for 0-[SEG] samples; present-only batches behave identically).
 
 Continue from the multitask SFT checkpoint (LoRA unmerged, mmengine format):
   evo_artifacts/checkpoints/4b_multitask_iter50768_weights.pth
@@ -29,7 +29,8 @@ from peft import LoraConfig
 
 from projects.sa2va.models import Sa2VAModel, SAM2TrainRunner, DirectResize
 from projects.sa2va.datasets import (
-    sa2va_collect_fn, Sa2VA07NoTargetDataset,
+    sa2va_collect_fn, Sa2VA01RefSeg, Sa2VAFinetuneDataset,
+    Sa2VA07NoTargetDataset,
 )
 from projects.sa2va.datasets.data_utils import ConcatDatasetSa2VA
 from projects.sa2va.models.mllm.qwen3vl import Qwen3VL
@@ -112,6 +113,17 @@ train_dataset = dict(
         dict(type=Sa2VA07NoTargetDataset, name='NoTarget',
              data_root=DATA_ROOT + 'notarget/',
              data_prefix=dict(img_path=COCO_IMG),
+             ann_file='annotations.json', serialize_data=False,
+             repeats=4, **sa2va_default_dataset_configs),
+        dict(type=Sa2VA01RefSeg, name='RefCOCO',
+             data_root=RES_ROOT + 'refcoco',
+             data_prefix=dict(img_path='coco2014/train2014/'),
+             ann_file='instances.json', split_file='refs(unc).p',
+             split='train', num_classes_per_sample=5, repeats=1,
+             serialize_data=False, **sa2va_default_dataset_configs),
+        dict(type=Sa2VAFinetuneDataset, name='gRefCOCO',
+             data_root=DATA_ROOT + 'grefcoco/',
+             data_prefix=dict(img_path='images/train2014/'),
              ann_file='annotations.json', serialize_data=False,
              repeats=1, **sa2va_default_dataset_configs),
     ],
