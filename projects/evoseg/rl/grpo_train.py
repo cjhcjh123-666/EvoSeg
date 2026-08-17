@@ -1,11 +1,18 @@
 #!/usr/bin/env python
-"""EvoSeg Faithfulness GRPO (image referring segmentation, v1).
+"""EvoSeg Faithfulness GRPO (image referring segmentation, v1 + v2 pair).
 
-Rewards:
+Rewards (--reward-mode plain, default):
   present : mask IoU (and Acc@0.5) against GT
   absent  : abstention reward (no mask -> 1.0; shaped penalty on mask area)
-Update   : GRPO (group-relative advantage, PPO-clip ratio) on the LLM response
-           token logprobs; KL to the frozen SFT (non-LoRA) policy.
+
+Rewards (--reward-mode pair, v2 counterfactual pair):
+  per image V: (V, q+) must be segmented, (V, q-) on the SAME image must be
+  empty. Reward = R_seg(q+) + lambda*R_abstain(q-) - gamma*R_inconsistency,
+  where R_inconsistency penalizes emitting a mask for BOTH q+ and q- (the
+  indiscriminate-segmentation failure that caused 100% hallucination).
+
+Update : GRPO (group-relative advantage, PPO-clip ratio) on the LLM response
+         token logprobs; KL to the frozen SFT (non-LoRA) policy.
 """
 import argparse
 import json
@@ -25,7 +32,8 @@ from qwen_vl_utils import process_vision_info
 
 REPO = '/9950backfile/chenjiahui/EvoSeg'
 sys.path.insert(0, os.path.join(REPO, 'projects', 'evoseg', 'rl'))
-from rewards import reward_present, reward_absent, format_reward  # noqa: E402
+from rewards import (  # noqa: E402
+    reward_present, reward_absent, format_reward, reward_counterfactual_pair)
 
 GREFS = '/9950backfile/chenjiahui/evo_artifacts/datasets/grefcoco/grefs_unc.json'
 INSTANCES = '/9950backfile/chenjiahui/evo_artifacts/datasets/grefcoco/instances.json'
@@ -51,6 +59,18 @@ def parse_args():
     p.add_argument('--save-every', type=int, default=50)
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--present-ratio', type=float, default=0.5)
+    p.add_argument('--reward-mode', choices=['plain', 'pair'], default='plain',
+                   help='plain: separate present/absent prompts. '
+                        'pair: same-image counterfactual (q+, q-) with '
+                        'inconsistency penalty.')
+    p.add_argument('--lambda-abstain', type=float, default=0.5,
+                   help='weight of R_abstain(q-) in pair reward')
+    p.add_argument('--gamma-inconsistency', type=float, default=0.3,
+                   help='weight of R_inconsistency penalty in pair reward')
+    p.add_argument('--pair-manifest', default=None,
+                   help='prebuilt counterfactual pairs json '
+                        '(see tools/build_counterfactual_pairs.py); if not '
+                        'given, pairs are built on the fly')
     p.add_argument('--local_rank', '--local-rank', type=int, default=0)
     return p.parse_args()
 
@@ -63,7 +83,37 @@ def setup():
     return rank, world
 
 
-def load_manifest(max_prompts=None, present_ratio=0.5):
+def decode_gt_mask(anns, ann_ids, img_ids, image_id):
+    """Decode a gRefCOCO present GT mask (polygon / RLE / uncompressed counts)."""
+    h, w = img_ids[image_id]['height'], img_ids[image_id]['width']
+    mask = np.zeros((h, w), dtype=np.uint8)
+    for aid in ann_ids:
+        ann = anns.get(aid)
+        if ann is None or len(ann['segmentation']) == 0:
+            continue
+        seg = ann['segmentation']
+        if isinstance(seg, dict):
+            counts = seg['counts']
+            hh, ww = seg['size']
+            flat = np.zeros(hh * ww, dtype=np.uint8)
+            pos = 0
+            for i, c in enumerate(counts):
+                if i % 2 == 1:
+                    flat[pos:pos + c] = 1
+                pos += c
+            m = flat.reshape(hh, ww)
+        elif isinstance(seg[0], list):
+            rle = mask_utils.frPyObjects(seg, h, w)
+            m = mask_utils.decode(rle)
+            m = m.sum(axis=2) if m.ndim == 3 else m
+        else:
+            m = mask_utils.decode([seg])
+            m = m.sum(axis=2) if m.ndim == 3 else m
+        mask = np.maximum(mask, m.astype(np.uint8))
+    return mask
+
+
+def load_manifest(max_prompts=None, present_ratio=0.5, keep_image_id=False):
     """Build (present, absent) prompt lists from gRefCOCO source."""
     grefs = json.load(open(GREFS))
     instances = json.load(open(INSTANCES))
@@ -92,34 +142,107 @@ def load_manifest(max_prompts=None, present_ratio=0.5):
         present, absent = present[:n_pre], absent[:n_abs]
     # decode GT masks only for kept present samples
     for s in present:
-        h, w = img_ids[s['image_id']]['height'], img_ids[s['image_id']]['width']
-        mask = np.zeros((h, w), dtype=np.uint8)
-        for aid in s['ann_ids']:
-            ann = anns.get(aid)
-            if ann is None or len(ann['segmentation']) == 0:
-                continue
-            seg = ann['segmentation']
-            if isinstance(seg, dict):
-                counts = seg['counts']
-                hh, ww = seg['size']
-                flat = np.zeros(hh * ww, dtype=np.uint8)
-                pos = 0
-                for i, c in enumerate(counts):
-                    if i % 2 == 1:
-                        flat[pos:pos + c] = 1
-                    pos += c
-                m = flat.reshape(hh, ww)
-            elif isinstance(seg[0], list):
-                rle = mask_utils.frPyObjects(seg, h, w)
-                m = mask_utils.decode(rle)
-                m = m.sum(axis=2) if m.ndim == 3 else m
-            else:
-                m = mask_utils.decode([seg])
-                m = m.sum(axis=2) if m.ndim == 3 else m
-            mask = np.maximum(mask, m.astype(np.uint8))
-        s['gt'] = mask
-        del s['image_id'], s['ann_ids']
+        s['gt'] = decode_gt_mask(anns, s['ann_ids'], img_ids, s['image_id'])
+        if not keep_image_id:
+            del s['image_id'], s['ann_ids']
     return present, absent
+
+
+def build_category_maps():
+    """COCO category id->name and per-image present category ids (gRefCOCO)."""
+    instances = json.load(open(INSTANCES))
+    cat_names = {c['id']: c['name'] for c in instances['categories']}
+    img_cats = {}
+    for a in instances['annotations']:
+        img_cats.setdefault(a['image_id'], set()).add(a['category_id'])
+    return cat_names, img_cats
+
+
+def load_pair_manifest(max_prompts=None, pair_manifest=None, present_ratio=0.5):
+    """Counterfactual-pair prompts: present-train refs + absent COCO categories
+    on the SAME image. Loads a prebuilt manifest if given, else builds on the
+    fly with the same logic as tools/build_counterfactual_pairs.py."""
+    instances = json.load(open(INSTANCES))
+    anns = {a['id']: a for a in instances['annotations']}
+    img_ids = {im['id']: im for im in instances['images']}
+    rng = random.Random(0)
+
+    if pair_manifest and os.path.exists(pair_manifest):
+        entries = json.load(open(pair_manifest))
+        if max_prompts:
+            rng.shuffle(entries)
+            entries = entries[:max_prompts]
+        present = []
+        for e in entries:
+            present.append({
+                'file': e['file'], 'query': e['query'], 'kind': 'present',
+                'gt': decode_gt_mask(anns, e['ann_ids'], img_ids, e['image_id']),
+                'absent_names': e['absent_names'],
+            })
+        return present
+
+    present, _ = load_manifest(max_prompts, present_ratio, keep_image_id=True)
+    cat_names, img_cats = build_category_maps()
+    all_ids = set(cat_names)
+    kept = []
+    for s in present:
+        q = s['query'].lower()
+        absent = sorted(all_ids - img_cats.get(s['image_id'], set()))
+        absent = [cat_names[c] for c in absent if cat_names[c].lower() not in q]
+        if not absent:
+            continue
+        rng.shuffle(absent)
+        s['absent_names'] = absent[:2]
+        kept.append(s)
+    return kept
+
+
+def rollout_pair(args, model, processor, image, sample, device, rng):
+    """Rollout q+ (factual) and q- (counterfactual) on the same image.
+
+    Returns (records, rewards, iou_mean, n_plus_emit, n_minus_emit, inc) where
+    records is a list of dicts {resp_ids, old_lp, prompt, kind} (kind in
+    {present, absent}) and the inconsistency penalty is shared by every rollout
+    of the pair (spread over the 2*group_size group).
+    """
+    absent_name = rng.choice(sample['absent_names'])
+    q_plus = build_prompt(sample['query'])
+    q_minus = build_prompt(f'the {absent_name}')
+    gen_kwargs = dict(max_new_tokens=args.max_new_tokens,
+                      temperature=args.temperature, top_p=args.top_p)
+    records = []  # dicts: resp_ids, old_lp, prompt, kind, r_ind, resp_text
+    n_plus_emit = n_minus_emit = 0
+    iou_sum = 0.0
+    for g in range(args.group_size):
+        for kind, qtext, gt in (('present', q_plus, sample['gt']),
+                                ('absent', q_minus, None)):
+            resp_ids, old_lp, pred_masks, resp_text = rollout(
+                model, processor, image, qtext, gen_kwargs, device)
+            if kind == 'present':
+                r_iou, r_acc, nm = reward_present(pred_masks, gt)
+                r_ind = 0.7 * r_iou + 0.3 * r_acc
+                iou_sum += r_iou
+                if nm > 0:
+                    n_plus_emit += 1
+            else:
+                r_ind, _area, nm = reward_absent(pred_masks)
+                if nm > 0:
+                    n_minus_emit += 1
+            records.append({'resp_ids': resp_ids, 'old_lp': old_lp,
+                            'prompt': qtext, 'kind': kind,
+                            'r_ind': r_ind, 'resp_text': resp_text})
+    inc = 1.0 if (n_plus_emit > 0 and n_minus_emit > 0) else 0.0
+    rewards = []
+    for rec in records:
+        if rec['kind'] == 'present':
+            r = rec['r_ind'] - args.gamma_inconsistency * inc / (2 * args.group_size)
+        else:
+            r = (args.lambda_abstain * rec['r_ind']
+                 - args.gamma_inconsistency * inc / (2 * args.group_size))
+        r += 0.05 * format_reward(rec['resp_text'], rec['kind'])
+        rewards.append(r)
+    return records, rewards, iou_sum / max(args.group_size, 1), \
+        n_plus_emit, n_minus_emit, inc
 
 
 def build_prompt(query):
@@ -258,10 +381,15 @@ def main():
     trainable = [p for p in model.model.parameters() if p.requires_grad]
     opt = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=0.0)
 
-    present, absent = load_manifest(args.max_prompts, args.present_ratio)
+    use_pair = args.reward_mode == 'pair'
+    if use_pair:
+        prompts = load_pair_manifest(args.max_prompts, args.pair_manifest,
+                                     args.present_ratio)
+    else:
+        present, absent = load_manifest(args.max_prompts, args.present_ratio)
+        prompts = [dict(x) for x in present] + [dict(x) for x in absent]
     if rank == 0:
-        print(f'present={len(present)} absent={len(absent)}', flush=True)
-    prompts = [dict(x) for x in present] + [dict(x) for x in absent]
+        print(f'reward_mode={args.reward_mode} prompts={len(prompts)}', flush=True)
     my_prompts = [p for i, p in enumerate(prompts) if i % world == rank]
     if rank == 0:
         print(f'rank{rank} prompts={len(my_prompts)}', flush=True)
@@ -273,40 +401,53 @@ def main():
     while step < args.steps and len(my_prompts) > 0:
         chosen = rng.sample(my_prompts, min(args.batch_prompts, len(my_prompts)))
         total_loss = torch.tensor(0.0, device=device)
-        stat = {'r_mean': 0.0, 'n': 0, 'halluc': 0, 'iou_present': 0.0, 'n_present': 0}
+        stat = {'r_mean': 0.0, 'n': 0, 'halluc': 0, 'inconsistent': 0,
+                'iou_present': 0.0, 'n_present': 0}
         for sample in chosen:
             image = Image.open(sample['file']).convert('RGB')
-            prompt_text = build_prompt(sample['query'])
-            resps, old_lps, rewards = [], [], []
-            for g in range(args.group_size):
-                resp_ids, old_lp, pred_masks, resp_text = rollout(
-                    model, processor, image, prompt_text,
-                    dict(max_new_tokens=args.max_new_tokens,
-                         temperature=args.temperature, top_p=args.top_p),
-                    device)
-                if sample['kind'] == 'present':
-                    r_iou, r_acc, nm = reward_present(pred_masks, sample['gt'])
-                    r = 0.7 * r_iou + 0.3 * r_acc
-                else:
-                    r, area, nm = reward_absent(pred_masks)
-                    if nm > 0:
-                        stat['halluc'] += 1
-                r += 0.05 * format_reward(resp_text, sample['kind'])
-                resps.append(resp_ids); old_lps.append(old_lp); rewards.append(r)
+            if use_pair:
+                records, rewards, iou_mean, n_plus_emit, n_minus_emit, inc = \
+                    rollout_pair(args, model, processor, image, sample, device, rng)
+                stat['halluc'] += n_minus_emit
+                stat['inconsistent'] += inc
+                stat['iou_present'] += iou_mean
+                stat['n_present'] += 1
+            else:
+                prompt_text = build_prompt(sample['query'])
+                records, rewards = [], []
+                for g in range(args.group_size):
+                    resp_ids, old_lp, pred_masks, resp_text = rollout(
+                        model, processor, image, prompt_text,
+                        dict(max_new_tokens=args.max_new_tokens,
+                             temperature=args.temperature, top_p=args.top_p),
+                        device)
+                    if sample['kind'] == 'present':
+                        r_iou, r_acc, nm = reward_present(pred_masks, sample['gt'])
+                        r = 0.7 * r_iou + 0.3 * r_acc
+                    else:
+                        r, area, nm = reward_absent(pred_masks)
+                        if nm > 0:
+                            stat['halluc'] += 1
+                    r += 0.05 * format_reward(resp_text, sample['kind'])
+                    records.append({'resp_ids': resp_ids, 'old_lp': old_lp,
+                                    'prompt': prompt_text, 'kind': sample['kind']})
+                    rewards.append(r)
             r_t = torch.tensor(rewards, device=device)
             mean_r = r_t.mean(); std_r = r_t.std().clamp_min(1e-4)
             adv = (r_t - mean_r) / (std_r + 1e-4)
             ref_lps, new_lps = [], []
-            for resp_ids in resps:
+            for rec in records:
                 with torch.no_grad():
                     model.model.disable_adapter()
-                    rlp = compute_logprobs(model, processor, image, prompt_text, resp_ids, device)
+                    rlp = compute_logprobs(model, processor, image, rec['prompt'],
+                                           rec['resp_ids'], device)
                     model.model.set_adapter('default')
                 ref_lps.append(rlp)
-            for resp_ids in resps:
-                new_lps.append(compute_logprobs(model, processor, image, prompt_text, resp_ids, device))
+            for rec in records:
+                new_lps.append(compute_logprobs(model, processor, image, rec['prompt'],
+                                                rec['resp_ids'], device))
             new_lp_t = torch.stack(new_lps)
-            old_lp_t = torch.tensor(old_lps, device=device)
+            old_lp_t = torch.tensor([rec['old_lp'] for rec in records], device=device)
             ref_lp_t = torch.stack(ref_lps).detach()
             ratio = torch.clamp(torch.exp(new_lp_t - old_lp_t),
                                 1.0 - args.clip_eps, 1.0 + args.clip_eps)
@@ -314,7 +455,7 @@ def main():
             kl = torch.mean(torch.exp(new_lp_t - ref_lp_t) - (new_lp_t - ref_lp_t) - 1.0)
             total_loss = total_loss + grpo_loss + args.kl_coef * kl
             stat['r_mean'] += float(r_t.mean()); stat['n'] += 1
-            if sample['kind'] == 'present':
+            if (not use_pair) and sample['kind'] == 'present':
                 stat['iou_present'] += float(r_t.mean()); stat['n_present'] += 1
         total_loss = total_loss / max(len(chosen), 1)
         total_loss.backward()
@@ -331,6 +472,8 @@ def main():
             iou_p = stat['iou_present'] / max(stat['n_present'], 1)
             msg = (f'[step {step}] loss={total_loss.item():.4f} r_mean={r_mean:.4f} '
                    f'iou_present={iou_p:.4f} halluc={stat["halluc"]}/{stat["n"]} kl={kl.item():.4f}')
+            if use_pair:
+                msg += f' inconsistent={stat["inconsistent"]}'
             print(msg, flush=True)
             logf.write(msg + '\n'); logf.flush()
             if step % args.save_every == 0:
