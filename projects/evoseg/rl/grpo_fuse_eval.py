@@ -61,7 +61,12 @@ def main():
     model.model = get_peft_model(model.model, lora_cfg)
 
     ckpt = torch.load(args.ckpt, map_location='cpu', weights_only=False)
-    sd = ckpt['lora'] if (isinstance(ckpt, dict) and 'lora' in ckpt) else ckpt
+    if isinstance(ckpt, dict) and 'lora' in ckpt:
+        sd = ckpt['lora']
+    elif isinstance(ckpt, dict) and 'model' in ckpt:
+        sd = ckpt['model']
+    else:
+        sd = ckpt
     missing, unexpected = model.model.load_state_dict(sd, strict=False)
     step = ckpt.get('step', '?') if isinstance(ckpt, dict) else '?'
     print(f'loaded ckpt step={step} missing={len(missing)} unexpected={len(unexpected)}')
