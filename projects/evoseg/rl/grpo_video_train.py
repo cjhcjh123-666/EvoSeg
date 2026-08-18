@@ -62,6 +62,8 @@ def parse_args():
     p.add_argument('--top-p', type=float, default=0.95)
     p.add_argument('--max-new-tokens', type=int, default=32)
     p.add_argument('--lambda-absent', type=float, default=0.7)
+    p.add_argument('--max-frames', type=int, default=12, help='cap frames per video rollout (memory)')
+    p.add_argument('--llm-max-pixels', type=int, default=401408, help='LLM video input max pixels (smaller = fewer tokens)')
     p.add_argument('--save-every', type=int, default=30)
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--local_rank', '--local-rank', type=int, default=0)
@@ -100,6 +102,9 @@ def load_cases(manifest, max_cases=None, seed=0):
     return cases
 
 
+LLM_MAX_PIXELS = 401408  # overridden by --llm-max-pixels
+
+
 def build_mm_inputs(model, processor, frames, text):
     messages = [{
         'role': 'user',
@@ -112,7 +117,7 @@ def build_mm_inputs(model, processor, frames, text):
     mm_inputs = processor(
         text=[processsed_text], images=image_inputs, videos=video_inputs,
         padding=True, return_tensors='pt',
-        min_pixels=model.min_pixels, max_pixels=model.max_pixels,
+        min_pixels=model.min_pixels, max_pixels=LLM_MAX_PIXELS,
     ).to(next(model.parameters()).device)
     return mm_inputs
 
@@ -168,6 +173,8 @@ def rollout_video(model, processor, frames, prompt_text, gen_kwargs, device):
             pred_masks.append((p.sigmoid() > 0.5)[0].cpu().numpy())
     resp_text = processor.batch_decode(
         [seq[prompt_len:]], skip_special_tokens=False)[0].strip()
+    del out, g_px, mm_inputs
+    torch.cuda.empty_cache()
     return resp_ids, old_lp, pred_masks, resp_text
 
 
@@ -212,8 +219,28 @@ def load_gt_masks(case, frames):
     return masks
 
 
+
+
+def subsample_frames(frames, presence, max_frames):
+    """Cap frames to max_frames while preserving the presence->absence boundary."""
+    n = len(frames)
+    if n <= max_frames:
+        return list(range(n))
+    idxs = list(np.linspace(0, n - 1, max_frames).round().astype(int))
+    idxs = sorted(set(i for i in idxs if i < n))
+    p = np.array(presence, dtype=bool)
+    if np.any(p):
+        t0 = int(np.where(p)[0][0]); t1 = int(np.where(p)[0][-1])
+        if t1 < n - 1 and (n - 1) not in idxs:
+            idxs.append(n - 1)
+        if t0 > 0 and 0 not in idxs:
+            idxs.append(0)
+    return sorted(set(i for i in idxs if i < n))
+
 def main():
     args = parse_args()
+    global LLM_MAX_PIXELS
+    LLM_MAX_PIXELS = args.llm_max_pixels
     rank, world = setup()
     torch.manual_seed(args.seed + rank)
     random.seed(args.seed + rank)
@@ -230,6 +257,13 @@ def main():
     processor = AutoProcessor.from_pretrained(args.model_path, trust_remote_code=True)
     model.processor = processor
     model.seg_token_idx = processor.tokenizer.convert_tokens_to_ids('[SEG]')
+    # gradient checkpointing: video logprob backward otherwise explodes memory
+    try:
+        model.model.gradient_checkpointing_enable()
+        model.model.enable_input_require_grads()
+        print('gradient checkpointing enabled', flush=True)
+    except Exception as e:
+        print(f'gc enable failed: {e}', flush=True)
 
     lora_cfg = LoraConfig(
         r=args.lora_r, lora_alpha=args.lora_alpha, lora_dropout=0.05, bias='none',
@@ -261,12 +295,14 @@ def main():
                 'n_present': 0}
         for case in chosen:
             vid = case['video_id']
+            sub = subsample_frames(case['frames'], case['presence'], args.max_frames)
+            sel_frames_list = [case['frames'][i] for i in sub]
             frames = [Image.open(os.path.join(JPEGROOT, vid, f + '.jpg')).convert('RGB')
-                      for f in case['frames']]
-            presence = np.array(case['presence'], dtype=bool)
+                      for f in sel_frames_list]
+            presence = np.array(case['presence'], dtype=bool)[sub]
             present_idx = list(np.where(presence)[0])
             absent_idx = list(np.where(~presence)[0])
-            gt_masks = load_gt_masks(case, case['frames'])
+            gt_masks = load_gt_masks(case, sel_frames_list)
             query = case['query'].lower().replace('.', '').strip()
             prompt_text = f'<image>\n Please segment {query} in this video.'
             records, rewards = [], []
@@ -293,6 +329,7 @@ def main():
                 records.append({'resp_ids': resp_ids, 'old_lp': old_lp,
                                 'prompt': prompt_text})
                 rewards.append(r)
+            torch.cuda.empty_cache()
             r_t = torch.tensor(rewards, device=device)
             mean_r = r_t.mean(); std_r = r_t.std().clamp_min(1e-4)
             adv = (r_t - mean_r) / (std_r + 1e-4)
@@ -334,6 +371,7 @@ def main():
                    f'kl={kl.item():.4f}')
             print(msg, flush=True)
             logf.write(msg + '\n'); logf.flush()
+            torch.cuda.empty_cache()
             if step % args.save_every == 0:
                 ckpt = os.path.join(args.save_dir, f'grpo_video_step{step}.pt')
                 torch.save({
