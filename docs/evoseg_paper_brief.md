@@ -169,6 +169,29 @@
 
 ---
 
+## 5.5 外部基线（GPT 清单第 2、3 项，已完成）
+
+**外部模型对照（证明非 Sa2VA-specific）**——SESAME（CVPR'24，专为 false-premise 拒答训练，LLaVA-7B）在我们同款 8905 absent 查询上：
+
+| 模型 | 幻觉率(8905 no-target) |
+|---|---|
+| Sa2VA-4B | 100% |
+| **SESAME** | **33.5%** |
+| **Faithful-4B（我们）** | **14.7%** |
+| VideoFaithful-4B | 16.1% |
+
+> 结论：SESAME（假前提拒答 SOTA）也会幻觉 33.5%，我们的 Faithful 比它低一半以上——诊断非 Sa2VA-specific，且我们的拒答能力优于专用假前提模型。（口径：SESAME 用自己的 prompt/格式，非严格同配，作为外部参照。）
+
+**外部基准泛化（HalluSegBench，反事实）**——test refer_seg 50 对 factual/counterfactual：
+
+| 模型 | factual 分割率 | counterfactual 幻觉率 | 拒答率 |
+|---|---|---|---|
+| Sa2VA-4B | 1.0 | **100%** | 0 |
+| VideoFaithful | 0.98 | **64%** | 36% |
+| TEG | 0.98 | **62%** | 38% |
+
+> 结论：外部反事实基准上 Sa2VA 100% 幻觉，我们的模型在**未见过的外部数据**上拒答 36-38%（反事实把目标换成相似物，本身有歧义，所以比自有 8905 高）。
+
 ## 6. 投稿目标与定位建议
 
 - **目标**：CVPR（主会）。当前完整度按此前评审模拟评估约为 Weak Accept 区间。
