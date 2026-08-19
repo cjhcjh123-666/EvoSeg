@@ -67,7 +67,11 @@
   - reward = 0.7×reward_temporal_presence（present 帧 IoU）+ λ×reward_temporal_absence（**消失帧每多一个 mask 像素扣分**）+ 0.05×format_reward
   - GRPO group-relative advantage + PPO-clip + KL 到 frozen 参考策略
 - **工程修复**（可供 paper 附录写）：LLM 输入 max_pixels 压缩（4628→1850 tokens，grad logprob 59GB→30GB）、帧数上限保时序边界、梯度检查点、显存清理。
-- **结果**：在 SFT 底座上 RL 无额外增益（overall 6.64% vs 6.63%）。原因：RL 受显存限制用低分辨率 LLM 输入训练、评测用全分辨率，域不匹配。**诚实结论：SFT 是主机制**；RL 价值在于更高分辨率/更长训练下的校准（留作 future work / 消融表）。
+- **结果**：在 SFT 底座上 RL 无额外增益（overall 6.64% vs 6.63%）。原因：RL 受显存限制用低分辨率 LLM 输入训练、评测用全分辨率，域不匹配。
+- **建议叙事（把 negative result 变成 insight）**：
+  > **Faithfulness cannot be recovered by post-hoc RL when the refusal trajectory is absent from supervised training.**
+  > behavior absent from SFT support ⇒ GRPO exploration fails。
+  这个"纯 RL 采不到拒答 trajectory"的观察本身是高级 negative result，比硬包装 Video-GRPO 更值得写。RL 放 ablation，不放进 main contribution。
 
 ---
 
@@ -98,6 +102,11 @@
 | 8B VideoFaithful | 训练中（ETA 2026-08-19 ~14:40） | | | | |
 
 > 补充：VideoFaithful-4B 的 present_miss_rate = 4.2%（overall），temporal 类别 9.8%——模型更保守，是取舍。frame_acc overall 93.9%。
+> **时序错误分解（GPT 评审预判的关键补充，StopAcc/StopLatency）**：temporal_absence 的 108 个 disappear_early 案例上：
+> - StopAcc（边界后干净停止的案例比例）：Sa2VA 2.8% / Faithful 1.9% / **VideoFaithful 7.4%** / 8B 1.9%
+> - never-stop（mask 传播/复现到视频末尾的案例比例）：Sa2VA 88.9% / Faithful 96.3% / **VideoFaithful 92.6%** / 8B 84.3%
+> - 5 帧内出现停止的案例：Sa2VA 39.8% / Faithful 37.0% / **VideoFaithful 41.7%**
+> - **结论：76% 的 temporal 幻觉不是"消失后一帧残留"，而是 mask 持续传播/闪烁复现到结尾**。帧级改善是真实的（95%→76%，5 帧内停止 37%→42%），但"干净停住"在单 [SEG] 决策 + SAM2 传播架构下几乎做不到（StopAcc 仅 7.4%）——这是架构极限的诚实证据，恰恰支撑"忠实指代分割必须时序化 / 需要逐帧存在性验证"的主线。
 > 8B 视频列明显弱于 4B，因为 8B 目前只做了图像 no-target SFT、未做视频 faithfulness SFT（正在补）。
 
 ### 4.3 消融
@@ -158,13 +167,31 @@
 
 ---
 
+## 7.5 评审预判与应对（GPT 2026-08 评估：CVPR 2027 Weak Accept → 补完关键实验后 competitive）
+
+**评分参考**：Problem importance 8.5 / Story-insight 8.5 / Novelty 7.5 / Method novelty 6.5 / Evidence 7 / CVPR fit 9 / ICLR fit 6.5-7。优先投 **CVPR**（ICLR 2027 deadline 2026-09-25 太近且本工作 method novelty 对 ICLR 不够）。
+
+**必须堵的三个 reviewer 攻击点**：
+1. **"是不是 Sa2VA-specific pathology？"** → 补外部模型基线（GSVA 的 [REJ]、SESAME 至少覆盖两类，不能全是自己的 checkpoint）。
+2. **"benchmark 是不是和训练分布太近？"** → 补 external benchmark generalization：图像用 FP-RefCOCO / HalluSegBench，视频用 MeViSv2 no-target / YoURVOS。
+3. **"overall 6.6% 是不是被 easy negative 拉下来的？temporal 76% 怎么解释？"** → 用上面的 StopAcc/StopLatency/MaskLeakage 分解 + error taxonomy（near-miss / long-tail / ambiguous identity）+ 诚实承认 temporal 是开放问题并指向架构极限。
+
+**不要写的**：❌ 首次解决 no-target / 首次 RL 分割。**要写的概念链**：
+```
+Segmentation accuracy is not faithfulness.
+Image faithfulness ≠ Temporal faithfulness.
+e (existence)  ⟶  e_t (frame-wise existence).
+```
+
 ## 8. 待办/未完成（写 paper 前可补，不阻塞初稿）
 
 - [ ] 8B VideoFaithful 训练（进行中）+ 转 HF + 视频评测（~3.5h）
 - [ ] VideoFaithful-4B 的 RefCOCO+/g（~40min）
 - [ ] 基线表：SESAME / GSVA / Text4Seg / HalluSegBench（需跑外部模型，~0.5-1 天）
 - [ ] Figure 1 可视化（100%→6.6% + 3 张 case，~1-2 天）
-- [ ] 跨数据集泛化：FP-RefCOCO / HalluSegBench / MeViS no-target（~0.5 天）
+- [ ] 跨数据集泛化：FP-RefCOCO / HalluSegBench（图像）、MeViSv2 no-target / YoURVOS（视频）（~0.5-1 天，需下载数据）
+- [ ] 外部模型基线：GSVA（[REJ]）、SESAME 至少两类（~1 天，需下载/搭 LISA-based 环境）——**GPT 认为最重要的一项**
+- [ ] 用升级后的 eval_video_faithfulness.py 重跑全部模型，补 StopAcc/StopLatency/MaskLeakage 列
 - [ ] 错误分类学：剩余 1309 条图像幻觉 + 视频 temporal/identity 失败是 near-miss 还是 far-miss
 - [ ] 置信度校准 / risk-coverage（可选加分项）
 

@@ -83,9 +83,12 @@ def main():
         pred = pred_masks[0] if len(pred_masks) > 0 else None
         n_frames = len(frames)
         pred_presence = [False] * n_frames
+        pred_area = [0.0] * n_frames
         if pred is not None:
             for t in range(min(n_frames, len(pred))):
-                pred_presence[t] = bool((pred[t] > 0).sum())
+                pm = pred[t] > 0
+                pred_presence[t] = bool(pm.sum())
+                pred_area[t] = float(pm.mean())
         expected = c['presence'][:n_frames]
         local.append({
             'category': c['category'],
@@ -95,6 +98,7 @@ def main():
             'n_pred_frames': int(sum(pred_presence)),
             'n_expected_present': int(sum(expected)),
             'pred_presence': pred_presence,
+            'pred_area': pred_area,
             'expected_presence': expected,
             'pred_text': out['prediction'][:200],
         })
@@ -133,6 +137,41 @@ def main():
                 'absent_halluc_rate': round(absent_h / absent_den, 4) if absent_den else None,
                 'present_miss_rate': round(present_m / present_den, 4) if present_den else None,
                 'frame_acc': round(n_correct / n_total, 4) if n_total else None,
+            }
+        # temporal-specific metrics on the disappearance boundary
+        t_cases = [r for r in all_res if r['category'] == 'temporal_absence']
+        if t_cases:
+            stop_ok = 0; have_disp = 0; never_stop = 0; lat = []
+            mask_leak = 0.0; leak_den = 0
+            for r in t_cases:
+                exp = r['expected_presence']; pred = r['pred_presence']
+                area = r.get('pred_area', [0.0] * len(pred))
+                T = len(exp)
+                idx = [i for i, e in enumerate(exp) if e]
+                if not idx:
+                    continue
+                t1 = max(idx)
+                leak_den += T - t1 - 1
+                mask_leak += sum(area[t] for t in range(t1 + 1, T))
+                if t1 < T - 1:
+                    have_disp += 1
+                    after = pred[t1 + 1:]
+                    if not any(after):
+                        stop_ok += 1
+                        lat.append(1)
+                    else:
+                        first_false = next((i for i, v in enumerate(after) if not v), None)
+                        if first_false is None:
+                            never_stop += 1
+                            lat.append(T - t1)
+                        else:
+                            lat.append(first_false + 1)
+            summary['temporal_stop'] = {
+                'n_disappear_early': have_disp,
+                'stop_acc': round(stop_ok / have_disp, 4) if have_disp else None,
+                'never_stop_frac': round(never_stop / have_disp, 4) if have_disp else None,
+                'mean_stop_latency_frames': round(sum(lat) / len(lat), 2) if lat else None,
+                'mask_leakage': round(mask_leak / leak_den, 4) if leak_den else None,
             }
         print('=' * 60)
         print(json.dumps(summary, indent=2, ensure_ascii=False))
