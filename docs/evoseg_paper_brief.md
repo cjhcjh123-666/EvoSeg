@@ -61,6 +61,32 @@
 - **训练**：从 Faithful(×4) 继续，混合 NoTarget×4 + RefCOCO + gRefCOCO + VideoFaithfulness×1，1 epoch。
 - **结果**（1986 例视频忠实性基准）：视频整体幻觉 18.4%→**6.6%**，temporal_absence 95%→**76%**，counterfactual 28%→**4.6%**，identity 96%→**81%**，global 3%→**1%**；图像侧 gRefCOCO 69.99%（保持）、RefCOCO 82.24%（保持），幻觉率 16.1%（小回退 1.4pp）。
 
+### Stage 3.5：Temporal Existence Gate（TEG，逐帧存在性门控）—— 新方法
+
+**动机**：图像级拒答 + 视频 SFT 后，帧级 temporal 幻觉降到 76%，但 StopAcc 仅 7.4%（84-93% 的 case 把 mask 传播/闪烁到视频末尾）。根因是单次 [SEG] + SAM2 传播的架构无法表达"逐帧停止"。逐帧重跑模型（N× forward）太贵；且存在性**非单调**（t-1 有 / t 没有 / t+1 又有，遮挡/短暂离场/瞬态状态）。
+
+**TEG 设计（一次前向，几乎零成本）**：
+- 保持视频路径：一次前向，视觉编码器并行编码所有帧，LLM 出 [SEG] → SAM2 传播逐帧 mask。
+- 新增轻量 **ExistenceHead**：输入 = [SEG] embedding ⊕ 每帧 SAM2 grounding 特征（`current_vision_feats` 空间池化），输出 sigmoid **e_t ∈ [0,1]^T**。
+- 训练 loss：分割 loss + **0.5·BCE(e_t, presence_t)**，presence_t 直接从逐帧 GT mask 推导（消失帧为零 mask → presence=0），**零额外标注**。
+- 推理：`mask_t = SAM2传播mask_t × (e_t > 0.5)`，逐帧清零。
+- 成本：一个小 MLP，和原视频路径同价（非 N× forward）。
+
+**结果（4B，iter 2000，继续自 VideoFaithful）**：
+
+| 指标 | VideoFaithful | **+TEG** |
+|---|---|---|
+| overall 幻觉 | 6.63% | **6.08%** |
+| temporal_absence | 76.3% | **67.5%** |
+| StopAcc（干净停住） | 7.4% | **13.9%** |
+| never-stop | 92.6% | **84.3%** |
+| global_absence | 1.0% | **0.15%** |
+| counterfactual_swap | 4.6% | **0.4%** |
+| identity_swap | 81.0% | **71.5%** |
+| present_miss | 4.2% | 5.5% |
+
+**诚实结论**：TEG 在**全部**忠实性维度带来改善（尤其 counterfactual 4.6→0.4%、identity 81→72%、StopAcc 翻倍），证明逐帧存在性门控有效、能处理非单调存在。但"干净停住"仍未完全解决（StopAcc 14%，84% 仍传播到结尾）——SAM2 传播 + 头锐度仍是瓶颈。可继续：更久训练、提高 existence loss 权重、与 frame-wise 推理结合。
+
 ### Stage 3：视频 GRPO RL（reward_temporal_absence）—— 消融/诚实记录
 
 - 写了视频 GRPO 训练器（`grpo_video_train.py`）：
