@@ -234,15 +234,47 @@ e (existence)  ⟶  e_t (frame-wise existence).
 
 ## 8. 待办/未完成（写 paper 前可补，不阻塞初稿）
 
-- [ ] 8B VideoFaithful 训练（进行中）+ 转 HF + 视频评测（~3.5h）
+- [x] **失败分类学**：剩余图像幻觉 75% 是 far-miss（查询类别在图中根本不存在）、25% 是 lookalike
+      near-miss（类别在但实例/属性/位置不符）；且残留幻觉全部是自信 [SEG]。
+      → `projects/evoseg/eval/failure_taxonomy.py`
+- [x] **Figure 1 可视化**：`make_figure_cases.py` + `make_figure1.py` → `evo_artifacts/figures/figure1.png`
+- [ ] 8B VideoFaithful 训练（gpu8 进行中 ~88%，loss_exist 已收敛）+ 转 HF + 视频评测（~30min）
 - [ ] VideoFaithful-4B 的 RefCOCO+/g（~40min）
-- [ ] 基线表：SESAME / GSVA / Text4Seg / HalluSegBench（需跑外部模型，~0.5-1 天）
-- [ ] Figure 1 可视化（100%→6.6% + 3 张 case，~1-2 天）
+- [ ] 基线表：SESAME / GSVA / Text4Seg / HalluSegBench（SESAME 与 HalluSegBench 已跑，GSVA 待补）
 - [ ] 跨数据集泛化：FP-RefCOCO / HalluSegBench（图像）、MeViSv2 no-target / YoURVOS（视频）（~0.5-1 天，需下载数据）
-- [ ] 外部模型基线：GSVA（[REJ]）、SESAME 至少两类（~1 天，需下载/搭 LISA-based 环境）——**GPT 认为最重要的一项**
-- [ ] 用升级后的 eval_video_faithfulness.py 重跑全部模型，补 StopAcc/StopLatency/MaskLeakage 列
-- [ ] 错误分类学：剩余 1309 条图像幻觉 + 视频 temporal/identity 失败是 near-miss 还是 far-miss
+- [x] 外部模型基线：SESAME 已跑（33.5% vs 我们 14.7%）；HalluSegBench 已跑（Sa2VA 100% vs
+      VideoFaithful/TEG 拒答 36-38%）；GSVA 待补
+- [x] 升级后的 eval_video_faithfulness.py 已输出 StopAcc/StopLatency/MaskLeakage（temporal_stop 指标）
 - [ ] 置信度校准 / risk-coverage（可选加分项）
+
+### 失败分类学结果（failure analysis 小节素材）
+
+剩余图像幻觉（Faithful-4B, 1309/8905）按"查询结构 × 接地难度"分解：
+
+| 结构 \ 难度 | far-miss（类别不存在） | lookalike（类别在，实例/属性不符） |
+|---|---:|---:|
+| attr_rich（>3 词） | 671 (51.3%) | 282 (21.5%) |
+| short_noun（≤3 词） | 314 (24.0%) | 42 (3.2%) |
+| **合计** | 985 (**75.2%**) | 324 (**24.8%**) |
+
+- 对比 Sa2VA-4B（8905/8905 幻觉）：lookalike 仅 10.1% → Faithful 升到 24.8%。训练后被拒掉的
+  主要是"清楚的假前提"，**残留幻觉集中在 genuinely hard 的 near-miss**（类别在、但所指
+  实例/属性/位置不符），比"什么都画"健康得多——可直接作为 failure analysis 的诚实叙事。
+- 全部 1309 条残留幻觉的 pred_text 都是自信 "Sure, [SEG]."，没有"文本拒答 + mask"的语义混淆。
+
+### Figure 1（opening figure）材料
+
+- 复现：`make_figure_cases.py`（GPU 上跑 Sa2VA/Faithful/TEG，出 case 图）+
+  `make_figure1.py`（matplotlib 拼版）。产物 `evo_artifacts/figures/figure1.png` (3823×1960)。
+- (a) 双模态柱状图：图像 absent 幻觉 100%→14.7%、视频 absent 幻觉 91.3%→6.1%，
+  RefCOCO 81.95→82.22 / gRefCOCO 29.8→69.8 保持并提升。
+- (b) 图像 case：`COCO_train2014_000000274667.jpg` + "the red jacket"（不存在）。
+  Sa2VA 输出 "Sure, [SEG]." + 占 68.7% 画面的红色幻觉 mask；EvoSeg-4B 输出
+  "I don't see red jacket in this image." + 无 mask。
+- (c) 视频 case：Ref-YT-VOS valid `0788b4033d` + "a man walkng in an all black outfit"，
+  目标在第 12 帧消失。Sa2VA 单次 [SEG]+SAM2 传播：`1111111111111111111`（mask 画到末尾）；
+  EvoSeg-4B 逐帧 e_t：`1111111111110000000`（第 12 帧干净停住）。
+  → "忠实指代分割必须时序化（e → e_t）"最直观的视觉证据。
 
 ---
 

@@ -32,7 +32,7 @@ from projects.sa2va.models.mllm.qwen3vl import Qwen3VL
 # ---------------- settings ----------------
 path = '/9950backfile/chenjiahui/evo_artifacts/models/Qwen3-VL-8B-Instruct'
 pretrained_pth = None  # 8B: train from scratch (no Sa2VA-8B pretrained)
-continue_pth = '/9950backfile/chenjiahui/evo_artifacts/checkpoints/8b_faithful_iter5184_weights.pth'
+continue_pth = '/9950backfile/chenjiahui/evo_artifacts/checkpoints/8b_videofaithful_iter10000_weights.pth'
 DATA_ROOT = '/9950backfile/chenjiahui/evo_artifacts/datasets/s4b/pixel_llm_data/'
 COCO_IMG = '/9950backfile/chenjiahui/evo_artifacts/datasets/coco2014/train2014/'
 RES_ROOT = DATA_ROOT + 'ref_seg/'
@@ -167,3 +167,5 @@ visualizer = None
 log_level = 'INFO'
 load_from = continue_pth
 resume = False
+
+work_dir = '/9950backfile/chenjiahui/EvoSeg/work_dirs/sa2va_qwen3_8b_video_faithfulness_sft_gpu8'

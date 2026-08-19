@@ -1,0 +1,32 @@
+{
+  "sa2va_4b": {
+    "short_noun": "41.1",
+    "attr_rich": "58.9",
+    "lookalike": "10.1",
+    "far_miss": "89.9",
+    "attr_x_far_miss": "50.1",
+    "attr_x_lookalike": "8.8",
+    "short_x_far_miss": "39.8",
+    "short_x_lookalike": "1.3"
+  },
+  "faithful_4b": {
+    "short_noun": "27.2",
+    "attr_rich": "72.8",
+    "lookalike": "24.8",
+    "far_miss": "75.2",
+    "attr_x_far_miss": "51.3",
+    "attr_x_lookalike": "21.5",
+    "short_x_far_miss": "24.0",
+    "short_x_lookalike": "3.2"
+  },
+  "videofaithful_4b": {
+    "short_noun": "25.2",
+    "attr_rich": "74.8",
+    "lookalike": "25.8",
+    "far_miss": "74.2",
+    "attr_x_far_miss": "51.9",
+    "attr_x_lookalike": "22.9",
+    "short_x_far_miss": "22.3",
+    "short_x_lookalike": "2.9"
+  }
+}
