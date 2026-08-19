@@ -76,8 +76,15 @@ class Sa2VAModel(BaseModel):
             nn.Linear(in_dim, in_dim), nn.ReLU(inplace=True),
             nn.Linear(in_dim, out_dim), nn.Dropout(0.0)
         )
+        # [TEG] Temporal Existence Gate: per-frame presence from the [SEG]
+        # embedding (lang) x the SAM2 image feature of each frame (feat).
+        self.existence_head = nn.Sequential(
+            nn.Linear(out_dim + out_dim, out_dim), nn.ReLU(inplace=True),
+            nn.Linear(out_dim, 1)
+        )
         self.loss_mask = BUILDER.build(loss_mask)
         self.loss_dice = BUILDER.build(loss_dice)
+        self.loss_exist = torch.nn.BCEWithLogitsLoss()
 
         self.torch_dtype = torch_dtype
 
@@ -174,12 +181,14 @@ class Sa2VAModel(BaseModel):
         state_dict_mllm = self.mllm.state_dict(*args, prefix=prefix + 'mllm.', **kwargs)
         state_dict_sam2 = self.grounding_encoder.state_dict(*args, prefix=prefix + 'grounding_encoder.', **kwargs)
         state_dict_text = self.text_hidden_fcs.state_dict(*args, prefix=prefix + 'text_hidden_fcs.', **kwargs)
+        state_dict_exist = self.existence_head.state_dict(*args, prefix=prefix + 'existence_head.', **kwargs)
         to_return = OrderedDict()
         to_return.update(state_dict_mllm)
         to_return.update(
             {k: v
              for k, v in state_dict_sam2.items() if k.startswith('grounding_encoder.sam2_model.sam_mask_decoder')})
         to_return.update(state_dict_text)
+        to_return.update(state_dict_exist)
         return to_return
 
     def check_obj_number(self, pred_embeddings_list_video, gt_masks_video, fix_number=5):
@@ -287,9 +296,21 @@ class Sa2VAModel(BaseModel):
         gt_masks = torch.cat(gt_masks, dim=0)
         pred_masks = pred_masks.flatten(0, 1)
 
+        # [TEG] temporal existence gate: per-frame presence e_t predicted from
+        # the SAM2 frame features x the [SEG] embedding, supervised by the
+        # per-frame GT mask presence (absent frames carry zero masks).
+        vis_feat = sam_states['current_vision_feats'][-1]          # [HW, T*nobj, C]
+        feat_pool = vis_feat.mean(dim=(0, -1))                     # [T*nobj, C]
+        lang_emb = language_embeddings.squeeze(1)                  # [T*nobj, C]
+        e_logit = self.existence_head(
+            torch.cat([feat_pool, lang_emb], dim=-1)).squeeze(-1)  # [T*nobj]
+        gt_stack = torch.stack(gt_masks_video, dim=0)              # [T, nobj, H, W]
+        presence = (gt_stack > 0).any(dim=-1).any(dim=-1).float().reshape(-1)
+        n_e = min(e_logit.shape[0], presence.shape[0])
+        e_logit, presence = e_logit[:n_e], presence[:n_e]
 
         bs = len(pred_masks)
-        loss_mask, loss_dice = 0, 0
+        loss_mask, loss_dice, loss_exist = 0, 0, 0
         if len(pred_masks) != len(gt_masks):
             # drop this data
             print(f"Pred mask shape {pred_masks.shape} is not equal to gt_mask shape {gt_masks.shape} !!!")
@@ -320,9 +341,13 @@ class Sa2VAModel(BaseModel):
         loss_mask = loss_mask * _scale
         loss_dice = loss_dice * _scale
 
+        if len(e_logit) > 0:
+            loss_exist = 0.5 * self.loss_exist(e_logit, presence) * _scale
+
         loss_dict = {
             'loss_mask': loss_mask,
             'loss_dice': loss_dice,
+            'loss_exist': loss_exist,
             'llm_loss': output.loss,
         }
         return loss_dict

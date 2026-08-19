@@ -61,6 +61,11 @@ class Sa2VAChatModelQwen(PreTrainedModel):
             nn.Linear(in_dim, in_dim), nn.ReLU(inplace=True),
             nn.Linear(in_dim, out_dim), nn.Dropout(0.0)
         )
+        # [TEG] temporal existence gate head (mirrors the mmengine Sa2VAModel)
+        self.existence_head = nn.Sequential(
+            nn.Linear(out_dim + out_dim, out_dim), nn.ReLU(inplace=True),
+            nn.Linear(out_dim, 1)
+        )
 
     @property
     def lm_head(self):
@@ -247,6 +252,18 @@ class Sa2VAChatModelQwen(PreTrainedModel):
             masks = F.interpolate(pred_masks, size=(h, w), mode='bilinear', align_corners=False)
             masks = masks[:, 0]
             masks = masks.sigmoid() > 0.5
+            # [TEG] gate by the temporal existence head e_t (per frame)
+            if hasattr(self, 'existence_head') and video is not None:
+                feats = self.grounding_encoder.sam2_model.forward_image(g_pixel_values)
+                _, vision_feats, _, _ = self.grounding_encoder.sam2_model._prepare_backbone_features(feats)
+                vis_feat = vision_feats[-1]                                    # [HW, T, C]
+                feat_pool = vis_feat.mean(dim=(0, -1))                        # [T, C]
+                lang = seg_hidden_states.squeeze(0)                           # [C]
+                e_logit = self.existence_head(torch.cat(
+                    [feat_pool, lang.unsqueeze(0).expand(feat_pool.shape[0], -1)], dim=-1))
+                e = (e_logit.sigmoid() > 0.5).squeeze(-1)                     # [T]
+                e = e[:masks.shape[0]]
+                masks = masks * e.unsqueeze(-1).unsqueeze(-1)
             masks = masks.cpu().numpy()
             ret_masks.append(masks)
 
