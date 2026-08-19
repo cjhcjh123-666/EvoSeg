@@ -44,6 +44,9 @@ def parse_args():
     p.add_argument('--save', default=None)
     p.add_argument('--manifest', default=MANIFEST)
     p.add_argument('--max-cases', type=int, default=None)
+    p.add_argument('--frame-wise', action='store_true',
+                   help='per-frame image-mode inference: verify existence per '
+                        'frame (e_t) instead of one [SEG] + SAM2 propagation')
     p.add_argument('--local_rank', '--local-rank', type=int, default=0)
     return p.parse_args()
 
@@ -76,19 +79,34 @@ def main():
         frames = [Image.open(os.path.join(JPEGROOT, vid, f + '.jpg')).convert('RGB')
                   for f in c['frames']]
         text = f'<image>\n Please segment {c["query"]} in this video.'
-        with torch.no_grad():
-            out = model.predict_forward(
-                video=frames, text=text, tokenizer=tokenizer, processor=processor)
-        pred_masks = out['prediction_masks']
-        pred = pred_masks[0] if len(pred_masks) > 0 else None
         n_frames = len(frames)
         pred_presence = [False] * n_frames
         pred_area = [0.0] * n_frames
-        if pred is not None:
-            for t in range(min(n_frames, len(pred))):
-                pm = pred[t] > 0
-                pred_presence[t] = bool(pm.sum())
-                pred_area[t] = float(pm.mean())
+        if args.frame_wise:
+            # frame-wise existence verification: run image-mode predict_forward
+            # per frame; the [SEG]/[REJ] decision is made independently per
+            # frame, so existence becomes a frame-wise predicate e_t.
+            for t in range(n_frames):
+                with torch.no_grad():
+                    out = model.predict_forward(
+                        image=frames[t], text=text,
+                        tokenizer=tokenizer, processor=processor)
+                masks = out['prediction_masks']
+                if len(masks) > 0:
+                    pm = masks[0] > 0
+                    pred_presence[t] = bool(pm.sum())
+                    pred_area[t] = float(pm.mean())
+        else:
+            with torch.no_grad():
+                out = model.predict_forward(
+                    video=frames, text=text, tokenizer=tokenizer, processor=processor)
+            pred_masks = out['prediction_masks']
+            pred = pred_masks[0] if len(pred_masks) > 0 else None
+            if pred is not None:
+                for t in range(min(n_frames, len(pred))):
+                    pm = pred[t] > 0
+                    pred_presence[t] = bool(pm.sum())
+                    pred_area[t] = float(pm.mean())
         expected = c['presence'][:n_frames]
         local.append({
             'category': c['category'],
