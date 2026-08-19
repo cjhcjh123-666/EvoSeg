@@ -254,11 +254,13 @@ class Sa2VAChatModelQwen(PreTrainedModel):
             masks = masks.sigmoid() > 0.5
             # [TEG] gate by the temporal existence head e_t (per frame)
             if hasattr(self, 'existence_head') and video is not None:
-                feats = self.grounding_encoder.sam2_model.forward_image(g_pixel_values)
+                feats = self.grounding_encoder.sam2_model.forward_image(
+                    g_pixel_values.to(self.device))
                 _, vision_feats, _, _ = self.grounding_encoder.sam2_model._prepare_backbone_features(feats)
                 vis_feat = vision_feats[-1]                                    # [HW, T, C]
-                feat_pool = vis_feat.mean(dim=(0, -1))                        # [T, C]
+                feat_pool = vis_feat.mean(dim=0)                            # [N, C] (mean over spatial HW)
                 lang = seg_hidden_states.squeeze(0)                           # [C]
+                feat_pool = feat_pool.to(lang.dtype)
                 e_logit = self.existence_head(torch.cat(
                     [feat_pool, lang.unsqueeze(0).expand(feat_pool.shape[0], -1)], dim=-1))
                 e = (e_logit.sigmoid() > 0.5).squeeze(-1)                     # [T]

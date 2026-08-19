@@ -300,12 +300,13 @@ class Sa2VAModel(BaseModel):
         # the SAM2 frame features x the [SEG] embedding, supervised by the
         # per-frame GT mask presence (absent frames carry zero masks).
         vis_feat = sam_states['current_vision_feats'][-1]          # [HW, T*nobj, C]
-        feat_pool = vis_feat.mean(dim=(0, -1))                     # [T*nobj, C]
+        feat_pool = vis_feat.mean(dim=0)                            # [N, C] (mean over spatial HW)
         lang_emb = language_embeddings.squeeze(1)                  # [T*nobj, C]
         e_logit = self.existence_head(
             torch.cat([feat_pool, lang_emb], dim=-1)).squeeze(-1)  # [T*nobj]
-        gt_stack = torch.stack(gt_masks_video, dim=0)              # [T, nobj, H, W]
-        presence = (gt_stack > 0).any(dim=-1).any(dim=-1).float().reshape(-1)
+        presence = torch.stack([
+            (g > 0).any(dim=-1).any(dim=-1).float() for g in gt_masks_video
+        ], dim=0).reshape(-1)                                       # [T*nobj]
         n_e = min(e_logit.shape[0], presence.shape[0])
         e_logit, presence = e_logit[:n_e], presence[:n_e]
 
