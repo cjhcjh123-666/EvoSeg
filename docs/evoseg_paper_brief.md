@@ -111,9 +111,14 @@
 | 4B MultiTask SFT | 82.6 | 78.0 | 79.5 | 46.4% | 100% |
 | **Faithful-4B（×4）** | 82.22 | 76.49 | 79.02 | **69.79%** | **14.7%** |
 | ×6（no-target 占比消融） | 82.22 | 76.99 | 78.53 | 69.12% | 16.63% |
-| **VideoFaithful-4B** | 82.24 | (待补) | (待补) | **69.99%** | 16.07% |
+| **VideoFaithful-4B** | 82.24 | **76.77** | **78.51** | **69.99%** | 16.07% |
 | **8B Faithful** | 81.44 | 76.52 | 77.31 | **67.37%** | **17.07%** |
-| **8B VideoFaithful** | (待测) | (待测) | (待测) | (待测) | 18.07% |
+| **8B VideoFaithful** | **82.01** | **76.55** | **76.52** | (待测) | 18.07% |
+
+> **RefCOCO+/g 补齐（2026-08-20）**：VideoFaithful-4B RefCOCO+ 76.77 / RefCOCOg 78.51；
+> 8B-VideoFaithful RefCOCO+ 76.55 / RefCOCOg 76.52。视频 faithfulness 训练对传统分割几乎无损失
+> （4B: RefCOCO 82.24/+/g 76.77/78.51 vs Faithful-4B 82.22/76.49/79.02，g 略降 0.5pp；
+> 8B: +76.55/g 76.52 vs 8B-Faithful +76.52/g 77.31，g 略降 0.8pp）。
 
 > 口径：gRefCOCO cIoU 是"分割+拒答"复合指标（absent 查询正确拒答记 1.0）。Sa2VA 公开数字：4B 82.4/77.6/79.7，8B 82.6/78.0/80.3。gRefCOCO SOTA 参考：Text4Seg ~70，GSVA ~65（我们不宣称 SOTA，定位为"Sa2VA-style 统一模型内 fidelity 大幅提升且不损精度"）。
 > **8B VideoFaithful 图像侧（2026-08-20 补测）**：absent 幻觉率 18.1%（8B Faithful 17.1%→18.1%，
@@ -188,10 +193,16 @@
 |---|---|
 | Sa2VA-4B | 100% |
 | **SESAME** | **33.5%** |
+| **GSVA-7B（[REJ] token）** | **44.6%** |
 | **Faithful-4B（我们）** | **14.7%** |
 | VideoFaithful-4B | 16.1% |
 
-> 结论：SESAME（假前提拒答 SOTA）也会幻觉 33.5%，我们的 Faithful 比它低一半以上——诊断非 Sa2VA-specific，且我们的拒答能力优于专用假前提模型。（口径：SESAME 用自己的 prompt/格式，非严格同配，作为外部参照。）
+> **GSVA 补跑完成（2026-08-20）**：官方 gsva-7b-ft-gres.bin（gRefCOCO 微调、显式 [REJ] 拒答 token），
+> 修复了权重前缀 + LoRA(r=8,α=16) 合并后跑通（正样本→[SEG]、负样本→[REJ] 校验通过）。
+> 在 8905 absent 查询上幻觉 **44.6%**（3968/8905），与它官方 gRefCOCO N_acc≈0.57 吻合。
+> 结论：**有显式 [REJ] token 的 GSVA 也会幻觉 44.6%**——比 SESAME(33.5%) 还高，比我们 Faithful-4B(14.7%) 高 3 倍。
+> 这进一步坐实"非 Sa2VA-specific"且**我们的拒答能力优于专用假前提/拒答模型**（SESAME + GSVA 都是 LLaVA-7B 级，
+> 我们同样 4B 量级但幻觉率低一半以上）。（口径：外部模型用各自原生 prompt/格式，非严格同配，作参照。）
 
 **外部基准泛化（HalluSegBench，反事实）**——test refer_seg 50 对 factual/counterfactual：
 
@@ -253,7 +264,7 @@ e (existence)  ⟶  e_t (frame-wise existence).
       + 视频评测（overall 4.96% / temporal 61.1% / identity 70.2% / StopAcc 15.7%）
       + 图像 absent 幻觉（18.1%）+ HalluSegBench（拒答 36%）
 - [ ] VideoFaithful-4B 的 RefCOCO+/g（~40min）
-- [ ] 基线表：SESAME / GSVA / Text4Seg / HalluSegBench（SESAME 与 HalluSegBench 已跑，GSVA 待补）
+- [x] 基线表：SESAME(33.5%) / **GSVA(44.6%)** / HalluSegBench 已跑；Text4Seg 待补（可选）
 - [ ] 跨数据集泛化：FP-RefCOCO / HalluSegBench（图像）、MeViSv2 no-target / YoURVOS（视频）（~0.5-1 天，需下载数据）
 - [x] 外部模型基线：SESAME 已跑（33.5% vs 我们 14.7%）；HalluSegBench 已跑（Sa2VA 100% vs
       VideoFaithful/TEG 拒答 36-38%）；GSVA 待补
