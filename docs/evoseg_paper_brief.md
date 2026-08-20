@@ -1,5 +1,5 @@
 # EvoSeg — Faithful Image-Video Referring Segmentation
-### 论文素材汇总（供 LLM 撰写初稿用，数据截至 2026-08-19）
+### 论文素材汇总（供 LLM 撰写初稿用，数据截至 2026-08-20）
 
 ---
 
@@ -9,6 +9,61 @@
 
 **英文主线（可直接当论文 thesis）**：
 > Existing image-video Pixel-LLMs can segment well, but they cannot decide whether segmentation is warranted. EvoSeg turns referring segmentation from unconditional mask generation into evidence-grounded selective prediction, and extends this faithfulness problem from static false premises to temporal counterfactuals in video.
+
+---
+
+## 0.5 完整自然语言总结（从 motivation 到进展）
+
+### 动机：分割得再好，也要知道"该不该分割"
+
+现在的指代分割（RES / RVOS）从评测到训练都默认"查询里的目标一定存在"：模型被训练成"有查询就出
+mask"。但真实世界不是这样——用户会口误、会描述一个根本不存在的东西、会用过时的信息提问，视频里的
+目标也会中途消失、被遮挡、或被一个长得像的物体顶替。在这些情况下，**正确的行为不是硬画一个 mask，
+而是拒绝（abstain）或在目标消失的那一刻停止传播 mask**。我们把这种"能否判断该不该分割"的能力称为
+**grounding faithfulness（接地忠实性）**。图像侧前人已经做过假前提拒答（SESAME、GSVA 的 [REJ]、
+HalluSegBench），但**视频侧的时序忠实性（existence 是逐帧谓词 e_t）几乎没人做端到端训练**，更
+没有统一图像+视频的忠实指代分割。我们的核心主张：**图像级拒答必要但不充分——忠实指代分割必须时序化，
+模型要在 referent 消失的那一刻停止 SAM2 传播。**
+
+### 诊断：分割精度 ≠ 接地忠实性，根因在数据
+
+我们建了一个 8905 条 absent query 的评测（gRefCOCO no-target + COCO 无目标查询），发现
+**Sa2VA-4B / 4B 多任务 / 8B 多任务全部 100% 幻觉**——对每个不存在的查询都自信输出 mask；可这些
+模型正常分割又很强（RefCOCO ~80 cIoU）。这两件事同时成立，说明**分割精度和 grounding 忠实性是两个
+不同的能力**。追根因发现：多任务 SFT 的数据构建脚本**显式跳过了 no-target 样本**，模型从头到尾没被
+教过"说没有"这个行为；后续直接上 RL 也采不到拒答轨迹（RL 无法凭空探索训练分布里不存在的行为）。
+**结论：忠实性不是事后能用纯 RL 补的能力，必须在训练数据里显式建立。**
+
+### 方法：三阶段，一次比一次更"时序化"
+
+- **Stage 1 图像 faithfulness SFT**：用 no-target 拒答样本 ×4 + present 样本 ×1 的平衡配方，教模型
+  "目标不存在就输出拒答文本、不输出 [SEG]"。图像幻觉率 **100% → 14.7%**，同时 gRefCOCO **29.8 → 69.8**，
+  RefCOCO 基本不动（81.95 → 82.22）。
+- **Stage 2 视频 faithfulness SFT**：从 Ref-YT-VOS 推导逐帧 presence，构造 19057 例
+  temporal_absence / identity_swap / global_absence 训练数据，**消失帧给零 mask**（mask loss 直接教
+  解码器"目标走了就输出空"）。视频整体幻觉 **91.3% → 6.6%**，counterfactual 28% → 4.6%。
+- **Stage 3 Temporal Existence Gate（TEG）**：单次 [SEG]+SAM2 传播无法表达"逐帧停止"，逐帧重跑又太贵。
+  于是加一个轻量 **ExistenceHead**：输入 [SEG] embedding ⊕ 每帧视觉特征，输出逐帧存在性 e_t，
+  推理时 `mask_t = 传播mask_t × (e_t > 0.5)` 逐帧清零。一次前向、几乎零成本，overall 幻觉再降
+  **6.6% → 6.1%**，StopAcc 7.4% → 13.9%。
+
+### 进展：8B 验证 + 全套外部对照，故事闭环
+
+- **8B VideoFaithful**（同配方训到 iter 16984）：全维度优于 4B——视频整体幻觉 **4.96%**，hardest 的
+  temporal **61.1%**（vs 4B 76.3%）、identity **70.2%**（vs 81.0%），StopAcc 翻倍到 **15.7%**；图像侧
+  absent 幻觉 18.1%、RefCOCO 82.01 保持。代价是 present_miss 更高（8.3%）——"宁可少画也不错画"的显式取舍。
+- **外部模型对照**：SESAME（假前提拒答 SOTA）在同样 8905 条上幻觉 **33.5%**；有显式 [REJ] token 的
+  **GSVA-7B 幻觉 44.6%**——都比我们（14.7%）高一半到三倍，坐实"非 Sa2VA-specific"且我们拒答更强。
+- **外部数据泛化**：图像 HalluSegBench 反事实（Sa2VA 100% 幻觉 vs 我们拒答 36-38%）；**视频 MeViSv2
+  no-target**（Sa2VA 99.7% vs 我们 46.7%/48.2%，含 valid_u 干净留出集）——模型从没见过这些数据，泛化成立。
+- **失败分类学**：残留的图像幻觉 75% 是 far-miss（类别根本不存在）、25% 是 lookalike near-miss，且全部是
+  自信 [SEG]；训练后被拒掉的正是"清楚的假前提"，剩下的是 genuinely hard 的近邻混淆——比"什么都画"健康得多。
+- **Figure 1**：100%→14.7%（图像）/ 91.3%→6.1%（视频）+ 三个可视化 case（假前提图像 / 消失后传播 /
+  反事实换 query），直接展示"分割精度 ≠ faithfulness、忠实必须时序化（e → e_t）"。
+
+**一句话收束**：我们把统一图像+视频的指代分割从"无条件的 mask 生成"变成"有证据的选择性预测"，用
+faithfulness SFT + 逐帧存在性门控把 absent 幻觉从 100% 打到 5-15%，并证明这能力在外部模型和外部
+数据上都站得住——这是一篇从问题发现到方法到验证都完整的 CVPR 故事。
 
 ---
 
