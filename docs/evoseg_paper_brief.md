@@ -113,8 +113,13 @@
 | ×6（no-target 占比消融） | 82.22 | 76.99 | 78.53 | 69.12% | 16.63% |
 | **VideoFaithful-4B** | 82.24 | (待补) | (待补) | **69.99%** | 16.07% |
 | **8B Faithful** | 81.44 | 76.52 | 77.31 | **67.37%** | **17.07%** |
+| **8B VideoFaithful** | (待测) | (待测) | (待测) | (待测) | 18.07% |
 
 > 口径：gRefCOCO cIoU 是"分割+拒答"复合指标（absent 查询正确拒答记 1.0）。Sa2VA 公开数字：4B 82.4/77.6/79.7，8B 82.6/78.0/80.3。gRefCOCO SOTA 参考：Text4Seg ~70，GSVA ~65（我们不宣称 SOTA，定位为"Sa2VA-style 统一模型内 fidelity 大幅提升且不损精度"）。
+> **8B VideoFaithful 图像侧（2026-08-20 补测）**：absent 幻觉率 18.1%（8B Faithful 17.1%→18.1%，
+> 视频 faithfulness 训练对图像拒答有 ~1pp 小回退，与 4B 的 14.7%→16.1% 模式一致）。8B 视频训练
+> 主要收益在视频侧（overall 4.96%、temporal 61.1%），图像侧 8B 略逊 4B（18.1% vs 14.7%）。
+> **HalluSegBench 外部反事实泛化（50 对）**：8B VideoFaithful factual 0.98 / 反事实拒答 36%（与 4B 的 36-38% 持平）。
 
 ### 4.2 视频忠实性基准（1986 例 / 52284 帧，absent_halluc_rate）
 
@@ -125,15 +130,21 @@
 | **VideoFaithful-4B** | **6.6%** | **76.3%** | **1.0%** | **4.6%** | **81.0%** |
 | VideoFaithful-4B + RL | 6.6% | 76.8% | 1.0% | 4.6% | 81.0% |
 | 8B Faithful（仅图像） | 23.7% | 92.4% | 4.3% | 39.6% | 98.6% |
-| 8B VideoFaithful | 训练中（ETA 2026-08-19 ~14:40） | | | | |
+| **8B VideoFaithful** | **5.0%** | **61.1%** | **0.7%** | **2.8%** | **70.2%** |
+
+> **8B VideoFaithful（iter16984，gpu8 训练完成 + 转 HF + 视频评测完成，2026-08-20）**：
+> 全维度优于 4B VideoFaithful（overall 4.96% vs 6.63%，temporal 61.1% vs 76.3%，
+> identity 70.2% vs 81.0%，StopAcc 15.7% vs 7.4%，never-stop 74.1% vs 92.6%）。
+> 代价：present_miss 更高（overall 8.3% vs 4B 4.2%，temporal 20.8% vs 9.8%）——8B 更保守
+> （"宁可少画也不错画"），是显式取舍，可作为 model scale 讨论。
+> 结论：**视频时序忠实性随模型规模提升**——8B 在 hardest 的 temporal/identity 上比 4B 各降 ~15pp / ~11pp。
 
 > 补充：VideoFaithful-4B 的 present_miss_rate = 4.2%（overall），temporal 类别 9.8%——模型更保守，是取舍。frame_acc overall 93.9%。
 > **时序错误分解（GPT 评审预判的关键补充，StopAcc/StopLatency）**：temporal_absence 的 108 个 disappear_early 案例上：
-> - StopAcc（边界后干净停止的案例比例）：Sa2VA 2.8% / Faithful 1.9% / **VideoFaithful 7.4%** / 8B 1.9%
-> - never-stop（mask 传播/复现到视频末尾的案例比例）：Sa2VA 88.9% / Faithful 96.3% / **VideoFaithful 92.6%** / 8B 84.3%
-> - 5 帧内出现停止的案例：Sa2VA 39.8% / Faithful 37.0% / **VideoFaithful 41.7%**
-> - **结论：76% 的 temporal 幻觉不是"消失后一帧残留"，而是 mask 持续传播/闪烁复现到结尾**。帧级改善是真实的（95%→76%，5 帧内停止 37%→42%），但"干净停住"在单 [SEG] 决策 + SAM2 传播架构下几乎做不到（StopAcc 仅 7.4%）——这是架构极限的诚实证据，恰恰支撑"忠实指代分割必须时序化 / 需要逐帧存在性验证"的主线。
-> 8B 视频列明显弱于 4B，因为 8B 目前只做了图像 no-target SFT、未做视频 faithfulness SFT（正在补）。
+> - StopAcc（边界后干净停止的案例比例）：Sa2VA 2.8% / Faithful 1.9% / **VideoFaithful-4B 7.4%** / **8B VideoFaithful 15.7%**
+> - never-stop（mask 传播/复现到视频末尾的案例比例）：Sa2VA 88.9% / Faithful 96.3% / **VideoFaithful-4B 92.6%** / **8B VideoFaithful 74.1%**
+> - 8B VideoFaithful 的 mean_stop_latency 5.7 帧、mask_leakage 3.9%
+> - **结论：temporal 幻觉不是"消失后一帧残留"，而是 mask 持续传播/闪烁复现到结尾**。帧级改善是真实的（4B：95%→76%；8B：→61%），且**随规模扩大 StopAcc 7.4%→15.7%、never-stop 92.6%→74.1%**——但"干净停住"在单 [SEG] 决策 + SAM2 传播架构下仍不彻底，这是架构极限的诚实证据，恰恰支撑"忠实指代分割必须时序化 / 需要逐帧存在性验证"的主线。
 
 ### 4.3 消融
 
@@ -238,7 +249,9 @@ e (existence)  ⟶  e_t (frame-wise existence).
       near-miss（类别在但实例/属性/位置不符）；且残留幻觉全部是自信 [SEG]。
       → `projects/evoseg/eval/failure_taxonomy.py`
 - [x] **Figure 1 可视化**：`make_figure_cases.py` + `make_figure1.py` → `evo_artifacts/figures/figure1.png`
-- [ ] 8B VideoFaithful 训练（gpu8 进行中 ~88%，loss_exist 已收敛）+ 转 HF + 视频评测（~30min）
+- [x] 8B VideoFaithful 训练（gpu8, iter16984 完成）+ 转 HF（EvoSeg-Qwen3-VL-8B-VideoFaithful）
+      + 视频评测（overall 4.96% / temporal 61.1% / identity 70.2% / StopAcc 15.7%）
+      + 图像 absent 幻觉（18.1%）+ HalluSegBench（拒答 36%）
 - [ ] VideoFaithful-4B 的 RefCOCO+/g（~40min）
 - [ ] 基线表：SESAME / GSVA / Text4Seg / HalluSegBench（SESAME 与 HalluSegBench 已跑，GSVA 待补）
 - [ ] 跨数据集泛化：FP-RefCOCO / HalluSegBench（图像）、MeViSv2 no-target / YoURVOS（视频）（~0.5-1 天，需下载数据）
