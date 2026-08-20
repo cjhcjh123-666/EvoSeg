@@ -263,13 +263,18 @@ e (existence)  ⟶  e_t (frame-wise existence).
 - [x] 8B VideoFaithful 训练（gpu8, iter16984 完成）+ 转 HF（EvoSeg-Qwen3-VL-8B-VideoFaithful）
       + 视频评测（overall 4.96% / temporal 61.1% / identity 70.2% / StopAcc 15.7%）
       + 图像 absent 幻觉（18.1%）+ HalluSegBench（拒答 36%）
-- [ ] VideoFaithful-4B 的 RefCOCO+/g（~40min）
+- [x] VideoFaithful-4B 的 RefCOCO+/g（76.77/78.51）与 8B-VideoFaithful 的 RefCOCO 82.01 / + 76.55 / g 76.52
 - [x] 基线表：SESAME(33.5%) / **GSVA(44.6%)** / HalluSegBench 已跑；Text4Seg 待补（可选）
-- [ ] 跨数据集泛化：FP-RefCOCO / HalluSegBench（图像）、MeViSv2 no-target / YoURVOS（视频）（~0.5-1 天，需下载数据）
+- [x] 图像外部泛化：HalluSegBench（Sa2VA 100% vs 我们 36-38% 拒答）
+- [ ] 视频外部泛化：**MeViSv2 no-target / YoURVOS**（下一个，需下载完整数据集 + 构造 no-target 查询）
 - [x] 外部模型基线：SESAME 已跑（33.5% vs 我们 14.7%）；HalluSegBench 已跑（Sa2VA 100% vs
-      VideoFaithful/TEG 拒答 36-38%）；GSVA 待补
+      VideoFaithful/TEG 拒答 36-38%）；**GSVA 已跑（44.6% vs 我们 14.7%）**
 - [x] 升级后的 eval_video_faithfulness.py 已输出 StopAcc/StopLatency/MaskLeakage（temporal_stop 指标）
 - [ ] 置信度校准 / risk-coverage（可选加分项）
+
+**核心闭环已完整（2026-08-20）**：诊断（100% 幻觉 + 数据根因）→ 图像拒答（100%→14.7%）→
+视频时序化（91.3%→5.0%）→ 外部基线（SESAME 33.5% / GSVA 44.6% / HalluSegBench 36-38% 拒答）→
+失败分类学 + Figure 1 → 8B 规模验证。剩下可选的：MeViSv2/YoURVOS 视频外部泛化、Text4Seg、置信度校准。
 
 ### 失败分类学结果（failure analysis 小节素材）
 
