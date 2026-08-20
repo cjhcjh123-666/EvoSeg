@@ -134,7 +134,21 @@ def main():
             writer.write(side)
         if writer:
             writer.release()
-        print(f'  -> {args.out}/{title}.mp4 (n={n})', flush=True)
+        # per-case metadata for the showcase webpage
+        data = {
+            'title': title,
+            'category': c['category'],
+            'video_id': c['video_id'],
+            'query': c['query'],
+            'n_frames': n,
+            'expected': exp[:n],
+            'pred_before': e_b[:n],
+            'pred_after': e_a[:n],
+            'video': f'{title}.mp4',
+        }
+        with open(os.path.join(args.out, f'{title}.json'), 'w') as f:
+            json.dump(data, f)
+        print(f'  -> {args.out}/{title}.mp4 + {title}.json (n={n})', flush=True)
 
 
 if __name__ == '__main__':
