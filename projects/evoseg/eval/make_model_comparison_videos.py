@@ -22,7 +22,7 @@ import argparse
 import json
 import os
 
-import cv2
+import imageio
 import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
@@ -80,7 +80,7 @@ def render(frame, mask, query, label, present, font):
     d.rectangle([0, img.height - 26, 150, img.height], fill=(20, 20, 20))
     d.text((6, img.height - 22), f'GT: {"PRESENT" if present else "ABSENT"}',
            font=font, fill=col)
-    return np.array(img)[:, :, ::-1]  # RGB -> BGR
+    return np.array(img)  # RGB
 
 
 def main():
@@ -124,19 +124,15 @@ def main():
             os.makedirs(cdir, exist_ok=True)
             frames, masks, presence, area, pred_text = run_model(model, tok, proc, c, mode)
             # video
-            writer = None
             n = len(frames)
+            vpath = os.path.join(cdir, f'{label}.mp4')
+            writer = imageio.get_writer(vpath, fps=args.fps, codec='libx264',
+                                        quality=8, pixelformat='yuv420p')
             for t in range(n):
                 fr = render(frames[t], masks[t] if t < len(masks) else None,
                             c['query'], label, c['presence'][t], font)
-                if writer is None:
-                    h, w = fr.shape[:2]
-                    writer = cv2.VideoWriter(
-                        os.path.join(cdir, f'{label}.mp4'),
-                        cv2.VideoWriter_fourcc(*'mp4v'), args.fps, (w, h))
-                writer.write(fr)
-            if writer:
-                writer.release()
+                writer.append_data(fr)
+            writer.close()
             with open(os.path.join(cdir, f'{label}.json'), 'w') as f:
                 json.dump({'presence': presence, 'area': area,
                            'text': pred_text[:200]}, f)
