@@ -214,6 +214,23 @@
 
 > 结论：外部反事实基准上 Sa2VA 100% 幻觉，我们的模型在**未见过的外部数据**上拒答 36-38%（反事实把目标换成相似物，本身有歧义，所以比自有 8905 高）。
 
+**外部视频泛化（MeViSv2 no-target，2026-08-20 新增）**——MeViSv2 的 no-target 表达式
+（anno_id==[]，指代视频里不存在的目标，多为运动描述）38(valid_u 留出集)+300(train 采样)：
+
+| 模型 | 视频 no-target 幻觉率 | valid_u(38) | train(300) |
+|---|---:|---:|---:|
+| Sa2VA-4B | **99.7%** | 100% | 99.7% |
+| VideoFaithful-4B | **46.7%** | 50.0% | 46.3% |
+| 8B-VideoFaithful | **48.2%** | 47.4% | 48.3% |
+
+> 结论：**外部视频数据集上 Sa2VA 依旧 ~100% 幻觉（有查询就画）**，我们的模型把它打到 ~47%
+> （valid_u 干净留出集上 50%/47.4%）——视频侧外部泛化成立（我们从未在 MeViS 上训练）。
+> 残留 ~47% 高于内部基准（5-6%），因为 MeViS no-target 是运动型描述、和视频里真实对象高度相近
+> （"horse sitting down" 而视频里有马只是没在坐），属于 genuinely hard 的 near-miss——
+> 与图像侧失败分类学（残留集中在 lookalike）一致。8B 与 4B 在外部 no-target 上基本持平
+> （47.4% vs 50% on valid_u），内部基准 8B 更优（temporal 61% vs 76%）→ 外部 hard no-target
+> 仍是开放问题（诚实叙事）。
+
 ## 6. 投稿目标与定位建议
 
 - **目标**：CVPR（主会）。当前完整度按此前评审模拟评估约为 Weak Accept 区间。
@@ -266,7 +283,7 @@ e (existence)  ⟶  e_t (frame-wise existence).
 - [x] VideoFaithful-4B 的 RefCOCO+/g（76.77/78.51）与 8B-VideoFaithful 的 RefCOCO 82.01 / + 76.55 / g 76.52
 - [x] 基线表：SESAME(33.5%) / **GSVA(44.6%)** / HalluSegBench 已跑；Text4Seg 待补（可选）
 - [x] 图像外部泛化：HalluSegBench（Sa2VA 100% vs 我们 36-38% 拒答）
-- [ ] 视频外部泛化：**MeViSv2 no-target / YoURVOS**（下一个，需下载完整数据集 + 构造 no-target 查询）
+- [x] 视频外部泛化：**MeViSv2 no-target**（Sa2VA 99.7% vs 我们 46.7%/48.2%；valid_u 38 + train 300）
 - [x] 外部模型基线：SESAME 已跑（33.5% vs 我们 14.7%）；HalluSegBench 已跑（Sa2VA 100% vs
       VideoFaithful/TEG 拒答 36-38%）；**GSVA 已跑（44.6% vs 我们 14.7%）**
 - [x] 升级后的 eval_video_faithfulness.py 已输出 StopAcc/StopLatency/MaskLeakage（temporal_stop 指标）
