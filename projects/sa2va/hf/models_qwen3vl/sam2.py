@@ -357,6 +357,54 @@ class SAM2(nn.Module):
             mask_out = torch.cat(mask_out, dim=0)
         return mask_out
 
+    def language_embd_inference_segmented(
+            self, inference_state, language_embd, e_t, min_seg_len=2):
+        """Segment-based propagation gated by per-frame existence e_t.
+
+        Instead of one continuous SAM2 propagation (which keeps tracking the
+        target through absent frames -> temporal hallucination), we cut the
+        video into "present segments" (consecutive frames where e_t == True).
+        Each segment re-initialises the SAM2 inference state, so the memory
+        bank never propagates across a gap where the referent is absent.
+        Segments shorter than min_seg_len are treated as noise (zero mask),
+        which also handles flicker. Frames outside any segment get a None
+        placeholder (zero mask).
+
+        Returns a list of length num_frame; entry t is either the per-frame
+        mask logits tensor [1, 1, H_low, W_low] or None (absent frame).
+        """
+        num_frame = len(language_embd)
+        all_images = inference_state["images"]
+        mask_out = [None] * num_frame
+
+        # split into present segments (e_t == True, consecutive)
+        i = 0
+        segments = []
+        while i < num_frame:
+            if not bool(e_t[i]):
+                i += 1
+                continue
+            j = i
+            while j < num_frame and bool(e_t[j]):
+                j += 1
+            segments.append((i, j))
+            i = j
+
+        for (s, e) in segments:
+            if e - s < min_seg_len:
+                continue
+            seg_images = all_images[s:e]
+            seg_state = self.sam2_model.init_state(seg_images)
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                for fi in range(e - s):
+                    _language_embd = language_embd[s + fi][0][None][None]
+                    self.sam2_model.add_language_embd(
+                        seg_state, fi, 100, _language_embd, inference=True)
+                for out_frame_idx, _obj_ids, out_mask_logits in \
+                        self.sam2_model.propagate_in_video(seg_state):
+                    mask_out[s + out_frame_idx] = out_mask_logits
+        return mask_out
+
     def get_sam2_embeddings(self, images):
         return self.sam2_model.init_state(images)
 
