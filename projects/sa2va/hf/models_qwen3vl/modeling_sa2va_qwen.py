@@ -10,21 +10,22 @@ from .sam2 import SAM2
 
 class ETHead(nn.Module):
     """Lightweight fidelity evaluator (e_t): bidirectional GRU over
-    per-frame [scene feat, mask-region feat, lang] -> per-frame e_t.
-    e_t = 'is the propagated mask still faithful to the query at frame t'."""
+    per-frame [scene feat, mask-region feat, frame-0 mask proto, lang]
+    -> per-frame e_t. e_t = 'is the propagated mask still faithful to the
+    query at frame t'. The frame-0 proto anchors the target's appearance."""
     def __init__(self, feat_dim=256, mask_dim=256, lang_dim=256,
                  hidden=512, n_layers=1):
         super().__init__()
         self.fc_in = nn.Sequential(
-            nn.Linear(feat_dim + mask_dim + lang_dim, hidden), nn.GELU())
+            nn.Linear(feat_dim + mask_dim * 2 + 3 + lang_dim, hidden), nn.GELU())
         self.gru = nn.GRU(hidden, hidden, num_layers=n_layers,
                           batch_first=True, bidirectional=True)
         self.head = nn.Linear(hidden * 2, 1)
 
-    def forward(self, feat, mask_cond, lang):
+    def forward(self, feat, mask_cond, geom, anchor, lang):
         B, T, C = feat.shape
-        x = torch.cat([feat, mask_cond,
-                       lang.expand(B, T, -1)], dim=-1)          # [B,T,3C]
+        x = torch.cat([feat, mask_cond, geom, anchor.expand(B, T, -1),
+                       lang.expand(B, T, -1)], dim=-1)          # [B,T,4C+3]
         x = self.fc_in(x)                                       # [B,T,H]
         out, _ = self.gru(x)                                    # [B,T,H]
         return self.head(out).squeeze(-1)                       # [B,T]
@@ -153,8 +154,10 @@ class Sa2VAChatModelQwen(PreTrainedModel):
             _h.load_state_dict(_ck['state_dict'])
             _h = _h.float().to(self.device)
             self.temporal_existence_head = _h
+            self.temporal_gate_thr = float(_cfg.get('thr', 0.5))
             print(f'[Sa2VA] load_temporal_head -> {_p} (float32, '
-                  f'{sum(p.numel() for p in _h.parameters())} params)', flush=True)
+                  f'{sum(p.numel() for p in _h.parameters())} params, '
+                  f'thr={self.temporal_gate_thr})', flush=True)
         except Exception as _e:
             print(f'[Sa2VA] load_temporal_head skipped: {_e}', flush=True)
             self.temporal_existence_head = None
@@ -375,13 +378,31 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                         # AutoModel.from_pretrained(torch_dtype=...) casts the
                         # whole model (incl. the head) to that dtype, so cast
                         # the inputs to the head's current dtype.
+                        # mask geometry (area / centroid) -- 'SAM2 lost the
+                        # track' signature: area explodes when target leaves
+                        _mp = pred_masks.sigmoid()               # [T,1,H,W]
+                        _B, _H, _W = _mp.shape[0], _mp.shape[2], _mp.shape[3]
+                        _mpf = _mp.reshape(_B, _H * _W)
+                        _mass = _mpf.sum(dim=1)
+                        _yy, _xx = torch.meshgrid(
+                            torch.arange(_H).float().to(_mp.device),
+                            torch.arange(_W).float().to(_mp.device), indexing='ij')
+                        _xx = _xx.reshape(-1); _yy = _yy.reshape(-1)
+                        _s = _mass.clamp(min=1e-5)
+                        _gx = (_mpf * _xx.unsqueeze(0)).sum(dim=1) / _s
+                        _gy = (_mpf * _yy.unsqueeze(0)).sum(dim=1) / _s
+                        geom = torch.stack(
+                            [_mass / (_H * _W), _gx / _W, _gy / _H], dim=1)  # [T,3]
                         _hdtype = next(
                             self.temporal_existence_head.parameters()).dtype
                         e_logit = self.temporal_existence_head(
                             feat_pool.unsqueeze(0).to(_hdtype),
                             mask_cond.unsqueeze(0).to(_hdtype),
+                            geom.unsqueeze(0).to(_hdtype),
+                            mask_cond[0:1].unsqueeze(0).to(_hdtype),
                             lang.unsqueeze(0).unsqueeze(0).to(_hdtype))  # [1, T]
-                    e = (e_logit.sigmoid() > 0.5).squeeze(0)             # [T]
+                    _thr = getattr(self, 'temporal_gate_thr', 0.5)
+                    e = (e_logit.sigmoid() > _thr).squeeze(0)        # [T]
                 else:
                     feat_pool = feat_pool.to(lang.dtype)
                     e_logit = self.existence_head(torch.cat(
