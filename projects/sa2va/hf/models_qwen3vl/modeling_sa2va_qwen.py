@@ -9,19 +9,22 @@ from .configuration_sa2va_chat import Sa2VAChatConfigQwen
 from .sam2 import SAM2
 
 class ETHead(nn.Module):
-    """Lightweight temporal existence head: GRU over per-frame SAM2 pooled
-    features (conditioned on the [SEG] lang vector) -> per-frame e_t."""
-    def __init__(self, feat_dim=256, lang_dim=256, hidden=512, n_layers=1):
+    """Lightweight fidelity evaluator (e_t): bidirectional GRU over
+    per-frame [scene feat, mask-region feat, lang] -> per-frame e_t.
+    e_t = 'is the propagated mask still faithful to the query at frame t'."""
+    def __init__(self, feat_dim=256, mask_dim=256, lang_dim=256,
+                 hidden=512, n_layers=1):
         super().__init__()
         self.fc_in = nn.Sequential(
-            nn.Linear(feat_dim + lang_dim, hidden), nn.GELU())
+            nn.Linear(feat_dim + mask_dim + lang_dim, hidden), nn.GELU())
         self.gru = nn.GRU(hidden, hidden, num_layers=n_layers,
-                          batch_first=True, bidirectional=False)
-        self.head = nn.Linear(hidden, 1)
+                          batch_first=True, bidirectional=True)
+        self.head = nn.Linear(hidden * 2, 1)
 
-    def forward(self, feat, lang):
+    def forward(self, feat, mask_cond, lang):
         B, T, C = feat.shape
-        x = torch.cat([feat, lang.expand(B, T, -1)], dim=-1)   # [B,T,2C]
+        x = torch.cat([feat, mask_cond,
+                       lang.expand(B, T, -1)], dim=-1)          # [B,T,3C]
         x = self.fc_in(x)                                       # [B,T,H]
         out, _ = self.gru(x)                                    # [B,T,H]
         return self.head(out).squeeze(-1)                       # [B,T]
@@ -105,6 +108,7 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                 _cfg = _ckpt.get('config', {})
                 _h = ETHead(
                     feat_dim=_cfg.get('feat_dim', out_dim),
+                    mask_dim=_cfg.get('mask_dim', out_dim),
                     lang_dim=_cfg.get('lang_dim', out_dim),
                     hidden=_cfg.get('hidden', 512),
                     n_layers=_cfg.get('n_layers', 1),
@@ -139,16 +143,21 @@ class Sa2VAChatModelQwen(PreTrainedModel):
         if not _os.path.exists(_p):
             print(f'[Sa2VA] no temporal_existence_head.pt at {_p}', flush=True)
             return self
-        _ck = torch.load(_p, map_location='cpu')
-        _cfg = _ck.get('config', {})
-        _h = ETHead(feat_dim=_cfg.get('feat_dim', self.grounding_encoder.hidden_dim),
-                    lang_dim=_cfg.get('lang_dim', self.grounding_encoder.hidden_dim),
-                    hidden=_cfg.get('hidden', 512), n_layers=_cfg.get('n_layers', 1))
-        _h.load_state_dict(_ck['state_dict'])
-        _h = _h.float().to(self.device)
-        self.temporal_existence_head = _h
-        print(f'[Sa2VA] load_temporal_head -> {_p} (float32, '
-              f'{sum(p.numel() for p in _h.parameters())} params)', flush=True)
+        try:
+            _ck = torch.load(_p, map_location='cpu')
+            _cfg = _ck.get('config', {})
+            _h = ETHead(feat_dim=_cfg.get('feat_dim', self.grounding_encoder.hidden_dim),
+                        mask_dim=_cfg.get('mask_dim', self.grounding_encoder.hidden_dim),
+                        lang_dim=_cfg.get('lang_dim', self.grounding_encoder.hidden_dim),
+                        hidden=_cfg.get('hidden', 512), n_layers=_cfg.get('n_layers', 1))
+            _h.load_state_dict(_ck['state_dict'])
+            _h = _h.float().to(self.device)
+            self.temporal_existence_head = _h
+            print(f'[Sa2VA] load_temporal_head -> {_p} (float32, '
+                  f'{sum(p.numel() for p in _h.parameters())} params)', flush=True)
+        except Exception as _e:
+            print(f'[Sa2VA] load_temporal_head skipped: {_e}', flush=True)
+            self.temporal_existence_head = None
         return self
 
     @property
@@ -350,6 +359,19 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                 lang = seg_hidden_states.squeeze(0)                       # [C]
                 if getattr(self, 'temporal_existence_head', None) is not None:
                     with torch.no_grad():
+                        # mask-region features: pool SAM2 features under the
+                        # propagated mask (fidelity evidence for e_t)
+                        H = int(round((vis_feat.shape[0]) ** 0.5))
+                        C = vis_feat.shape[2]
+                        T_f = vis_feat.shape[1]
+                        vf_2d = vis_feat.permute(1, 2, 0).view(
+                            T_f, C, H, H).float()                        # [T,C,H,H]
+                        mp = pred_masks.sigmoid()                        # [T,1,Hl,Wl]
+                        mpr = F.interpolate(mp, size=(H, H), mode='bilinear',
+                                            align_corners=False).squeeze(1)  # [T,H,H]
+                        _num = (vf_2d * mpr.unsqueeze(1)).sum(dim=(-2, -1))
+                        _den = mpr.sum(dim=(-2, -1)).clamp(min=1e-5)
+                        mask_cond = _num / _den.unsqueeze(-1)            # [T,C]
                         # AutoModel.from_pretrained(torch_dtype=...) casts the
                         # whole model (incl. the head) to that dtype, so cast
                         # the inputs to the head's current dtype.
@@ -357,7 +379,8 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                             self.temporal_existence_head.parameters()).dtype
                         e_logit = self.temporal_existence_head(
                             feat_pool.unsqueeze(0).to(_hdtype),
-                            lang.unsqueeze(0).unsqueeze(0).to(_hdtype))    # [1, T]
+                            mask_cond.unsqueeze(0).to(_hdtype),
+                            lang.unsqueeze(0).unsqueeze(0).to(_hdtype))  # [1, T]
                     e = (e_logit.sigmoid() > 0.5).squeeze(0)             # [T]
                 else:
                     feat_pool = feat_pool.to(lang.dtype)
