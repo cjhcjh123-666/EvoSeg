@@ -90,9 +90,17 @@ class Sa2VAChatModelQwen(PreTrainedModel):
         self.temporal_existence_head = None
         try:
             import os as _os
-            _head_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
-                                       'temporal_existence_head.pt')
-            if _os.path.exists(_head_path):
+            # NOTE: under trust_remote_code transformers re-executes this file
+            # from ~/.cache, so __file__ points at the cache dir. The real model
+            # dir is config._name_or_path -- look there first.
+            _model_dir = getattr(config, '_name_or_path', None)
+            _head_cands = []
+            if _model_dir:
+                _head_cands.append(_os.path.join(_model_dir, 'temporal_existence_head.pt'))
+            _head_cands.append(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                                             'temporal_existence_head.pt'))
+            _head_path = next((c for c in _head_cands if _os.path.exists(c)), None)
+            if _head_path is not None:
                 _ckpt = torch.load(_head_path, map_location='cpu')
                 _cfg = _ckpt.get('config', {})
                 _h = ETHead(
@@ -102,12 +110,46 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                     n_layers=_cfg.get('n_layers', 1),
                 )
                 _h.load_state_dict(_ckpt['state_dict'])
-                self.temporal_existence_head = _h.to(self.torch_dtype)
+                # keep the head in float32 (it was trained in float32);
+                # inference casts inputs to .float() so dtypes must match.
+                self.temporal_existence_head = _h.float()
                 print(f'[Sa2VA] loaded temporal existence head ({_head_path})',
                       flush=True)
         except Exception as _e:
             print(f'[Sa2VA] temporal existence head load skipped: {_e}', flush=True)
             self.temporal_existence_head = None
+
+    def _apply(self, *args, **kwargs):
+        # keep the temporal existence head in float32: GRU in bf16 is
+        # numerically unstable (NaN logits -> gate collapses to all-zero).
+        ret = super()._apply(*args, **kwargs)
+        if getattr(self, 'temporal_existence_head', None) is not None:
+            self.temporal_existence_head.float()
+        return ret
+
+    def load_temporal_head(self):
+        """(Re)load the GRU temporal existence head from
+        temporal_existence_head.pt next to the model dir. Call AFTER
+        AutoModel.from_pretrained, which may re-initialize modules that are
+        not in the safetensors checkpoint."""
+        import os as _os
+        _model_dir = getattr(self.config, '_name_or_path', None) or _os.path.dirname(
+            _os.path.abspath(__file__))
+        _p = _os.path.join(_model_dir, 'temporal_existence_head.pt')
+        if not _os.path.exists(_p):
+            print(f'[Sa2VA] no temporal_existence_head.pt at {_p}', flush=True)
+            return self
+        _ck = torch.load(_p, map_location='cpu')
+        _cfg = _ck.get('config', {})
+        _h = ETHead(feat_dim=_cfg.get('feat_dim', self.grounding_encoder.hidden_dim),
+                    lang_dim=_cfg.get('lang_dim', self.grounding_encoder.hidden_dim),
+                    hidden=_cfg.get('hidden', 512), n_layers=_cfg.get('n_layers', 1))
+        _h.load_state_dict(_ck['state_dict'])
+        _h = _h.float().to(self.device)
+        self.temporal_existence_head = _h
+        print(f'[Sa2VA] load_temporal_head -> {_p} (float32, '
+              f'{sum(p.numel() for p in _h.parameters())} params)', flush=True)
+        return self
 
     @property
     def lm_head(self):
@@ -308,15 +350,21 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                 lang = seg_hidden_states.squeeze(0)                       # [C]
                 if getattr(self, 'temporal_existence_head', None) is not None:
                     with torch.no_grad():
+                        # AutoModel.from_pretrained(torch_dtype=...) casts the
+                        # whole model (incl. the head) to that dtype, so cast
+                        # the inputs to the head's current dtype.
+                        _hdtype = next(
+                            self.temporal_existence_head.parameters()).dtype
                         e_logit = self.temporal_existence_head(
-                            feat_pool.unsqueeze(0).float(),
-                            lang.unsqueeze(0).unsqueeze(0).float())       # [1, T]
+                            feat_pool.unsqueeze(0).to(_hdtype),
+                            lang.unsqueeze(0).unsqueeze(0).to(_hdtype))    # [1, T]
+                    e = (e_logit.sigmoid() > 0.5).squeeze(0)             # [T]
                 else:
                     feat_pool = feat_pool.to(lang.dtype)
                     e_logit = self.existence_head(torch.cat(
                         [feat_pool, lang.unsqueeze(0).expand(
                             feat_pool.shape[0], -1)], dim=-1))
-                e = (e_logit.sigmoid() > 0.5).squeeze(-1)                 # [T]
+                    e = (e_logit.sigmoid() > 0.5).squeeze(-1)            # [T]
                 e = e[:masks.shape[0]]
                 masks = masks * e.unsqueeze(-1).unsqueeze(-1)
             masks = masks.cpu().numpy()

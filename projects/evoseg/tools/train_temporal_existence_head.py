@@ -131,7 +131,7 @@ def main():
     npos = nneg = 0
     for f, l, p in ds.items:
         npos += p.sum().item(); nneg += (1 - p).sum().item()
-    pos_w = nneg / max(npos, 1)
+    pos_w = 1.0   # balanced; nneg/npos=0.19 collapsed the model to all-absent
     print(f'present frames={int(npos)} absent frames={int(nneg)} pos_weight={pos_w:.2f}')
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'

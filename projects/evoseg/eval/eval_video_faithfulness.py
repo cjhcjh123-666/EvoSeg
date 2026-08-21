@@ -70,6 +70,7 @@ def main():
     model = AutoModel.from_pretrained(
         args.model_path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True,
         use_flash_attn=True, trust_remote_code=True).eval().cuda()
+    model.load_temporal_head()  # GRU temporal existence head (from_pretrained re-inits it)
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
     processor = AutoProcessor.from_pretrained(args.model_path, trust_remote_code=True)
 
