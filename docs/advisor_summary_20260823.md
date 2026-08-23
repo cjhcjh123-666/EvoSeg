@@ -142,3 +142,53 @@ video ─► SAM2(冻结) ─► 逐帧 mask + 逐帧 mask区域特征  ← 空�
 **方法**：faithfulness SFT（教拒答）+ 轻量时序评估器（e_t = mask-query 忠实度，VLM 语义 + SAM2 空间 + 几 M 参数的时序判断）。
 **结果**：absent 幻觉从 100% 打到 4-15%，hardest 的时序类别从 87%/72% 打到 38-58%，外部模型/数据泛化成立。
 **下一步**：让 VLM 真正感知每一帧（B+），把时序边界判别再推一步，然后写 CVPR 2027。
+
+---
+
+## 五、用到的数据集与对比的模型
+
+### 5.1 训练数据
+
+| 数据集 | 用途 | 规模/说明 |
+|---|---|---|
+| **RefCOCO / RefCOCO+ / RefCOCOg** | 标准指代分割 SFT | ~19k / 19k / 26k 指代句（标准协议） |
+| **gRefCOCO** | 广义指代（含 single/multi/no-target）SFT | no-target 拒答样本 ×4 平衡配方 |
+| **COCO2014** | 无目标查询负样本 | 8905 条 absent query 的一部分 |
+| **Ref-YT-VOS** | 视频忠实性训练（自建） | **19057 例**：从索引 mask 推导逐帧 presence，构造 temporal_absence / identity_swap / global_absence 三类 |
+| ReasonSeg / MeViS / InterVOS | 推理/视频分割辅助 | 已有，用于能力保持 |
+
+### 5.2 评测基准
+
+| 基准 | 来源 | 指标 |
+|---|---|---|
+| **8905 条 absent query** | gRefCOCO no-target + COCO 无目标查询（自建） | 图像幻觉率（应拒答却出 mask） |
+| **视频忠实性基准（1986 例 / 52284 帧）** | Ref-YT-VOS valid 衍生（自建） | absent_halluc / present_miss / frame_acc；四类：temporal_absence / global_absence / counterfactual_swap / identity_swap |
+| **HalluSegBench** | 外部（CVPR 2025 反事实分割幻觉） | 反事实拒答率 |
+| **MeViSv2 no-target** | 外部（TPAMI，含 valid_u 干净留出集） | 视频 no-target 幻觉率 |
+| **RefCOCO/+/g + gRefCOCO** | 标准 | cIoU（分割质量保持） |
+
+### 5.3 对比的模型
+
+**我们自己的 checkpoints**（同一 Sa2VA 基座逐步升级）：
+
+| 模型 | 说明 |
+|---|---|
+| Sa2VA-4B | 原始基线（不做任何忠实性训练） |
+| EvoSeg-4B MultiTask | 多任务 SFT（无 no-target） |
+| Faithful-4B | 图像 faithfulness SFT（教拒答） |
+| VideoFaithful-4B / 8B | +视频 faithfulness SFT |
+| TEG-4B | +逐帧 MLP 存在性门控 |
+| **Fidelity-4B**（当前主线） | +mask 区域特征 / 几何特征 / B+ VLM 逐帧感知 |
+| GRPO-RL 变体 | 消融（RL 无额外增益，证明数据是根因） |
+
+**外部基线**（关键对照，在 8905 条上的幻觉率）：
+
+| 模型 | 来源 | 幻觉率 |
+|---|---|---|
+| **SESAME** | CVPR 2024 "See, Say, Segment"（假前提拒答 SOTA） | 33.5% |
+| **GSVA-7B** | CVPR 2024（显式 [REJ] token 拒答） | 44.6% |
+| **我们 Faithful-4B** | — | **14.7%** |
+| **Text4Seg** | gRefCOCO 参考（~70 cIoU） | 我们 69.79（同区间，不宣称 SOTA） |
+| **Sa2VA 官方数字** | 4B 82.4/77.6/79.7 | 我们保持 82.2/76.5/79.0 |
+
+**对比结论**：我们在 8905 条上 14.7% 幻觉，比有显式拒答机制的 SESAME（33.5%）和 GSVA（44.6%）低一半到三倍；外部数据（HalluSegBench / MeViSv2）上 Sa2VA 100% / 99.7% 幻觉 vs 我们 36-48% 拒答——**泛化成立，且非 Sa2VA-specific**。
