@@ -9,23 +9,24 @@ from .configuration_sa2va_chat import Sa2VAChatConfigQwen
 from .sam2 import SAM2
 
 class ETHead(nn.Module):
-    """Lightweight fidelity evaluator (e_t): bidirectional GRU over
-    per-frame [scene feat, mask-region feat, frame-0 mask proto, lang]
-    -> per-frame e_t. e_t = 'is the propagated mask still faithful to the
-    query at frame t'. The frame-0 proto anchors the target's appearance."""
-    def __init__(self, feat_dim=256, mask_dim=256, lang_dim=256,
+    """B+ fidelity evaluator (e_t): bidirectional GRU over per-frame
+    [VLM hidden state (the model's own perception of this frame),
+     mask-region feat, mask geometry, frame-0 proto, lang] -> e_t."""
+    def __init__(self, vlm_dim=2560, feat_dim=256, mask_dim=256, lang_dim=256,
                  hidden=512, n_layers=1):
         super().__init__()
+        self.vlm_proj = nn.Linear(vlm_dim, 256)
         self.fc_in = nn.Sequential(
-            nn.Linear(feat_dim + mask_dim * 2 + 3 + lang_dim, hidden), nn.GELU())
+            nn.Linear(256 + mask_dim * 2 + 3 + lang_dim, hidden), nn.GELU())
         self.gru = nn.GRU(hidden, hidden, num_layers=n_layers,
                           batch_first=True, bidirectional=True)
         self.head = nn.Linear(hidden * 2, 1)
 
-    def forward(self, feat, mask_cond, geom, anchor, lang):
-        B, T, C = feat.shape
-        x = torch.cat([feat, mask_cond, geom, anchor.expand(B, T, -1),
-                       lang.expand(B, T, -1)], dim=-1)          # [B,T,4C+3]
+    def forward(self, vlm, mask_cond, geom, anchor, lang):
+        B, T, C = vlm.shape
+        v = self.vlm_proj(vlm)                                   # [B,T,256]
+        x = torch.cat([v, mask_cond, geom, anchor.expand(B, T, -1),
+                       lang.expand(B, T, -1)], dim=-1)          # [B,T,256+256+3+256+256]
         x = self.fc_in(x)                                       # [B,T,H]
         out, _ = self.gru(x)                                    # [B,T,H]
         return self.head(out).squeeze(-1)                       # [B,T]
@@ -108,6 +109,7 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                 _ckpt = torch.load(_head_path, map_location='cpu')
                 _cfg = _ckpt.get('config', {})
                 _h = ETHead(
+                    vlm_dim=_cfg.get('vlm_dim', 2560),
                     feat_dim=_cfg.get('feat_dim', out_dim),
                     mask_dim=_cfg.get('mask_dim', out_dim),
                     lang_dim=_cfg.get('lang_dim', out_dim),
@@ -147,7 +149,8 @@ class Sa2VAChatModelQwen(PreTrainedModel):
         try:
             _ck = torch.load(_p, map_location='cpu')
             _cfg = _ck.get('config', {})
-            _h = ETHead(feat_dim=_cfg.get('feat_dim', self.grounding_encoder.hidden_dim),
+            _h = ETHead(vlm_dim=_cfg.get('vlm_dim', 2560),
+                        feat_dim=_cfg.get('feat_dim', self.grounding_encoder.hidden_dim),
                         mask_dim=_cfg.get('mask_dim', self.grounding_encoder.hidden_dim),
                         lang_dim=_cfg.get('lang_dim', self.grounding_encoder.hidden_dim),
                         hidden=_cfg.get('hidden', 512), n_layers=_cfg.get('n_layers', 1))
@@ -182,7 +185,9 @@ class Sa2VAChatModelQwen(PreTrainedModel):
             mask_prompts=None,
             tokenizer=None,
             processor=None,
+            vlm_all_frames=False,
     ):
+        self._vlm_feat = None  # set in B+ mode (per-frame VLM hidden states)
         assert processor is not None
         self.processor = processor
         
@@ -230,8 +235,8 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                     g_image = self.extra_image_processor.apply_image(g_image)
                     g_image = torch.from_numpy(g_image).permute(2, 0, 1).contiguous()
                     extra_pixel_values.append(g_image)
-                    if frame_idx < 5:
-                        content.append({"type": "image", "image": frame_image},)
+                    if (vlm_all_frames) or (frame_idx < 5):
+                        content.append({"type": "image", "image": frame_image})
 
 
                 content.append({"type": "text", "text": text})
@@ -337,6 +342,29 @@ class Sa2VAChatModelQwen(PreTrainedModel):
             last_hidden_states, generate_output.sequences[0][:-1],
             seg_id=self.seg_token_idx
         )
+        # [B+] per-frame VLM hidden states (the model perceives every frame)
+        if vlm_all_frames and video is not None:
+            try:
+                _vs = self.processor.tokenizer.convert_tokens_to_ids('<|vision_start|>')
+                _ve = self.processor.tokenizer.convert_tokens_to_ids('<|vision_end|>')
+                _ids = mm_inputs.input_ids[0].tolist()
+                _ranges = []
+                _i = 0
+                while _i < len(_ids):
+                    if _ids[_i] == _vs:
+                        _j = _i + 1
+                        while _j < len(_ids) and _ids[_j] != _ve:
+                            _j += 1
+                        _ranges.append((_i + 1, _j))
+                        _i = _j + 1
+                    else:
+                        _i += 1
+                _hs0 = hidden_states[0][-1][0]          # [seq, C]
+                _pf = [_hs0[s:e].mean(dim=0) for s, e in _ranges]
+                if len(_pf) == len(video):
+                    self._vlm_feat = torch.stack(_pf).float()   # [T, 2560]
+            except Exception as _e:
+                print(f'[Sa2VA] B+ per-frame feat extraction skipped: {_e}', flush=True)
         all_seg_hidden_states = self.text_hidden_fcs(seg_hidden_states)
 
         for seg_hidden_states in all_seg_hidden_states:
@@ -362,6 +390,7 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                 lang = seg_hidden_states.squeeze(0)                       # [C]
                 if getattr(self, 'temporal_existence_head', None) is not None:
                     with torch.no_grad():
+                        _vlm = getattr(self, '_vlm_feat', None)
                         # mask-region features: pool SAM2 features under the
                         # propagated mask (fidelity evidence for e_t)
                         H = int(round((vis_feat.shape[0]) ** 0.5))
@@ -395,12 +424,22 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                             [_mass / (_H * _W), _gx / _W, _gy / _H], dim=1)  # [T,3]
                         _hdtype = next(
                             self.temporal_existence_head.parameters()).dtype
-                        e_logit = self.temporal_existence_head(
-                            feat_pool.unsqueeze(0).to(_hdtype),
-                            mask_cond.unsqueeze(0).to(_hdtype),
-                            geom.unsqueeze(0).to(_hdtype),
-                            mask_cond[0:1].unsqueeze(0).to(_hdtype),
-                            lang.unsqueeze(0).unsqueeze(0).to(_hdtype))  # [1, T]
+                        if _vlm is not None and _vlm.shape[0] == masks.shape[0]:
+                            e_logit = self.temporal_existence_head(
+                                _vlm.unsqueeze(0).to(_hdtype),
+                                mask_cond.unsqueeze(0).to(_hdtype),
+                                geom.unsqueeze(0).to(_hdtype),
+                                mask_cond[0:1].unsqueeze(0).to(_hdtype),
+                                lang.unsqueeze(0).unsqueeze(0).to(_hdtype))  # [1,T]
+                        else:
+                            # fallback: zero VLM features
+                            e_logit = self.temporal_existence_head(
+                                torch.zeros(1, masks.shape[0], 2560,
+                                            device=feat_pool.device).to(_hdtype),
+                                mask_cond.unsqueeze(0).to(_hdtype),
+                                geom.unsqueeze(0).to(_hdtype),
+                                mask_cond[0:1].unsqueeze(0).to(_hdtype),
+                                lang.unsqueeze(0).unsqueeze(0).to(_hdtype))  # [1,T]
                     _thr = getattr(self, 'temporal_gate_thr', 0.5)
                     e = (e_logit.sigmoid() > _thr).squeeze(0)        # [T]
                 else:

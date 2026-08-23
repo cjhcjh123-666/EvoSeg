@@ -100,7 +100,8 @@ def main():
         else:
             with torch.no_grad():
                 out = model.predict_forward(
-                    video=frames, text=text, tokenizer=tokenizer, processor=processor)
+                    video=frames, text=text, tokenizer=tokenizer, processor=processor,
+                    vlm_all_frames=True)
             pred_masks = out['prediction_masks']
             pred = pred_masks[0] if len(pred_masks) > 0 else None
             if pred is not None:
