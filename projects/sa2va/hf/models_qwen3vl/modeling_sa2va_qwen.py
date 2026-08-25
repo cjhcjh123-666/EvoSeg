@@ -9,24 +9,39 @@ from .configuration_sa2va_chat import Sa2VAChatConfigQwen
 from .sam2 import SAM2
 
 class ETHead(nn.Module):
-    """B+ fidelity evaluator (e_t): bidirectional GRU over per-frame
-    [VLM hidden state (the model's own perception of this frame),
-     mask-region feat, mask geometry, frame-0 proto, lang] -> e_t."""
+    """Fidelity evaluator (e_t): bidirectional GRU over per-frame features.
+
+    v6 (default): first-present-frame anchor + explicit anchor diffs
+        x = [vlm_proj(vlm), mask_cond, mask_cond-anchor_mc, vlm_proj(vlm)-vlm_proj(anchor_vlm), geom, lang]
+    v5 (legacy): frame-0 proto concat
+        x = [vlm_proj(vlm), mask_cond, geom, anchor_mc, lang]
+    """
     def __init__(self, vlm_dim=2560, feat_dim=256, mask_dim=256, lang_dim=256,
-                 hidden=512, n_layers=1):
+                 hidden=512, n_layers=1, v6=True):
         super().__init__()
+        self.v6 = v6
         self.vlm_proj = nn.Linear(vlm_dim, 256)
-        self.fc_in = nn.Sequential(
-            nn.Linear(256 + mask_dim * 2 + 3 + lang_dim, hidden), nn.GELU())
+        if v6:
+            _in = 256 + mask_dim + 256 + 256 + 3 + lang_dim   # v+mc+dmc+dv+geom+lang
+        else:
+            _in = 256 + mask_dim + 3 + lang_dim               # v+mc+geom+anchor+lang
+        self.fc_in = nn.Sequential(nn.Linear(_in, hidden), nn.GELU())
         self.gru = nn.GRU(hidden, hidden, num_layers=n_layers,
                           batch_first=True, bidirectional=True)
         self.head = nn.Linear(hidden * 2, 1)
 
-    def forward(self, vlm, mask_cond, geom, anchor, lang):
+    def forward(self, vlm, mask_cond, geom, anchor_mc, anchor_vlm, lang):
         B, T, C = vlm.shape
         v = self.vlm_proj(vlm)                                   # [B,T,256]
-        x = torch.cat([v, mask_cond, geom, anchor.expand(B, T, -1),
-                       lang.expand(B, T, -1)], dim=-1)          # [B,T,256+256+3+256+256]
+        if self.v6:
+            av = self.vlm_proj(anchor_vlm)                       # [B,1,256]
+            dv = v - av.expand(B, T, -1)
+            dmc = mask_cond - anchor_mc.expand(B, T, -1)
+            x = torch.cat([v, mask_cond, dmc, dv, geom,
+                           lang.expand(B, T, -1)], dim=-1)
+        else:
+            x = torch.cat([v, mask_cond, geom, anchor_mc.expand(B, T, -1),
+                           lang.expand(B, T, -1)], dim=-1)
         x = self.fc_in(x)                                       # [B,T,H]
         out, _ = self.gru(x)                                    # [B,T,H]
         return self.head(out).squeeze(-1)                       # [B,T]
@@ -93,6 +108,7 @@ class Sa2VAChatModelQwen(PreTrainedModel):
         # [TEG-v2] lightweight temporal existence head (GRU over frames);
         # loaded from temporal_existence_head.pt next to the model files.
         self.temporal_existence_head = None
+        self.temporal_head_v6 = False
         try:
             import os as _os
             # NOTE: under trust_remote_code transformers re-executes this file
@@ -153,7 +169,9 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                         feat_dim=_cfg.get('feat_dim', self.grounding_encoder.hidden_dim),
                         mask_dim=_cfg.get('mask_dim', self.grounding_encoder.hidden_dim),
                         lang_dim=_cfg.get('lang_dim', self.grounding_encoder.hidden_dim),
-                        hidden=_cfg.get('hidden', 512), n_layers=_cfg.get('n_layers', 1))
+                        hidden=_cfg.get('hidden', 512), n_layers=_cfg.get('n_layers', 1),
+                        v6=_cfg.get('v6', False))
+            self.temporal_head_v6 = bool(_cfg.get('v6', False))
             _h.load_state_dict(_ck['state_dict'])
             _h = _h.float().to(self.device)
             self.temporal_existence_head = _h
@@ -188,6 +206,11 @@ class Sa2VAChatModelQwen(PreTrainedModel):
             vlm_all_frames=False,
     ):
         self._vlm_feat = None  # set in B+ mode (per-frame VLM hidden states)
+        self._e_logit = None   # [T] soft existence confidence (TVR verify)
+        self._raw_masks = None  # pre-gate propagated masks (TVR verify)
+        self._mask_cond = None  # [T,C] mask-region features (anchor drift)
+        self._geom = None       # [T,3] mask geometry
+        self._lang = None       # [1,256] VLM [SEG] vector
         assert processor is not None
         self.processor = processor
         
@@ -425,20 +448,31 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                         _hdtype = next(
                             self.temporal_existence_head.parameters()).dtype
                         if _vlm is not None and _vlm.shape[0] == masks.shape[0]:
+                            _fp = next((i for i in range(masks.shape[0]) if (masks[i] > 0).sum() > 0), 0)
+                            _amc = mask_cond[_fp:_fp + 1]
+                            _av = (_vlm[_fp:_fp + 1] if _vlm is not None else torch.zeros_like(_amc))
+                            if not getattr(self, 'temporal_head_v6', False):
+                                _amc = mask_cond[0:1]
                             e_logit = self.temporal_existence_head(
                                 _vlm.unsqueeze(0).to(_hdtype),
                                 mask_cond.unsqueeze(0).to(_hdtype),
                                 geom.unsqueeze(0).to(_hdtype),
-                                mask_cond[0:1].unsqueeze(0).to(_hdtype),
+                                _amc.unsqueeze(0).to(_hdtype),
+                                _av.unsqueeze(0).to(_hdtype),
                                 lang.unsqueeze(0).unsqueeze(0).to(_hdtype))  # [1,T]
                         else:
                             # fallback: zero VLM features
+                            _fp = next((i for i in range(masks.shape[0]) if (masks[i] > 0).sum() > 0), 0)
+                            _amc = mask_cond[_fp:_fp + 1]
+                            if not getattr(self, 'temporal_head_v6', False):
+                                _amc = mask_cond[0:1]
                             e_logit = self.temporal_existence_head(
                                 torch.zeros(1, masks.shape[0], 2560,
                                             device=feat_pool.device).to(_hdtype),
                                 mask_cond.unsqueeze(0).to(_hdtype),
                                 geom.unsqueeze(0).to(_hdtype),
-                                mask_cond[0:1].unsqueeze(0).to(_hdtype),
+                                _amc.unsqueeze(0).to(_hdtype),
+                                torch.zeros_like(_amc).unsqueeze(0).to(_hdtype),
                                 lang.unsqueeze(0).unsqueeze(0).to(_hdtype))  # [1,T]
                     _thr = getattr(self, 'temporal_gate_thr', 0.5)
                     e = (e_logit.sigmoid() > _thr).squeeze(0)        # [T]
@@ -449,11 +483,21 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                             feat_pool.shape[0], -1)], dim=-1))
                     e = (e_logit.sigmoid() > 0.5).squeeze(-1)            # [T]
                 e = e[:masks.shape[0]]
+                self._e_logit = e_logit.sigmoid().squeeze(0).float().cpu()  # [T]
+                self._raw_masks = masks.clone()  # pre-gate propagated masks
+                self._mask_cond = mask_cond.float().cpu()  # [T,C]
+                self._geom = geom.float().cpu()  # [T,3]
+                self._lang = seg_hidden_states.float().cpu()  # [1,256]
                 masks = masks * e.unsqueeze(-1).unsqueeze(-1)
             masks = masks.cpu().numpy()
             ret_masks.append(masks)
 
-        return {'prediction': predict, 'prediction_masks': ret_masks,}
+        return {'prediction': predict, 'prediction_masks': ret_masks,
+                'e_logit': getattr(self, '_e_logit', None),
+                'raw_masks': getattr(self, '_raw_masks', None),
+                'mask_cond': getattr(self, '_mask_cond', None),
+                'geom': getattr(self, '_geom', None),
+                'lang': getattr(self, '_lang', None)}
 
 def get_seg_hidden_states(hidden_states, output_ids, seg_id):
     seg_mask = output_ids == seg_id
