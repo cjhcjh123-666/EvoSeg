@@ -28,18 +28,20 @@ import torch
 from PIL import Image, ImageDraw, ImageFont
 from transformers import AutoModel, AutoProcessor, AutoTokenizer
 
+# (label, model_path, mode, e_t threshold)
 MODELS = [
-    ('Sa2VA-4B', '/9950backfile/chenjiahui/evo_artifacts/models/Sa2VA-Qwen3-VL-4B', 'none'),
-    ('VideoFaithful-4B', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-VideoFaithful', 'none'),
-    ('B+ v5', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-TEG', 'v5backup'),
-    ('v6 anchor-diff', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-TEG', 'gru'),
+    ('Sa2VA-4B', '/9950backfile/chenjiahui/evo_artifacts/models/Sa2VA-Qwen3-VL-4B', 'none', None),
+    ('VideoFaithful-4B', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-VideoFaithful', 'none', None),
+    ('B+ v5', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-TEG', 'v5backup', 0.5),
+    ('v6 anchor-diff', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-TEG', 'gru', 0.7),
 ]
 JPEGROOT = ('/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/'
             'extracted/valid/JPEGImages')
 MANIFEST = ('/9950backfile/chenjiahui/evo_artifacts/datasets/'
             'ref_youtube_vos/faithfulness_valid.json')
-CURATED = [(64, 'clean_stop'), (184, 'reappear'), (18, 'identity'),
-           (0, 'global_absent'), (1, 'counterfactual')]
+# v6-clearly-better cases (temporal disappearance + identity swap)
+CURATED = [(267, 'kangaroo'), (1261, 'toilet'), (601, 'surfboard'),
+           (597, 'surfboard_identity'), (390, 'sheep_identity')]
 
 
 def load_frames(c):
@@ -89,7 +91,7 @@ def main():
     ap.add_argument('--out', default='/9950backfile/chenjiahui/evo_artifacts/data/examples')
     ap.add_argument('--fps', type=int, default=4)
     ap.add_argument('--cases', type=str,
-                    default='64:clean_stop,184:reappear,18:identity,0:global_absent,1:counterfactual')
+                    default='267:kangaroo,1261:toilet,601:surfboard,597:surfboard_identity,390:sheep_identity')
     ap.add_argument('--models', type=str, default='all')
     args = ap.parse_args()
 
@@ -107,7 +109,7 @@ def main():
         font = ImageFont.load_default()
 
     # load each model once, reuse across cases
-    for label, path, mode in models:
+    for label, path, mode, thr in models:
         if mode == 'gru' and not os.path.exists(
                 os.path.join(path, 'temporal_existence_head.pt')):
             print(f'[skip] {label}: temporal head not trained yet', flush=True)
@@ -122,6 +124,9 @@ def main():
             use_flash_attn=True, trust_remote_code=True).eval().cuda()
         if hasattr(model, 'load_temporal_head'):
             model.load_temporal_head()  # GRU temporal existence head if present
+        if thr is not None:
+            model.temporal_gate_thr = thr
+            print(f'[thr] {label} -> e_t thr={thr}', flush=True)
         if mode == 'v5backup':
             # load the legacy B+ v5 head (frame-0 anchor, no diff features)
             _ck = torch.load(os.path.join(path, 'temporal_existence_head_v5_backup.pt'),
