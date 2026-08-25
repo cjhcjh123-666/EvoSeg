@@ -31,8 +31,8 @@ from transformers import AutoModel, AutoProcessor, AutoTokenizer
 MODELS = [
     ('Sa2VA-4B', '/9950backfile/chenjiahui/evo_artifacts/models/Sa2VA-Qwen3-VL-4B', 'none'),
     ('VideoFaithful-4B', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-VideoFaithful', 'none'),
-    ('TEG-4B (MLP)', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-TEG', 'mlp'),
-    ('TEG-4B+GRU', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-TEG', 'gru'),
+    ('B+ v5', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-TEG', 'v5backup'),
+    ('v6 anchor-diff', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-TEG', 'gru'),
 ]
 JPEGROOT = ('/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/'
             'extracted/valid/JPEGImages')
@@ -55,9 +55,10 @@ def run_model(model, tok, proc, c, mode):
         raise RuntimeError('GRU head not present in model dir')
     frames = load_frames(c)
     text = f'<image>\n Please segment {c["query"]} in this video.'
+    _kw = {'vlm_all_frames': True} if mode in ('gru', 'v5backup') else {}
     with torch.no_grad():
         out = model.predict_forward(video=frames, text=text,
-                                    tokenizer=tok, processor=proc)
+                                    tokenizer=tok, processor=proc, **_kw)
     pred = out['prediction_masks'][0] if out['prediction_masks'] else None
     n = len(frames)
     masks = [pred[t] for t in range(min(n, len(pred)))] if pred is not None else []
@@ -111,11 +112,32 @@ def main():
                 os.path.join(path, 'temporal_existence_head.pt')):
             print(f'[skip] {label}: temporal head not trained yet', flush=True)
             continue
+        if mode == 'v5backup' and not os.path.exists(
+                os.path.join(path, 'temporal_existence_head_v5_backup.pt')):
+            print(f'[skip] {label}: v5 backup head missing', flush=True)
+            continue
         print(f'[load] {label} ({path})', flush=True)
         model = AutoModel.from_pretrained(
             path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True,
             use_flash_attn=True, trust_remote_code=True).eval().cuda()
-        model.load_temporal_head()  # GRU temporal existence head if present
+        if hasattr(model, 'load_temporal_head'):
+            model.load_temporal_head()  # GRU temporal existence head if present
+        if mode == 'v5backup':
+            # load the legacy B+ v5 head (frame-0 anchor, no diff features)
+            _ck = torch.load(os.path.join(path, 'temporal_existence_head_v5_backup.pt'),
+                             map_location='cpu')
+            _cfg = _ck['config']
+            _h = model.temporal_existence_head.__class__(
+                vlm_dim=_cfg.get('vlm_dim', 2560),
+                mask_dim=_cfg.get('mask_dim', 256),
+                lang_dim=_cfg.get('lang_dim', 256),
+                hidden=_cfg.get('hidden', 512),
+                n_layers=_cfg.get('n_layers', 1), v6=False)
+            _h.load_state_dict(_ck['state_dict'])
+            _h = _h.float().to(model.device)
+            model.temporal_existence_head = _h
+            model.temporal_head_v6 = False
+            print('[v5backup] loaded legacy v5 head', flush=True)
         tok = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
         proc = AutoProcessor.from_pretrained(path, trust_remote_code=True)
 

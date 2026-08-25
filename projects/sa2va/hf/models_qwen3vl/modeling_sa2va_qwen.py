@@ -24,7 +24,7 @@ class ETHead(nn.Module):
         if v6:
             _in = 256 + mask_dim + 256 + 256 + 3 + lang_dim   # v+mc+dmc+dv+geom+lang
         else:
-            _in = 256 + mask_dim + 3 + lang_dim               # v+mc+geom+anchor+lang
+            _in = 256 + mask_dim + mask_dim + 3 + lang_dim    # v+mc+anchor+geom+lang = 1027
         self.fc_in = nn.Sequential(nn.Linear(_in, hidden), nn.GELU())
         self.gru = nn.GRU(hidden, hidden, num_layers=n_layers,
                           batch_first=True, bidirectional=True)
@@ -466,13 +466,14 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                             _amc = mask_cond[_fp:_fp + 1]
                             if not getattr(self, 'temporal_head_v6', False):
                                 _amc = mask_cond[0:1]
+                            _av = torch.zeros(1, 2560, device=mask_cond.device)
                             e_logit = self.temporal_existence_head(
                                 torch.zeros(1, masks.shape[0], 2560,
                                             device=feat_pool.device).to(_hdtype),
                                 mask_cond.unsqueeze(0).to(_hdtype),
                                 geom.unsqueeze(0).to(_hdtype),
                                 _amc.unsqueeze(0).to(_hdtype),
-                                torch.zeros_like(_amc).unsqueeze(0).to(_hdtype),
+                                _av.unsqueeze(0).to(_hdtype),
                                 lang.unsqueeze(0).unsqueeze(0).to(_hdtype))  # [1,T]
                     _thr = getattr(self, 'temporal_gate_thr', 0.5)
                     e = (e_logit.sigmoid() > _thr).squeeze(0)        # [T]
