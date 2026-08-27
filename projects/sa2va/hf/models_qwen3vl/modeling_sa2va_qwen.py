@@ -486,8 +486,8 @@ class Sa2VAChatModelQwen(PreTrainedModel):
                 e = e[:masks.shape[0]]
                 self._e_logit = e_logit.sigmoid().squeeze(0).float().cpu()  # [T]
                 self._raw_masks = masks.clone()  # pre-gate propagated masks
-                self._mask_cond = mask_cond.float().cpu()  # [T,C]
-                self._geom = geom.float().cpu()  # [T,3]
+                self._mask_cond = (mask_cond.float().cpu() if 'mask_cond' in dir() else None)
+                self._geom = (geom.float().cpu() if 'geom' in dir() else None)
                 self._lang = seg_hidden_states.float().cpu()  # [1,256]
                 masks = masks * e.unsqueeze(-1).unsqueeze(-1)
             masks = masks.cpu().numpy()

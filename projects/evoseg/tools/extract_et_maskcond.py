@@ -19,6 +19,12 @@ from PIL import Image
 from transformers import AutoModel, AutoProcessor, AutoTokenizer
 
 MODEL = '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-TEG'
+MODELS = {
+  'teg4b': '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-TEG',
+  'mt4b': '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-MultiTask',
+  'vf4b': '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-VideoFaithful',
+  'faithful4b': '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-Faithful',
+}
 JPEGROOT = ('/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/'
             'extracted/train/JPEGImages')
 MAN = ('/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/'
@@ -31,6 +37,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--feat-dir', default=FEATDIR)
     ap.add_argument('--outdir', default='/9950backfile/chenjiahui/evo_artifacts/data/et_features')
+    ap.add_argument('--model', default='teg4b', choices=list(MODELS.keys()))
     ap.add_argument('--local-rank', '--local_rank', type=int, default=0)
     args = ap.parse_args()
     rank = int(os.environ.get('LOCAL_RANK', args.local_rank))
@@ -49,10 +56,10 @@ def main():
     my_files = [f for i, f in enumerate(files) if i % world == rank]
 
     model = AutoModel.from_pretrained(
-        MODEL, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True,
+        MODELS[args.model], torch_dtype=torch.bfloat16, low_cpu_mem_usage=True,
         use_flash_attn=True, trust_remote_code=True).eval().cuda()
-    tok = AutoTokenizer.from_pretrained(MODEL, trust_remote_code=True)
-    proc = AutoProcessor.from_pretrained(MODEL, trust_remote_code=True)
+    tok = AutoTokenizer.from_pretrained(MODELS[args.model], trust_remote_code=True)
+    proc = AutoProcessor.from_pretrained(MODELS[args.model], trust_remote_code=True)
 
     out_path = os.path.join(args.outdir, f'maskcond_rank{rank}.pt')
     res = []

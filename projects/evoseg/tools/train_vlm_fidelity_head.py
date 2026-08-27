@@ -104,6 +104,13 @@ def collate(batch):
 
 
 def main():
+    import torch.distributed as dist
+    import os as _os
+    _rank = int(_os.environ.get('LOCAL_RANK', '0'))
+    _world = int(_os.environ.get('WORLD_SIZE', '1'))
+    if _world > 1:
+        dist.init_process_group('nccl', init_method='env://')
+        torch.cuda.set_device(_rank)
     ap = argparse.ArgumentParser()
     ap.add_argument('--feat-dir', default='/9950backfile/chenjiahui/evo_artifacts/data/et_features')
     ap.add_argument('--out', default='/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-TEG/temporal_existence_head.pt')
@@ -118,7 +125,8 @@ def main():
     torch.manual_seed(args.seed); random.seed(args.seed)
 
     ds = DS(args.feat_dir)
-    print(f'total [SEG]+vlm+maskcond cases: {len(ds)}', flush=True)
+    if _rank == 0:
+        print(f'total [SEG]+vlm+maskcond cases: {len(ds)}', flush=True)
     if len(ds) == 0:
         print('no data'); return
     n = len(ds); idx = list(range(n)); random.shuffle(idx)
@@ -126,14 +134,21 @@ def main():
     val_idx = set(idx[:n_val]); train_idx = idx[n_val:]
     tr = torch.utils.data.Subset(ds, train_idx)
     va = torch.utils.data.Subset(ds, list(val_idx))
-    tr_dl = DataLoader(tr, batch_size=args.batch, shuffle=True, collate_fn=collate)
+    tr_sampler = None
+    if _world > 1:
+        tr_sampler = torch.utils.data.distributed.DistributedSampler(tr, shuffle=True)
+    tr_dl = DataLoader(tr, batch_size=args.batch, shuffle=(tr_sampler is None),
+                       sampler=tr_sampler, collate_fn=collate)
     va_dl = DataLoader(va, batch_size=args.batch, shuffle=False, collate_fn=collate)
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = f'cuda:{_rank}' if torch.cuda.is_available() else 'cpu'
     model = VFHead().to(device)
+    if _world > 1:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[_rank])
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     loss_f = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(args.pos_weight).to(device))
-    print(f'head params: {sum(p.numel() for p in model.parameters())/1e6:.2f}M', flush=True)
+    if _rank == 0:
+        print(f'head params: {sum(p.numel() for p in model.parameters())/1e6:.2f}M', flush=True)
 
     def evaluate(dl):
         model.eval(); corr = tot = tp = fp = fn = 0
@@ -152,6 +167,8 @@ def main():
 
     best = 0
     for ep in range(args.epochs):
+        if tr_sampler is not None:
+            tr_sampler.set_epoch(ep)
         model.train(); t0 = time.time(); tl = 0; nb = 0
         for V, M, G, A, L, P, msk in tr_dl:
             V, M, G, A, L, P, msk = (V.to(device), M.to(device), G.to(device), A.to(device),
@@ -161,11 +178,14 @@ def main():
             opt.zero_grad(); loss.backward(); opt.step()
             tl += loss.item(); nb += 1
         acc, prec, rec, f1 = evaluate(va_dl)
-        print(f'[ep{ep}] loss={tl/max(nb,1):.4f} val acc={acc:.4f} prec={prec:.4f} '
-              f'rec={rec:.4f} f1={f1:.4f} ({time.time()-t0:.0f}s)', flush=True)
-        if f1 > best:
+        if _rank == 0:
+            print(f'[ep{ep}] loss={tl/max(nb,1):.4f} val acc={acc:.4f} prec={prec:.4f} '
+                  f'rec={rec:.4f} f1={f1:.4f} ({time.time()-t0:.0f}s)', flush=True)
+        if _world > 1:
+            dist.barrier()
+        if f1 > best and _rank == 0:
             best = f1
-            torch.save({'state_dict': model.state_dict(),
+            torch.save({'state_dict': model.module.state_dict() if _world > 1 else model.state_dict(),
                         'config': {'vlm_dim': 2560, 'feat_dim': 256, 'mask_dim': 256,
                                    'lang_dim': 256, 'hidden': 512, 'n_layers': 1,
                                    'bidirectional': True, 'vlm_feat': True,
