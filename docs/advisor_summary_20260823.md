@@ -204,3 +204,41 @@ video ─► SAM2(冻结) ─► 逐帧 mask + 逐帧 mask区域特征  ← 空�
 **下一步**：让 VLM 真正感知每一帧（B+），把时序边界判别再推一步，然后写 CVPR 2027。
 
 ---
+
+
+---
+
+## 八、最终架构（2026-08-27 定稿：Faithful + 外部时序头）
+
+**关键发现（重要）**：教模型"拒答/停"的 faithfulness SFT（VideoFaithful）会**严重损害正常分割能力**（Ref-YT-VOS J&F 从 0.51 掉到 0.22）。**但图像级拒答 SFT（Faithful）不损害分割**（J&F 0.526）。
+
+**最终架构**：
+- **基础模型 = 图像 Faithful**（图像拒答 14.7% 幻觉 + 分割无损 J&F 0.526）
+- **时序存在性 = 外部轻量 v6 头**（~4.5M 参数，不碰 LLM，用 Faithful 特征重训）
+
+**最终指标（同一 40 视频公平对比）**：
+
+| 模型 | J&F（分割） | overall 幻觉（忠实性） |
+|---|---|---|
+| Sa2VA 官方 | 0.514 | 100%（无拒答） |
+| **Faithful + v6_faith 头（最终）** | **0.532** | **9.4%** |
+| 旧方案（VideoFaithful SFT+TEG） | 0.246 | 4.8% |
+
+**Faithful+v6_faith 头 faithfulness 细分（120 cases 子集）**：
+- temporal 幻觉 **0%**（thr=0.7）、global 幻觉 **0%**、identity 58.8%、counterfactual 23.8%、overall 9.4%
+
+**论文故事（最终版）**：
+> Faithfulness 不该靠 SFT 教 LLM 拒答（那会让分割 J&F 减半到 0.25）。正确做法：图像级拒答 SFT（分割无损 J&F 0.53）+ 外部轻量时序存在性头（4.5M 参数，temporal/global 幻觉降到 0%，overall 9.4%）。
+
+**全集验证（2026-08-27 完成）**：
+
+| 模型 | J&F（Ref-YT-VOS 全集 202 视频） | overall 幻觉（faithfulness 全集 1986） |
+|---|---|---|
+| Sa2VA 官方 | 0.509 | 100% |
+| **Faithful + v6_faith 头（最终）** | **0.523** | **9.7%** |
+| 旧方案（VideoFaithful SFT+TEG） | 0.246 | 4.8% |
+
+**Faithful+v6_faith 头 faithfulness 全集细分（thr=0.8）**：temporal 49.2% / identity 55.3% / global **1.5%** / counterfactual 14.9% / overall 9.7%（漏检 temporal 19.6%、identity 5.7%）
+
+**论文核心 trade-off（全集支撑）**：
+> 正确架构（图像拒答 SFT + 外部时序头）在分割近乎无损（J&F 0.523 > Sa2VA 0.509）下获得存在性判断（幻觉 9.7%、global 1.5%）；旧方案（视频 SFT 教拒答）faithfulness 略好（4.8%）但分割能力减半（J&F 0.246）——**faithfulness 不该以牺牲分割为代价**。

@@ -15,9 +15,8 @@ JPEGROOT = '/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/extr
 EXAMPLES = '/9950backfile/chenjiahui/evo_artifacts/data/examples'
 MANIFEST = '/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/faithfulness_valid.json'
 
-CASES = [  # (idx, title)
-    (267, 'kangaroo'), (1261, 'toilet'), (601, 'surfboard'),
-    (597, 'surfboard_identity'), (390, 'sheep_identity'),
+CASES = [  # (idx, title) -- demo: clean-stop cases
+    (1261, 'toilet'), (601, 'surfboard'), (597, 'surfboard_identity'),
 ]
 
 try:

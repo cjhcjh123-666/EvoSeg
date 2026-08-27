@@ -29,11 +29,11 @@ from PIL import Image, ImageDraw, ImageFont
 from transformers import AutoModel, AutoProcessor, AutoTokenizer
 
 # (label, model_path, mode, e_t threshold)
+# Final architecture: image-Faithful (refusal, segmentation-preserving) + external
+# temporal v6 head. Baseline: Sa2VA official (propagates through absence).
 MODELS = [
-    ('Sa2VA-4B', '/9950backfile/chenjiahui/evo_artifacts/models/Sa2VA-Qwen3-VL-4B', 'none', None),
-    ('VideoFaithful-4B', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-VideoFaithful', 'none', None),
-    ('B+ v5', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-TEG', 'v5backup', 0.5),
-    ('v6 anchor-diff', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-TEG', 'gru', 0.7),
+    ('Sa2VA-4B (基线)', '/9950backfile/chenjiahui/evo_artifacts/models/Sa2VA-Qwen3-VL-4B', 'none', None),
+    ('Faithful + e_t (Ours)', '/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-Faithful', 'gru', 0.7),
 ]
 JPEGROOT = ('/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/'
             'extracted/valid/JPEGImages')
