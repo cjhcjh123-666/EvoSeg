@@ -91,7 +91,7 @@ def main():
     ap.add_argument('--out', default='/9950backfile/chenjiahui/evo_artifacts/data/examples')
     ap.add_argument('--fps', type=int, default=4)
     ap.add_argument('--cases', type=str,
-                    default='267:kangaroo,1261:toilet,601:surfboard,597:surfboard_identity,390:sheep_identity')
+                    default='64:man_black,1224:tissue,1616:mouse,1787:ball,583:surfboard_man,1261:toilet,601:surfboard,597:surfboard_identity')
     ap.add_argument('--models', type=str, default='all')
     args = ap.parse_args()
 

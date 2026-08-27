@@ -15,8 +15,9 @@ JPEGROOT = '/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/extr
 EXAMPLES = '/9950backfile/chenjiahui/evo_artifacts/data/examples'
 MANIFEST = '/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/faithfulness_valid.json'
 
-CASES = [  # (idx, title) -- demo: clean-stop cases
-    (1261, 'toilet'), (601, 'surfboard'), (597, 'surfboard_identity'),
+CASES = [  # (idx, title) -- demo cases (Faithful+e_t perfect on boundary)
+    (64, 'man_black'), (1224, 'tissue'), (1616, 'mouse'), (1787, 'ball'),
+    (583, 'surfboard_man'), (1261, 'toilet'), (601, 'surfboard'), (597, 'surfboard_identity'),
 ]
 
 try:
