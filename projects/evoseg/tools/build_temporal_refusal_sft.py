@@ -57,8 +57,11 @@ def main():
                     f'is present in the LAST frame. If present, output [SEG]. '
                     f'If not present, say you do not see it.')
             content.append({'type': 'text', 'text': inst})
-            answer = f'It is present. [SEG].' if label else \
-                     f'I do not see {c["query"]} in the last frame.'
+            # NO ground-truth presence hint: model must infer from the frames
+            inst2 = (f'Please segment {c["query"]} in the LAST frame of this '
+                     f'video clip if it is present; otherwise output None.')
+            content[-1]['text'] = inst2
+            answer = '[SEG]' if label else 'None'
             examples.append({
                 'conversations': [{'role': 'user', 'content': content},
                                   {'role': 'assistant', 'content': answer}],

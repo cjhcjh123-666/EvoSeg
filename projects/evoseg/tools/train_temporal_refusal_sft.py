@@ -64,13 +64,15 @@ def main():
     torch.cuda.set_device(rank)
 
     data = json.load(open(args.data))['examples']
-    exs = [e for e in data if e['category'] == 'temporal_absence'][:args.max_examples]
-    if len(exs) < args.max_examples:
-        rest = [e for e in data if e['category'] != 'temporal_absence']
-        random.shuffle(rest)
-        exs += rest[:args.max_examples - len(exs)]
+    pos = [e for e in data if e['presence']]
+    neg = [e for e in data if not e['presence']]
+    random.shuffle(pos); random.shuffle(neg)
+    half = args.max_examples // 2
+    exs = pos[:half] + neg[:half]
+    random.shuffle(exs)
     if rank == 0:
-        print(f'total examples: {len(exs)}', flush=True)
+        npos = sum(1 for e in exs if e['presence'])
+        print(f'total examples: {len(exs)} (present={npos} absent={len(exs)-npos})', flush=True)
 
     model = AutoModel.from_pretrained(MODEL, torch_dtype=torch.bfloat16,
         low_cpu_mem_usage=True, use_flash_attn=True, trust_remote_code=True).to(rank)
