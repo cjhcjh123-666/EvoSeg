@@ -30,6 +30,7 @@ Usage:
 import argparse
 import json
 import os
+import random
 from collections import Counter
 from multiprocessing import Pool
 
@@ -77,6 +78,7 @@ def video_presence(args):
 
 def main():
     args = parse_args()
+    random.seed(0)
     meta = json.load(open(META))
     videos = meta['videos']
     if args.max_videos:
@@ -133,8 +135,9 @@ def main():
                         })
                         stats['temporal_absence'] += 1
 
-                # 2) global absence: absent category on this video
-                q = f'the {absent_cats[0]}'
+                # 2) global absence: a RANDOM absent category (not always
+                #    'elephant' — avoids category imbalance in negatives)
+                q = f'the {random.choice(absent_cats)}'
                 cases.append({
                     'category': 'global_absence', 'aspect': None,
                     'video_id': vid, 'exp_id': None, 'obj_id': None,
@@ -143,9 +146,10 @@ def main():
                 })
                 stats['global_absence'] += 1
 
-                # 3) counterfactual swap: replace referent category word
+                # 3) counterfactual swap: replace referent category word with
+                #    a RANDOM absent category
                 if obj and obj.lower() in info['exp'].lower():
-                    q2 = replace_first(info['exp'], obj, absent_cats[0])
+                    q2 = replace_first(info['exp'], obj, random.choice(absent_cats))
                     cases.append({
                         'category': 'counterfactual_swap', 'aspect': None,
                         'video_id': vid, 'exp_id': None, 'obj_id': None,
