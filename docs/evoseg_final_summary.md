@@ -261,6 +261,8 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 2. **identity 最敏感**（stride2 已 +6.3~7.6pp）——实例级判别需要更密的时序上下文，符合其"最难 hard case"的定位；
 3. **论文定位**：主结果用 stride1（全帧，最准）；轻量化部署可用 stride2（2× 加速、近无损）——给出一档可选的 speed-accuracy 操作点。
 
+**Verifier 边际成本（"4.5M 头几乎免费"的量化证据）**：base（无门控）6.070s/case vs +v6 6.131s/case，**边际 +0.061s（+1.0%）**——推理瓶颈是 VLM 全帧前向（分割共用），e_t 头本身几乎零成本。
+
 ---
 
 ## 四·八、P0-4：VideoFaithful SFT collapse 受控实验（"不是调参没调好"）
