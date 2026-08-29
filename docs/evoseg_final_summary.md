@@ -140,10 +140,10 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 
 | 指标 | 8B-Faithful 基线（无门控，精确实测） | **8B-Faithful + v6 头（thr=0.5 / 0.8）** |
 |---|---|---|
-| overall 幻觉（全集 1986） | **22.22%** | **20.30% / 17.66%** |
+| overall 幻觉（全集 1986，rebalanced） | **22.22%**（raw 基线；global/cf 为 rebalanced） | **19.91% / 17.06%** |
 | temporal 幻觉 | **96.70%** | **76.3% / 54.7%** |
 | identity 幻觉 | **98.58%** | **76.9% / 52.5%** |
-| global / counterfactual 幻觉 | 2.96% / 37.41% | 2.6% / 36.0% → 2.1% / 33.1% |
+| global / counterfactual 幻觉（rebalanced） | 6.33% / 31.95% | 6.1% / 30.4% → 5.45% / 27.33% |
 | 漏检（overall） | 0.42% | 1.91% / 9.73% |
 | J&F（官方式，40 视频子集 88 表达式） | **0.486** | **0.490**（thr=0.5，基本持平） |
 
@@ -239,6 +239,25 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 
 ### 4.7.3 risk-coverage 曲线（Figure 素材）
 以 thr 为轴：x = coverage（保留 mask 的 present 帧比例，≈ 1 − 漏检），y = risk（absent 帧被画出的比例，≈ 幻觉）。论文 Figure：risk 随 thr 单调下降（17.0%→12.0%），J&F 单调下降但幅度很小（0.517→0.490）——**标准的 risk–coverage 曲线**，标注 0.5/0.8 两个操作点 + Sa2VA 基线（risk 91.3% / J&F 0.505）+ VideoFaithful（risk 低但 J&F 崩到 0.213）。核心论点：**选择性预测（外部 verifier）能以 ~1-3pp 分割代价换 ~74-79pp 忠实度提升；而 SFT 教学则需 ~30pp 代价**——外部 verifier 是明显更优的 faithfulness 路线。
+
+---
+
+## 四·九、轻量化：帧降采样（stride）的效率-忠实度分析（P0-7）
+
+**动机**：视频推理贵（4B 每 case ~6.2s，8B ~10s），瓶颈是 VLM 全帧前向。能否用更少帧做 faithful 分割？
+
+**协议**：faithfulness benchmark（rebalanced 全集 1986）上，把每个 case 的帧按 stride 降采样后重跑 Faithful+v6（thr=0.8）；延迟 = predict_forward 实测。
+
+| stride | 平均帧数 | overall 幻觉 | temporal 幻觉 | identity 幻觉 | 每 case 延迟 | 加速 |
+|---|---|---|---|---|---|---|
+| 1（全帧） | 26.3 | **12.0%** | 49.2% | 55.3% | 6.16s | 1.0× |
+| 2 | 13.3 | 12.6%（+0.6） | 54.1%（+4.9） | 61.6%（+6.3） | **3.13s** | **2.0×** |
+| 3 | 9.0 | 13.6%（+1.7） | 54.6%（+5.4） | 64.9%（+9.6） | **2.23s** | **2.8×** |
+
+**结论（轻量化）**：
+1. **帧降采样是 graceful 的**：stride2 帧减半 → **2.0× 加速**，faithfulness 仅 +0.6pp（overall）、temporal +4.9pp；stride3 2.8× 加速，代价 +1.7pp——**e_t/分割对时间分辨率有很强的鲁棒性**；
+2. **identity 最敏感**（stride2 已 +6.3pp）——实例级判别需要更密的时序上下文，符合其"最难 hard case"的定位；
+3. **论文定位**：主结果用 stride1（全帧，最准）；轻量化部署可用 stride2（2× 加速、近无损）——给出一档可选的 speed-accuracy 操作点。
 
 ---
 
