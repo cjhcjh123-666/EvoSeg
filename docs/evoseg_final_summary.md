@@ -23,7 +23,7 @@
 1. **忠实性是独立能力**：分割精度高 ≠ 知道"该不该分割"。8905 条 absent 查询上基线 100% 幻觉，但分割正常 → 忠实性需要单独建模。
 2. **图像级 abstention 必要但不充分**：图像拒答（Faithful，幻觉 14.7%）解决静态 no-target；但视频里目标消失/换人是**逐帧谓词**，必须时序化（e_t）。
 3. **视频 SFT 教拒答会严重损害分割能力**（本文最重要的方法论发现）：
-   - VideoFaithful（视频 faithfulness SFT）：Ref-YT-VOS J&F **0.51 → 0.22**（分割能力减半）；
+   - VideoFaithful（视频 faithfulness SFT）：Ref-YT-VOS J&F **0.52 → 0.21**（官方式 evaluator；分割能力减半以上）；
    - 图像级拒答 SFT（Faithful）：J&F **0.517（无门控，同协议高于 Sa2VA 0.505）**。
    - **结论：Faithfulness 不该靠 SFT 教 LLM 拒答，应交给不碰 LLM 的外部轻量评估器。**
 
@@ -53,6 +53,8 @@
 | B+ v5 | VLM 全帧感知（vlm_feat） | temporal 幻觉 55.7%（基线 87.6%） |
 | **v6** | anchor 修复（第 0 帧 → 首次出现帧）+ 锚点差分特征 | identity -17pp（63.2→46.1）、temporal -12pp（55.7→43.5） |
 | **最终** | 基础模型换 Faithful（分割近无损）+ v6 头用 Faithful 特征重训 | **J&F 0.490（thr=0.8，小损 −2.7pp）+ Abstention Error 11.1%（rebalanced）** |
+
+> 表中 v5/v6 的中间数字（55.7% / 63.2→46.1 等）是**开发过程中在旧 benchmark（elephant-heavy 集、中间版头）上的观测值**，仅用于说明方法演化方向；**论文最终数字一律以 4.2/4.7 的 rebalanced 全集为准**。
 
 ### 为什么外部头而不是 SFT LLM（核心论证）
 - SFT 教 LLM 拒答（VideoFaithful）→ 分割 J&F 减半（0.22）；
@@ -137,10 +139,10 @@ IDErr_t=\mathbb{1}[IoU_{dist}>IoU_{tar}]
 | 图像 Faithful（无时序门控） | **0.517** | 基座比 Sa2VA +1.2pp |
 | **Faithful + v6 头（thr=0.5）** | **0.503** | Abstention Error 12.5% 时 J&F 仅 −1.4pp |
 | Faithful + v6 头（thr=0.8） | 0.490 | Abstention Error 11.1% 时 J&F −2.7pp |
-| 8B Faithful + v6 头（thr=0.5） | 0.488 | 第二 backbone |
+| 8B Faithful + v6 头（thr=0.5） | 0.492 | 第二 backbone（per-expression 827，与 4B 同协议） |
 | VideoFaithful（SFT） | 0.213（40-vid） | 分割崩 |
 
-> **诚实口径**：e_t 门控以**小幅 J&F 代价**（−1.4~−2.7pp）换取**巨大幻觉下降**（91.3%→12.0-13.5%，rebalanced）——这是受控的选择性预测 trade-off，不是"免费午餐"（早期用旧 evaluator 报的 0.523-0.530 因丢弃被拒绝样本而虚高，已废弃）。
+> **诚实口径**：e_t 门控以**小幅 J&F 代价**（−1.4~−2.7pp）换取**巨大 False Acceptance 下降**（91.3%→11.1%，Abstention-only，rebalanced）——这是受控的选择性预测 trade-off，不是"免费午餐"（早期用旧 evaluator 报的 0.523-0.530 因丢弃被拒绝样本而虚高，已废弃）。
 
 ### 4.4 关键对照（同 40 视频公平对比，官方式 evaluator，88 表达式）
 Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faithful+v6 0.5→0.499 / Faithful+v6 0.8→0.480 / VideoFaithful 0.213 / c1 0.205 / c2 0.290 / c3 0.214
@@ -164,11 +166,11 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 | global / counterfactual 幻觉（rebalanced） | 6.33% / 31.95% | 6.1% / 30.4% → 5.45% / 27.33% |
 | 漏检（overall） | 0.42% | 1.91% / 9.73% |
 
-> identity 类不用帧级幻觉（语义同 4.2b 说明），8B 的 identity 以 IDErr/IoU 度量为准（待测，4B 为 32.5%/0.45/0.65）。
+| identity（Track B，@thr=0.8） | — | **IDErr 31.42% / IoU_tar 0.430 / IoU_dist 0.634**（355 case / 8623 帧，同 4.2b 协议） |
 | J&F（官方式，40 视频子集 88 表达式） | **0.486** | **0.490**（thr=0.5，基本持平） |
 
 **结论（scale transfer ✓，诚实版）**：
-1. **verifier 完整迁移到 8B**：**时序 hard case 显著下降**——temporal 96.7%→54.7%（−42pp）（thr=0.8）、Abstention Error 20.3%→16.4%；J&F 基本持平（0.486→0.490，40-vid 子集，在噪声范围内）——外部 e_t 评估器不依赖 4B 特定规模；
+1. **verifier 完整迁移到 8B**：**时序 hard case 显著下降**——temporal 96.7%→54.7%（−42pp）（thr=0.8）、Abstention Error 20.3%→16.4%；identity IDErr 31.4%（与 4B 的 32.5% 同级）；J&F 基本持平（0.486→0.490，40-vid 子集，在噪声范围内）——外部 e_t 评估器不依赖 4B 特定规模；
 2. **8B 的 temporal 判别弱于 4B**（54.7% vs 49.2% @thr=0.8）——与 8B vlm_feat AUC 0.55 的早期发现一致（VLM 全帧特征对时序判别的判别力有限，规模不解决该问题）；
 3. **论文定位**：主模型 = 4B（Abstention Error 11.1%、J&F 0.490 @thr=0.8）；8B = 证明 verifier 的跨规模可迁移性（Abstention Error 20.3%→16.4%、J&F 持平）；**不写"91.3%→17.7%"**（那是 4B 原始 Sa2VA 的量级），8B 基线如实报告 20.31%（图像级拒答已处理静态 no-target）。所有数字均为 rebalanced 口径。
 
@@ -275,10 +277,10 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 | 2 | 13.3 | 11.7%（+0.6） | 54.1%（+4.9） | **3.13s** | **2.0×** |
 | 3 | 9.0 | 12.7%（+1.6） | 54.6%（+5.4） | **2.23s** | **2.8×** |
 
-**8B 同款验证（跨规模一致）**：stride1 overall 17.06% / stride2 17.49%（+0.4）/ stride3 17.77%（+0.7）——**8B 对帧降采样更鲁棒**（8B VLM 每帧特征更丰富，时序信息冗余更高）。
+**8B 同款验证（跨规模一致，Abstention-only）**：stride1 16.39% / stride2 16.68%（+0.3）/ stride3 17.00%（+0.6）——**8B 对帧降采样更鲁棒**（8B VLM 每帧特征更丰富，时序信息冗余更高）。
 
 **结论（轻量化）**：
-1. **帧降采样是 graceful 的**：stride2 帧减半 → **2.0× 加速**，4B faithfulness 仅 +0.6pp、8B +0.4pp（overall）；stride3 2.8× 加速，4B +1.7pp、8B +0.7pp——**e_t/分割对时间分辨率有很强的鲁棒性，且规模越大越稳**；
+1. **帧降采样是 graceful 的**：stride2 帧减半 → **2.0× 加速**，4B Abstention Error 仅 +0.6pp、8B +0.3pp；stride3 2.8× 加速，4B +1.6pp、8B +0.6pp——**e_t/分割对时间分辨率有很强的鲁棒性，且规模越大越稳**；
 2. **identity 对帧降采样也最敏感**（按 IDErr 度量，见 4.2b；实例级判别需要更密的时序上下文）——符合其"最难 hard case"的定位；
 3. **论文定位**：主结果用 stride1（全帧，最准）；轻量化部署可用 stride2（2× 加速、近无损）——给出一档可选的 speed-accuracy 操作点。
 
@@ -288,7 +290,7 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 
 ## 四·八、P0-4：VideoFaithful SFT collapse 受控实验（"不是调参没调好"）
 
-**问题**：核心方法论发现"视频 SFT 教拒答会把分割 J&F 打对折（0.51→0.22）"会被 reviewer 质疑是训练没调好。这里做 3 个受控实验（每个只改一个因素，其余与 VideoFaithful 配方完全一致：continue from 图像 Faithful、LoRA、1500 iters、同一数据），证明 collapse 是结构性的。
+**问题**：核心方法论发现"视频 SFT 教拒答会把分割 J&F 打对折（0.52→0.21）"会被 reviewer 质疑是训练没调好。这里做 3 个受控实验（每个只改一个因素，其余与 VideoFaithful 配方完全一致：continue from 图像 Faithful、LoRA、1500 iters、同一数据），证明 collapse 是结构性的。
 
 | 控制 | 变量 | 固定不变 | 预期 |
 |---|---|---|---|
@@ -302,7 +304,7 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 | 模型 | temporal 幻觉 | overall 幻觉 | J&F (40-vid) | 结论 |
 |---|---|---|---|---|
 | 图像 Faithful（对照，无视频 SFT） | — | — | **0.516** | 分割无损基线（40-vid 无门控） |
-| VideoFaithful（原配方 6376 iters） | 76.3% | 4.2% | 0.221 | 分割崩 |
+| VideoFaithful（原配方 6376 iters） | 76.3% | 4.2% | 0.213 | 分割崩 |
 | **c1_negratio**（NoTarget×1） | 96.7% | 7.5% | **0.212** | 没学会拒答，分割照样崩 |
 | **c2_lr**（lr=1e-5） | 96.4% | 7.1% | **0.298** | 同上 |
 | **c3_lora**（r=16） | 96.6% | 12.6% | **0.220** | 同上 |
@@ -343,7 +345,7 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 **Abstract 逻辑**：
 1. 指代分割默认目标存在 → 真实世界 100% 幻觉（8905 查询）；
 2. 图像拒答不够 → 视频"mask 是否仍忠实"是逐帧谓词 e_t（faithfulness/acceptance，而非单纯 presence）；
-3. 关键发现：视频 SFT 教拒答让分割 J&F 减半（0.51→0.22）；
+3. 关键发现：视频 SFT 教拒答让分割 J&F 减半以上（0.52→0.21，官方式 evaluator）；
 4. 正确架构：图像拒答（分割近无损）+ 外部轻量时序头（4.5M）；
 5. 结果：J&F 0.490（thr=0.8，小损 −2.7pp）+ Abstention Error 11.1%（rebalanced，global 3.4%）+ 全集验证。
 
