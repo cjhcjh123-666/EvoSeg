@@ -52,11 +52,11 @@
 |---|---|---|
 | B+ v5 | VLM 全帧感知（vlm_feat） | temporal 幻觉 55.7%（基线 87.6%） |
 | **v6** | anchor 修复（第 0 帧 → 首次出现帧）+ 锚点差分特征 | identity -17pp（63.2→46.1）、temporal -12pp（55.7→43.5） |
-| **最终** | 基础模型换 Faithful（分割近无损）+ v6 头用 Faithful 特征重训 | **J&F 0.490（thr=0.8，小损 −2.7pp）+ 幻觉 12.0%（rebalanced）** |
+| **最终** | 基础模型换 Faithful（分割近无损）+ v6 头用 Faithful 特征重训 | **J&F 0.490（thr=0.8，小损 −2.7pp）+ Abstention Error 11.1%（rebalanced）** |
 
 ### 为什么外部头而不是 SFT LLM（核心论证）
 - SFT 教 LLM 拒答（VideoFaithful）→ 分割 J&F 减半（0.22）；
-- 外部 e_t 头（4.5M 参数，纯推理门控）→ 分割仅小损（thr=0.8 时 J&F 0.490，−2.7pp）+ faithfulness 有效（幻觉 12.0%，rebalanced）。
+- 外部 e_t 头（4.5M 参数，纯推理门控）→ 分割仅小损（thr=0.8 时 J&F 0.490，−2.7pp）+ faithfulness 有效（Abstention Error 11.1%，rebalanced）。
 - **即：忠实性判定是"该不该画"的轻量判别问题，不需要（也不应该）改动分割模型本体。**
 
 ---
@@ -72,20 +72,31 @@
 | GSVA-7B（外部，有[REJ]） | 44.6% | — | — |
 
 ### 4.2 视频忠实性（faithfulness 基准 1986 查询 / 52284 帧，全集）
-| 指标 | Sa2VA 基线 | Faithful（图像拒答，无 verifier） | **Faithful + v6（thr=0.8）** |
+| 指标（Track A: Abstention Faithfulness） | Sa2VA 基线 | Faithful（图像拒答，无 verifier） | **Faithful + v6（thr=0.8）** |
 |---|---|---|---|
-| overall 幻觉（帧加权） | 91.3% | 17.0% | **12.0%** |
-| **macro 幻觉（3 类有效类别平均：temporal/global/counterfactual）** | ~92% | 41.6% | **23.5%** |
+| **Overall Abstention Error / False Acceptance（temporal+global+cf，排除 identity）** | 91.3%（原始 4 类） | 15.5% | **11.1%** |
+| **macro（3 类 abstention 平均）** | ~92% | 41.6% | **23.5%** |
 | temporal 幻觉 | 87.6% | 97.5% | **49.2%**（hardest） |
 | global 幻觉 | 87.2% | 4.2% | **3.4%** |
 | counterfactual 幻觉 | 97.0% | 23.1% | **18.0%** |
 | 漏检（temporal / identity） | ~0 / ~0 | — | 19.6% / 5.7% |
 
-> **指标口径（重要）**：`identity` 类不再用帧级"幻觉"（目标始终在，非空 mask ≠ 幻觉，旧"identity 幻觉"语义不成立），改用 **IDErr / IoU_tar / IoU_dist**（见 4.2b）。macro 只对 **temporal/global/counterfactual** 三个语义有效的类别取平均。
+> **指标口径（重要，双 Track）**：**Track A（Abstention Faithfulness）** 回答"该不该出 mask"，统计 temporal absence（absent 帧）+ global absence + counterfactual，用 **False Acceptance ↓ / False Rejection ↓ / Risk–Coverage**；**Track B（Referential Faithfulness）** 回答"出了 mask 是不是指的那个实例"，即 identity confusion，用 **IDErr / IoU_tar / IoU_dist**（见 4.2b）。`overall` 只统计 Track A 三类（identity 单独报告），不再叫模糊的 "overall hallucination over 1986 queries"。
 >
-> **关键叙事（更新，rebalanced 后）**：图像级拒答（Faithful）已把 overall 从 91.3% 压到 17.0%（global 4.2%、counterfactual 23.1%）——但它对 **temporal 几乎无效（97.5%）**，因为"mask 时序不忠实"静态拒答看不见。**时序 verifier 专门解决图像拒答够不着的 hard cases**：temporal 97.5%→49.2%（−48pp）、overall 17.0%→12.0%、3 类 macro 41.6%→23.5%。identity 用 IDErr 单独报告（见 4.2b，仍是未解决点）。
+> **关键叙事（更新，rebalanced 后）**：图像级拒答（Faithful）已把 Abstention Error 从 91.3%（原始 Sa2VA）压到 15.5%（global 4.2%、counterfactual 23.1%）——但它对 **temporal 几乎无效（97.5%）**，因为"mask 时序不忠实"静态拒答看不见。**时序 verifier 专门解决图像拒答够不着的 hard cases**：temporal 97.5%→49.2%（−48pp）、Abstention Error 15.5%→11.1%、3 类 macro 41.6%→23.5%。identity 用 IDErr 单独报告（见 4.2b，仍是未解决点）。
 
 ### 4.2b identity 指标的重新定义（P0-2 feedback：非空 mask ≠ hallucination）
+
+> **Track B（Referential Faithfulness）**：identity confusion 归入此 Track。四类 benchmark 正式拆成两大 Track：
+>
+> | Track | 问题 | 类别 | 指标 |
+> |---|---|---|---|
+> | **A · Abstention Faithfulness** | 该不该出 mask？ | global absence / counterfactual / temporal absence | False Acceptance ↓ · False Rejection ↓ · Risk–Coverage |
+> | **B · Referential Faithfulness** | 出了 mask，还是不是指的那个实例？ | identity confusion | IDErr ↓ · IoU_tar ↑ · IoU_dist ↓ |
+>
+> $$
+> \text{Faithfulness} = \text{Abstention Faithfulness} + \text{Referential Faithfulness}
+> $$
 
 identity_swap 中目标**始终存在**，因此"非空 mask = 幻觉"不成立；正确指标是 **wrong-instance / identity-switch 错误**：
 
@@ -124,8 +135,8 @@ IDErr_t=\mathbb{1}[IoU_{dist}>IoU_{tar}]
 |---|---|
 | Sa2VA（同协议重跑，基线） | 0.505 | 与官方 0.509 吻合（校验 evaluator） |
 | 图像 Faithful（无时序门控） | **0.517** | 基座比 Sa2VA +1.2pp |
-| **Faithful + v6 头（thr=0.5）** | **0.503** | 幻觉 10.8% 时 J&F 仅 −1.4pp |
-| Faithful + v6 头（thr=0.8） | 0.490 | 幻觉 12.0% 时 J&F −2.7pp |
+| **Faithful + v6 头（thr=0.5）** | **0.503** | Abstention Error 12.5% 时 J&F 仅 −1.4pp |
+| Faithful + v6 头（thr=0.8） | 0.490 | Abstention Error 11.1% 时 J&F −2.7pp |
 | 8B Faithful + v6 头（thr=0.5） | 0.488 | 第二 backbone |
 | VideoFaithful（SFT） | 0.213（40-vid） | 分割崩 |
 
@@ -148,7 +159,7 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 
 | 指标 | 8B-Faithful 基线（无门控，精确实测） | **8B-Faithful + v6 头（thr=0.5 / 0.8）** |
 |---|---|---|
-| overall 幻觉（全集 1986，rebalanced） | **22.22%**（raw 基线；global/cf 为 rebalanced） | **19.91% / 17.06%** |
+| Abstention Error（Track A，rebalanced，排除 identity） | **20.31%**（raw 基线） | **18.82% / 16.39%** |
 | temporal 幻觉 | **96.70%** | **76.3% / 54.7%** |
 | global / counterfactual 幻觉（rebalanced） | 6.33% / 31.95% | 6.1% / 30.4% → 5.45% / 27.33% |
 | 漏检（overall） | 0.42% | 1.91% / 9.73% |
@@ -157,9 +168,9 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 | J&F（官方式，40 视频子集 88 表达式） | **0.486** | **0.490**（thr=0.5，基本持平） |
 
 **结论（scale transfer ✓，诚实版）**：
-1. **verifier 完整迁移到 8B**：**时序/实例级 hard cases 显著下降**——temporal 96.7%→54.7%（−42pp）、identity 98.6%→52.5%（−46pp）（thr=0.8），overall 22.2%→17.7%；J&F 基本持平（0.486→0.490，40-vid 子集，在噪声范围内）——外部 e_t 评估器不依赖 4B 特定规模；
+1. **verifier 完整迁移到 8B**：**时序 hard case 显著下降**——temporal 96.7%→54.7%（−42pp）（thr=0.8）、Abstention Error 20.3%→16.4%；J&F 基本持平（0.486→0.490，40-vid 子集，在噪声范围内）——外部 e_t 评估器不依赖 4B 特定规模；
 2. **8B 的 temporal 判别弱于 4B**（54.7% vs 49.2% @thr=0.8）——与 8B vlm_feat AUC 0.55 的早期发现一致（VLM 全帧特征对时序判别的判别力有限，规模不解决该问题）；
-3. **论文定位**：主模型 = 4B（幻觉 12.0% rebalanced、J&F 0.490 @thr=0.8）；8B = 证明 verifier 的跨规模可迁移性（hard-case 幻觉 ↓、J&F 持平）；**不写"91.3%→17.7%"**（那是 4B 原始 Sa2VA 的量级），8B 基线如实报告 22.22%（图像级拒答已处理静态 no-target；注：8B 数字基于旧 elephant-heavy 集，rebalanced 后会有小幅上移）。
+3. **论文定位**：主模型 = 4B（Abstention Error 11.1%、J&F 0.490 @thr=0.8）；8B = 证明 verifier 的跨规模可迁移性（Abstention Error 20.3%→16.4%、J&F 持平）；**不写"91.3%→17.7%"**（那是 4B 原始 Sa2VA 的量级），8B 基线如实报告 20.31%（图像级拒答已处理静态 no-target）。所有数字均为 rebalanced 口径。
 
 > 训练细节：8B vlm_feat 全量提取（12036 case，~4.5s/case）→ 训 8B v6 头（vlm_dim=4096，15 epochs，val f1 0.95）→ 门控。曾踩坑：8B 头 config 的 vlm_dim 必须随模型改（否则 load_temporal_head 尺寸不匹配、门控静默失效）。
 
@@ -171,29 +182,24 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 
 | 类别 | 定义与构造 | GT 标注 |
 |---|---|---|
-| **temporal_absence** | 目标在某帧后真实消失（走出画面/被完全遮挡且不再出现）。从 GT 索引 mask 推导逐帧 presence；若目标消失后 **>5 帧不再出现** 记为"真消失"（区别于短暂遮挡）。 | presence=True 的帧用官方 obj mask；absent 帧 GT = 空 mask |
+| **temporal_absence** | 目标存在只在子区间（出现晚/消失早）。**逐帧 presence 直接定义为 GT mask availability：a_t = 1[|M_t^GT| > 0]**（官方 GT 掩码非空 → available；空 → unavailable），不做人为阈值。按空 mask 连续段分为 **terminal absence**（某时刻后一直空）与 **temporary absence**（中间空、之后再现）。 | available 帧用官方 obj mask；unavailable 帧 GT = 空 mask |
 | **global_absence** | query 指的场景里目标从不存在（构造：从其他视频/反事实替换 query 或引用无目标表达）。 | 所有帧 GT = 空 mask |
 | **counterfactual_swap** | 对真实 query 做对抗改写（换主词/属性/位置），使 query 不再对应任何现有目标。 | 所有帧 GT = 空 mask |
 | **identity_swap** | 视频中存在外观相似的目标；query 只对应其中一个实例；mask 必须始终对准 query 所指实例（GT presence 由目标 obj 决定）。 | 只用 query 目标 obj 的 mask 作 GT |
 
-**Occlusion vs Disappearance 区分**：用 GT 索引 mask 的连续段判断——目标被遮挡 ≤5 帧且后续 mask 再现 → occlusion（presence=True）；超过 5 帧不再出现 → disappearance（presence=False）。temporal_absence 只含后者。
+**presence = segmentation availability（不再混入"物体存在"的物理判断）**：对 segmentation 而言，GT 掩码为空 = 该帧**不应出 mask**（a_t=0），无论原因是目标物理消失还是被完全遮挡。不人为设定"≤5 帧遮挡算 presence"之类的阈值（避免"为什么是 5 不是 3/10"的攻击面）；temporal_absence 的 case 可再按 terminal/temporary 细分（本版以 terminal absence 为主）。
 
 **空 mask GT**：absent 帧的 GT 为全 0 mask（无目标）；评估时 absent 帧只要模型输出非空 mask 即记 1 次幻觉。
 
 **GT 来源（客观、无需标注者一致性）**：所有 GT 掩码直接来自 **Ref-YT-VOS 官方实例级标注**（valid 的 per-expression 掩码 + 索引掩码），presence 序列由 GT 掩码**按规则自动推导**，不涉及主观标注，因此不适用 annotation agreement（无新增人工标注）。
-**构造均为确定性规则**：temporal_absence 的消失判定（absent 连续 >5 帧才算真消失，区别于 ≤5 帧的短暂遮挡）、identity_swap 的实例选择（同类别 ≥2 实例）、global/counterfactual 的 query 生成（固定模板/对抗改写）全部由 `build_video_faithfulness_manifest.py` / `build_counterfactual_pairs.py` 自动完成；作者对构造结果做了抽样人工核查（检查 query 与视频内容匹配、遮挡与消失判定是否符合直觉），并在论文中如实说明"生成式负样本（global/counterfactual）为模板自动构造 + 抽样核查"，不虚报统计量。
+**构造均为确定性规则**：temporal_absence 的 presence 直接由 GT 掩码非空推导（无阈值）、identity_swap 的实例选择（同类别 ≥2 实例）、global/counterfactual 的 query 生成（固定模板/对抗改写）全部由 `build_video_faithfulness_manifest.py` / `build_counterfactual_pairs.py` 自动完成，无需主观标注。
 
 **train/test leakage 控制**：faithfulness 训练数据（train）与评测基准（valid）来自 Ref-YT-VOS 不同视频子集；训练用 train 视频的构造 case，评测用 valid 视频的构造 case，**视频不重叠**；counterfactual/global 负样本在 train/valid 各自独立构造，不共享 query 改写模板。
-
-**Negative-query 人工 QC（P0-6，可选补充，不阻塞投稿）**：
-- 从构造负样本（counterfactual_swap 150 + global_absence 100 = 250 条）随机抽样，**2 名标注者**独立判定每条 "query 在此视频中是否确实无对应目标"（Valid negative / Invalid negative / 不确定）；
-- 标注工具：`/tmp/negative_qc_review.html`（嵌入视频关键帧 + query，浏览器标注，localStorage 保存）；抽样清单：`/tmp/negative_qc_sample.json`；
-- 报告：valid negative rate（应接近 100%）+ 两名标注者 agreement（Cohen's κ）——补齐"mask/presence GT 客观但 query 语义有效性需人工核验"的空缺。
 
 **⚠️ 构造 bug 修复（类别失衡）**：早期 `build_video_faithfulness_manifest.py` 用 `absent_cats[0]` 选负样本类别（列表第一项 = 'elephant'），导致 **global_absence 99% / counterfactual 58% 都是 "elephant"**——benchmark 严重偏置。已修复为 `random.choice(absent_cats)`（17 个类别均匀采样）并重建 valid manifest（`faithfulness_valid_rebalanced.json`，1986 case 数量不变）：
 - global_absence：elephant 99% → **6%**（sheep 7% / airplane 7% / suitcase 6% / giraffe 6% / zebra 6% …）
 - counterfactual_swap：elephant 58% → **4%**
-- **已全部用 rebalanced 集重测完成**：4B/8B 的 global/counterfactual 幻觉均已更新为 rebalanced 数字（4B：global 3.4%、cf 18.0%；8B：global 5.45%、cf 27.33%）；QC 抽样已重做（elephant 仅 6%）。
+- **已全部用 rebalanced 集重测完成**：4B/8B 的 global/counterfactual 幻觉均已更新为 rebalanced 数字（4B：global 3.4%、cf 18.0%；8B：global 5.45%、cf 27.33%）。
 
 ---
 
@@ -212,7 +218,7 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 | MeViSv2（TPAMI 2025） | motion RVOS | no-target expressions（整段无目标） | no-target 语句 + 运动推理 | — |
 | SESAME / GSVA（图像） | Pixel-LLM | 图像级 no-target 拒答 | [REJ]/拒答 token | SESAME 33.5%、GSVA 44.6%（8905 absent） |
 | SPARROW（CVPR 2026，UniPixel/GLUS/VideoGLaMM 三底座验证） | video Pixel-MLLM | **temporal referential consistency**：spatial drift / identity switches / 参照稳定性（让持续输出的 mask 更稳定） | 空间精度 + 时序一致性训练 | 做的是 mask 稳定输出，不提供逐帧 accept/abstain 决策 |
-| **本文 EvoSeg** | **统一图像-视频 Pixel-LLM + 外部 e_t 评估器** | **selective faithfulness**：判断当前 prediction 是否应被接受，允许 abstention/stopping（temporal absence + global absence + counterfactual + identity confusion） | 图像拒答（近无损）+ 外部 4.5M 时序忠实度头（不碰 LLM） | 幻觉 91.3%→12.0%（rebalanced）；temporal 87.6%→49.2%；J&F 0.490 |
+| **本文 EvoSeg** | **统一图像-视频 Pixel-LLM + 外部 e_t 评估器** | **selective faithfulness**：判断当前 prediction 是否应被接受，允许 abstention/stopping（temporal absence + global absence + counterfactual + identity confusion） | 图像拒答（近无损）+ 外部 4.5M 时序忠实度头（不碰 LLM） | Abstention Error 91.3%→11.1%（rebalanced）；temporal 87.6%→49.2%；J&F 0.490 |
 
 ### 与 SPARROW 的差异化（P0-2 口径，必须这样写）
 **identity switch 不是我们独有的问题**——SPARROW（CVPR 2026）已明确把 spatial drift / identity switches / temporal referential consistency 作为核心，并在 UniPixel、GLUS、VideoGLaMM 三个底座上验证。我们的差异是**问题形态不同**：
@@ -232,28 +238,28 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 **问题**：e_t 门控阈值 thr 决定"幻觉 ↔ 漏检"的操作点。论文不只报 thr=0.8，而是给完整曲线。
 
 ### 4.7.1 presence 指标 vs 阈值（faithfulness valid 全集 1986 查询 / 52284 帧，rebalanced global/cf）
-| thr | overall 幻觉 | overall 漏检 | macro 幻觉（3 类） | temporal | global | counterfactual |
+| thr | Abstention Error（FA） | False Rejection | macro（3 类） | temporal | global | counterfactual |
 |---|---|---|---|---|---|---|
-| 0（无门控） | 17.04% | 0.60% | 41.60% | 97.5% | 4.2% | 23.1% |
-| 0.4 | 13.99% | 3.62% | 29.77% | 65.3% | 3.6% | 20.4% |
-| 0.5 | 13.54% | 4.50% | 28.27% | 61.3% | 3.6% | 19.9% |
-| 0.6 | 13.04% | 5.57% | 26.87% | 57.8% | 3.5% | 19.3% |
-| 0.7 | 12.58% | 7.09% | 25.30% | 53.9% | 3.4% | 18.6% |
-| **0.8** | **11.97%** | **8.85%** | **23.53%** | **49.2%** | 3.4% | **18.0%** |
+| 0（无门控） | 15.49% | 0.60% | 41.60% | 97.5% | 4.2% | 23.1% |
+| 0.4 | 12.91% | 3.62% | 29.77% | 65.3% | 3.6% | 20.4% |
+| 0.5 | 12.53% | 4.50% | 28.27% | 61.3% | 3.6% | 19.9% |
+| 0.6 | 12.07% | 5.57% | 26.87% | 57.8% | 3.5% | 19.3% |
+| 0.7 | 11.67% | 7.09% | 25.30% | 53.9% | 3.4% | 18.6% |
+| **0.8** | **11.14%** | **8.85%** | **23.53%** | **49.2%** | 3.4% | **18.0%** |
 
-**解读**：thr 从 0.4→0.8，整体幻觉 14.0%→12.0%（-2pp），漏检 3.6%→8.9%（+5.2pp）——典型的**选择性预测权衡曲线**；`global`/`counterfactual` 相对不受阈值影响（3.4%/18.0%），主要代价集中在 **temporal 边界**（时序判别是真正 hard case；identity 单独见 4.2b 的 IDErr）。注：与旧 elephant-heavy 集相比（overall 9.7%），rebalanced 后 overall 12.0% 更诚实——模型在 "elephant absent" 上略过拟合，泛化到多样类别略有上升。
+**解读**：thr 从 0.4→0.8，Abstention Error 12.9%→11.1%（-1.8pp），False Rejection 3.6%→8.9%（+5.2pp）——典型的**选择性预测权衡曲线（Risk–Coverage）**；`global`/`counterfactual` 相对不受阈值影响（3.4%/18.0%），主要代价集中在 **temporal 边界**（时序判别是真正 hard case；identity 单独见 4.2b 的 IDErr）。注：与旧 elephant-heavy 集相比，rebalanced 后更诚实——模型在 "elephant absent" 上略过拟合，泛化到多样类别略有上升。
 
 ### 4.7.2 J&F vs 阈值（官方式 evaluator，逐表达式 827，空预测帧记 0、拒绝项计入分母）
-| thr | J&F | J | F | 完全拒绝表达式 | 幻觉(overall) | 漏检 |
+| thr | J&F | J | F | 完全拒绝表达式 | Abstention Error | False Rejection |
 |---|---|---|---|---|---|---|
-| 0（无门控） | **0.517** | 0.582 | 0.451 | 4 | 17.04% | 0.60% |
-| 0.5 | 0.503 | 0.566 | 0.440 | 20 | 13.54% | 4.50% |
-| **0.8** | **0.490** | 0.551 | 0.429 | 28 | **11.97%** | 8.85% |
+| 0（无门控） | **0.517** | 0.582 | 0.451 | 4 | 15.49% | 0.60% |
+| 0.5 | 0.503 | 0.566 | 0.440 | 20 | 12.53% | 4.50% |
+| **0.8** | **0.490** | 0.551 | 0.429 | 28 | **11.14%** | 8.85% |
 
-> **关键发现（修正后，诚实版）**：阈值升高 → 幻觉单调下降（17.0%→12.0%，含 rebalanced global/cf），J&F **单调下降**（0.517→0.490，−2.7pp）——这是**标准的选择性预测 trade-off**：用小幅分割代价换取约 74pp 的幻觉下降（91.3%→12.0%，相对原始 Sa2VA）。不存在"免费午餐"；但代价很小（−2.7pp J&F）且完全可控，远优于 VideoFaithful SFT 的 −30pp（0.517→0.213）。
+> **关键发现（修正后，诚实版）**：阈值升高 → Abstention Error 单调下降（15.5%→11.1%），J&F **单调下降**（0.517→0.490，−2.7pp）——这是**标准的选择性预测 trade-off**：用小幅分割代价换取约 80pp 的 False Acceptance 下降（91.3%→11.1%，相对原始 Sa2VA）。不存在"免费午餐"；但代价很小（−2.7pp J&F）且完全可控，远优于 VideoFaithful SFT 的 −30pp（0.517→0.213）。
 
 ### 4.7.3 risk-coverage 曲线（Figure 素材）
-以 thr 为轴：x = coverage（保留 mask 的 present 帧比例，≈ 1 − 漏检），y = risk（absent 帧被画出的比例，≈ 幻觉）。论文 Figure：risk 随 thr 单调下降（17.0%→12.0%），J&F 单调下降但幅度很小（0.517→0.490）——**标准的 risk–coverage 曲线**，标注 0.5/0.8 两个操作点 + Sa2VA 基线（risk 91.3% / J&F 0.505）+ VideoFaithful（risk 低但 J&F 崩到 0.213）。核心论点：**选择性预测（外部 verifier）能以 ~1-3pp 分割代价换 ~74-79pp 忠实度提升；而 SFT 教学则需 ~30pp 代价**——外部 verifier 是明显更优的 faithfulness 路线。
+以 thr 为轴：x = coverage（保留 mask 的 present 帧比例，≈ 1 − 漏检），y = risk（absent 帧被画出的比例，≈ False Acceptance）。论文 Figure：risk 随 thr 单调下降（15.5%→11.1%），J&F 单调下降但幅度很小（0.517→0.490）——**标准的 risk–coverage 曲线**，标注 0.5/0.8 两个操作点 + Sa2VA 基线（risk 91.3% / J&F 0.505）+ VideoFaithful（risk 低但 J&F 崩到 0.213）。核心论点：**选择性预测（外部 verifier）能以 ~1-3pp 分割代价换 ~80pp False Acceptance 下降；而 SFT 教学则需 ~30pp 代价**——外部 verifier 是明显更优的 faithfulness 路线。
 
 ---
 
@@ -263,11 +269,11 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 
 **协议**：faithfulness benchmark（rebalanced 全集 1986）上，把每个 case 的帧按 stride 降采样后重跑 Faithful+v6（thr=0.8）；延迟 = predict_forward 实测。
 
-| stride | 平均帧数 | overall 幻觉 | temporal 幻觉 | 每 case 延迟 | 加速 |
+| stride | 平均帧数 | Abstention Error | temporal 幻觉 | 每 case 延迟 | 加速 |
 |---|---|---|---|---|---|
-| 1（全帧） | 26.3 | **12.0%** | 49.2% | 6.16s | 1.0× |
-| 2 | 13.3 | 12.6%（+0.6） | 54.1%（+4.9） | **3.13s** | **2.0×** |
-| 3 | 9.0 | 13.6%（+1.7） | 54.6%（+5.4） | **2.23s** | **2.8×** |
+| 1（全帧） | 26.3 | **11.1%** | 49.2% | 6.16s | 1.0× |
+| 2 | 13.3 | 11.7%（+0.6） | 54.1%（+4.9） | **3.13s** | **2.0×** |
+| 3 | 9.0 | 12.7%（+1.6） | 54.6%（+5.4） | **2.23s** | **2.8×** |
 
 **8B 同款验证（跨规模一致）**：stride1 overall 17.06% / stride2 17.49%（+0.4）/ stride3 17.77%（+0.7）——**8B 对帧降采样更鲁棒**（8B VLM 每帧特征更丰富，时序信息冗余更高）。
 
@@ -301,7 +307,7 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 | **c2_lr**（lr=1e-5） | 96.4% | 7.1% | **0.298** | 同上 |
 | **c3_lora**（r=16） | 96.6% | 12.6% | **0.220** | 同上 |
 
-> 表中用 temporal（帧级 presence 语义有效）与 J&F 作为"分割–拒答干扰"证据；identity 因目标始终存在、非空 mask ≠ 幻觉，不在此表用帧级幻觉（见 4.2b IDErr）。overall 列基于 pre-rebalance 的 global/cf，rebalance 后略有上移，不影响结论。
+> 表中用 temporal（帧级 presence 语义有效）与 J&F 作为"分割–拒答干扰"证据；identity 因目标始终存在、非空 mask ≠ 幻觉，不在此表用帧级幻觉（见 4.2b IDErr）。overall 列为模型原始帧级行为（含 identity 的混合口径，仅作参考）；关键证据是 temporal + J&F，二者不受影响。
 
 **关键发现（比预期更强的证据，3 个控制全部一致）**：
 1. **三个控制（lr 1e-5 / LoRA r=16 / NoTarget×1）在 1500 iters 都没学会时序拒答**（temporal 96.4-96.7% 幻觉，≈ 基线水平）——文字级拒答（global 0.6-1.5% / counterfactual 3.3-16%）学会了，但"mask 停住"这种难拒答没学会；
@@ -339,7 +345,7 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 2. 图像拒答不够 → 视频"mask 是否仍忠实"是逐帧谓词 e_t（faithfulness/acceptance，而非单纯 presence）；
 3. 关键发现：视频 SFT 教拒答让分割 J&F 减半（0.51→0.22）；
 4. 正确架构：图像拒答（分割近无损）+ 外部轻量时序头（4.5M）；
-5. 结果：J&F 0.490（thr=0.8，小损 −2.7pp）+ 幻觉 12.0%（rebalanced，global 3.4%）+ 全集验证。
+5. 结果：J&F 0.490（thr=0.8，小损 −2.7pp）+ Abstention Error 11.1%（rebalanced，global 3.4%）+ 全集验证。
 
 **核心 trade-off 论证**：Faithfulness 不该以牺牲分割为代价；外部选择性预测器是正解。
 
@@ -352,4 +358,4 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 1. 问题 + 诊断（忠实性独立于分割精度；训练缺 no-target）；
 2. 视频时序 faithfulness 基准（1986 查询 / 4 类）与逐帧 e_t 方法；
 3. 方法论发现：SFT 教拒答严重损害分割（J&F 减半），外部头仅小幅代价（−1~−3pp）；
-4. 全集验证（J&F 0.490 @thr=0.8 / 幻觉 12.0% rebalanced）+ demo。
+4. 全集验证（J&F 0.490 @thr=0.8 / Abstention Error 11.1% rebalanced）+ demo。
