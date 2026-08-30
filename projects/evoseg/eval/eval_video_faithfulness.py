@@ -70,7 +70,8 @@ def main():
     model = AutoModel.from_pretrained(
         args.model_path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True,
         use_flash_attn=True, trust_remote_code=True).eval().cuda()
-    model.load_temporal_head()  # GRU temporal existence head (from_pretrained re-inits it)
+    if hasattr(model, 'load_temporal_head'):
+        model.load_temporal_head()  # GRU temporal existence head (from_pretrained re-inits it)
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
     processor = AutoProcessor.from_pretrained(args.model_path, trust_remote_code=True)
 
@@ -99,9 +100,14 @@ def main():
                     pred_area[t] = float(pm.mean())
         else:
             with torch.no_grad():
-                out = model.predict_forward(
-                    video=frames, text=text, tokenizer=tokenizer, processor=processor,
-                    vlm_all_frames=True)
+                try:
+                    out = model.predict_forward(
+                        video=frames, text=text, tokenizer=tokenizer, processor=processor,
+                        vlm_all_frames=True)
+                except TypeError:
+                    # base Sa2VA (no vlm_all_frames support) -> standard video path
+                    out = model.predict_forward(
+                        video=frames, text=text, tokenizer=tokenizer, processor=processor)
             pred_masks = out['prediction_masks']
             pred = pred_masks[0] if len(pred_masks) > 0 else None
             if pred is not None:
