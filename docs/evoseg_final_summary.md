@@ -75,14 +75,15 @@
 | 指标 | Sa2VA 基线 | Faithful（图像拒答，无 verifier） | **Faithful + v6（thr=0.8）** |
 |---|---|---|---|
 | overall 幻觉（帧加权） | 91.3% | 17.0% | **12.0%** |
-| **macro 幻觉（4 类平均）** | 90.7% | 55.7% | **31.5%** |
+| **macro 幻觉（3 类有效类别平均：temporal/global/counterfactual）** | ~92% | 41.6% | **23.5%** |
 | temporal 幻觉 | 87.6% | 97.5% | **49.2%**（hardest） |
-| identity 幻觉 | 90.9% | 98.1% | **55.3%** |
 | global 幻觉 | 87.2% | 4.2% | **3.4%** |
 | counterfactual 幻觉 | 97.0% | 23.1% | **18.0%** |
 | 漏检（temporal / identity） | ~0 / ~0 | — | 19.6% / 5.7% |
 
-> **关键叙事（更新，rebalanced 后）**：图像级拒答（Faithful）已把 overall 从 91.3% 压到 17.0%（global 4.2%、counterfactual 23.1%）——但它对 **temporal/identity 几乎无效（97-98%）**，因为这两类是"mask 时序/实例级不忠实"，静态拒答看不见。**时序 verifier 专门解决图像拒答够不着的 hard cases**：temporal 97.5%→49.2%（−48pp）、identity 98.1%→55.3%（−43pp）、overall 17.0%→12.0%。这就是"图像 abstention 必要但不充分"的直接证据。
+> **指标口径（重要）**：`identity` 类不再用帧级"幻觉"（目标始终在，非空 mask ≠ 幻觉，旧"identity 幻觉"语义不成立），改用 **IDErr / IoU_tar / IoU_dist**（见 4.2b）。macro 只对 **temporal/global/counterfactual** 三个语义有效的类别取平均。
+>
+> **关键叙事（更新，rebalanced 后）**：图像级拒答（Faithful）已把 overall 从 91.3% 压到 17.0%（global 4.2%、counterfactual 23.1%）——但它对 **temporal 几乎无效（97.5%）**，因为"mask 时序不忠实"静态拒答看不见。**时序 verifier 专门解决图像拒答够不着的 hard cases**：temporal 97.5%→49.2%（−48pp）、overall 17.0%→12.0%、3 类 macro 41.6%→23.5%。identity 用 IDErr 单独报告（见 4.2b，仍是未解决点）。
 
 ### 4.2b identity 指标的重新定义（P0-2 feedback：非空 mask ≠ hallucination）
 
@@ -109,7 +110,14 @@ IDErr_t=\mathbb{1}[IoU_{dist}>IoU_{tar}]
 | mean IoU_dist（pred vs 最佳干扰实例） | 0.733 | **0.650** |
 | 平均 IoU_dist > IoU_tar 的 case 数 | 172/355 | 185/355 |
 
-**解读（诚实版）**：identity confusion 是**两类模型的共同 hard case**——基线 IDErr 33.7%、IoU_dist（0.73）远超 IoU_tar（0.49）；时序 verifier 只把 IDErr 降了 **1.2pp**、distractor 重叠从 0.73 降到 0.65（代价是目标重叠 0.49→0.45）。**结论：temporal absence 被 verifier 大幅解决（−48pp），但 identity 换人问题只被部分缓解，仍是未解决的开放点**——论文如实报告并作为 future work（可结合 distractor-aware memory / re-detection）。旧的"identity 幻觉 55.3%"（在仅 8.3% absent 帧上算）语义不清，已弃用。
+**IDErr vs 阈值（更激进拒答的权衡曲线，同一 v6 头）**：
+| thr | IDErr | IoU_tar | IoU_dist | 保留 mask 帧数 |
+|---|---|---|---|---|
+| 0.8 | 32.5% | 0.445 | 0.650 | 8623 |
+| 0.9 | 31.0% | 0.434 | 0.628 | 8150 |
+| 0.95 | **28.4%** | 0.409 | 0.588 | 7567 |
+
+**解读（诚实版）**：identity confusion 是**两类模型的共同 hard case**——基线 IDErr 33.7%、IoU_dist（0.73）远超 IoU_tar（0.49）。时序 verifier 在 thr=0.8 只把 IDErr 降了 **1.2pp**；**提高到 thr=0.95 可再降 4.1pp（→28.4%）**、distractor 重叠 0.73→0.59，但代价是目标重叠 0.49→0.41、少出 ~12% mask（漏检增加）。**结论：temporal absence 被 verifier 大幅解决（−48pp）；identity 换人只能靠更激进拒答部分缓解（32.5%→28.4%），仍是未完全解决的开放点**——论文如实报告并作为 future work（需实例级重检测 / distractor-aware memory / mask 区域级 VLM 特征）。旧的"identity 幻觉 55.3%"（在仅 8.3% absent 帧上算）语义不清，已弃用。
 
 ### 4.3 分割能力（Ref-YT-VOS valid 202 视频，官方式 J&F：空预测帧记 J=F=0、完全拒绝表达式计入分母；逐表达式 827 个）
 | 模型 | J&F | 说明 |
@@ -142,14 +150,15 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 |---|---|---|
 | overall 幻觉（全集 1986，rebalanced） | **22.22%**（raw 基线；global/cf 为 rebalanced） | **19.91% / 17.06%** |
 | temporal 幻觉 | **96.70%** | **76.3% / 54.7%** |
-| identity 幻觉 | **98.58%** | **76.9% / 52.5%** |
 | global / counterfactual 幻觉（rebalanced） | 6.33% / 31.95% | 6.1% / 30.4% → 5.45% / 27.33% |
 | 漏检（overall） | 0.42% | 1.91% / 9.73% |
+
+> identity 类不用帧级幻觉（语义同 4.2b 说明），8B 的 identity 以 IDErr/IoU 度量为准（待测，4B 为 32.5%/0.45/0.65）。
 | J&F（官方式，40 视频子集 88 表达式） | **0.486** | **0.490**（thr=0.5，基本持平） |
 
 **结论（scale transfer ✓，诚实版）**：
 1. **verifier 完整迁移到 8B**：**时序/实例级 hard cases 显著下降**——temporal 96.7%→54.7%（−42pp）、identity 98.6%→52.5%（−46pp）（thr=0.8），overall 22.2%→17.7%；J&F 基本持平（0.486→0.490，40-vid 子集，在噪声范围内）——外部 e_t 评估器不依赖 4B 特定规模；
-2. **8B 的 temporal/identity 判别弱于 4B**（54.7%/52.5% vs 4B 的 49.2%/55.3% @thr=0.8）——与 8B vlm_feat AUC 0.55 的早期发现一致（VLM 全帧特征对"目标是否还在"的判别力有限，规模不解决该问题）；
+2. **8B 的 temporal 判别弱于 4B**（54.7% vs 49.2% @thr=0.8）——与 8B vlm_feat AUC 0.55 的早期发现一致（VLM 全帧特征对时序判别的判别力有限，规模不解决该问题）；
 3. **论文定位**：主模型 = 4B（幻觉 12.0% rebalanced、J&F 0.490 @thr=0.8）；8B = 证明 verifier 的跨规模可迁移性（hard-case 幻觉 ↓、J&F 持平）；**不写"91.3%→17.7%"**（那是 4B 原始 Sa2VA 的量级），8B 基线如实报告 22.22%（图像级拒答已处理静态 no-target；注：8B 数字基于旧 elephant-heavy 集，rebalanced 后会有小幅上移）。
 
 > 训练细节：8B vlm_feat 全量提取（12036 case，~4.5s/case）→ 训 8B v6 头（vlm_dim=4096，15 epochs，val f1 0.95）→ 门控。曾踩坑：8B 头 config 的 vlm_dim 必须随模型改（否则 load_temporal_head 尺寸不匹配、门控静默失效）。
@@ -184,7 +193,7 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 **⚠️ 构造 bug 修复（类别失衡）**：早期 `build_video_faithfulness_manifest.py` 用 `absent_cats[0]` 选负样本类别（列表第一项 = 'elephant'），导致 **global_absence 99% / counterfactual 58% 都是 "elephant"**——benchmark 严重偏置。已修复为 `random.choice(absent_cats)`（17 个类别均匀采样）并重建 valid manifest（`faithfulness_valid_rebalanced.json`，1986 case 数量不变）：
 - global_absence：elephant 99% → **6%**（sheep 7% / airplane 7% / suitcase 6% / giraffe 6% / zebra 6% …）
 - counterfactual_swap：elephant 58% → **4%**
-- **global/counterfactual 幻觉数字正在用 rebalanced 集重测**（temporal/identity 不变，因为基于真实表达）；QC 抽样也已重做（elephant 仅 6%）。
+- **已全部用 rebalanced 集重测完成**：4B/8B 的 global/counterfactual 幻觉均已更新为 rebalanced 数字（4B：global 3.4%、cf 18.0%；8B：global 5.45%、cf 27.33%）；QC 抽样已重做（elephant 仅 6%）。
 
 ---
 
@@ -202,8 +211,14 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 | **YoURVOS benchmark + OMFormer**（arXiv 2603.14300，2026） | 非裁剪视频 RVOS | **temporal presence（when + where）**，target-absent frames | object-level queries + 全局时空定位 + tIoU 时序评测 | OMFormer J&F **33.7**（J 33.6 / F 33.8 / tIoU 44.9），YoURVOS：1120 非裁剪视频 / 5276 文本 |
 | MeViSv2（TPAMI 2025） | motion RVOS | no-target expressions（整段无目标） | no-target 语句 + 运动推理 | — |
 | SESAME / GSVA（图像） | Pixel-LLM | 图像级 no-target 拒答 | [REJ]/拒答 token | SESAME 33.5%、GSVA 44.6%（8905 absent） |
-| SPARROW（CVPR 2026） | video Pixel-MLLM | 时序 referential consistency（跟踪/参照稳定性） | 空间精度 + 时序一致性设计 | 不覆盖逐帧 faithfulness/refusal |
-| **本文 EvoSeg** | **统一图像-视频 Pixel-LLM + 外部 e_t 评估器** | **temporal absence + identity swap + global absence + counterfactual（逐帧 faithfulness）** | 图像拒答（近无损）+ 外部 4.5M 时序忠实度头（不碰 LLM） | 幻觉 91.3%→12.0%（rebalanced；temporal 87.6%→49.2%、identity 90.9%→55.3%）；J&F 0.490 |
+| SPARROW（CVPR 2026，UniPixel/GLUS/VideoGLaMM 三底座验证） | video Pixel-MLLM | **temporal referential consistency**：spatial drift / identity switches / 参照稳定性（让持续输出的 mask 更稳定） | 空间精度 + 时序一致性训练 | 做的是 mask 稳定输出，不提供逐帧 accept/abstain 决策 |
+| **本文 EvoSeg** | **统一图像-视频 Pixel-LLM + 外部 e_t 评估器** | **selective faithfulness**：判断当前 prediction 是否应被接受，允许 abstention/stopping（temporal absence + global absence + counterfactual + identity confusion） | 图像拒答（近无损）+ 外部 4.5M 时序忠实度头（不碰 LLM） | 幻觉 91.3%→12.0%（rebalanced）；temporal 87.6%→49.2%；J&F 0.490 |
+
+### 与 SPARROW 的差异化（P0-2 口径，必须这样写）
+**identity switch 不是我们独有的问题**——SPARROW（CVPR 2026）已明确把 spatial drift / identity switches / temporal referential consistency 作为核心，并在 UniPixel、GLUS、VideoGLaMM 三个底座上验证。我们的差异是**问题形态不同**：
+> **SPARROW：让持续输出的 mask 更稳定（temporal consistency——mask 要一直对准对的那个实例）；EvoSeg：判断当前 prediction 是否应该被接受（selective faithfulness——允许 abstention / stopping）**。
+
+即：SPARROW 解决"mask 怎么画得稳"，我们解决"mask 该不该继续画"。前者是 **temporal consistency**，后者是 **selective faithfulness / risk-aware abstention**。identity confusion 在两边都出现，但一个是"稳住它"，一个是"识别它不对就停"——我们的 e_t 门控正是后者的机制，且对 identity 的 IDErr 改善有限（32.5% vs 33.7%，诚实报告为未完全解决的开放点）。
 
 ### 与 YoURVOS 的关系（互补口径，不是"不能比"）
 - **YoURVOS is complementary**：它评测**长视频、非裁剪、目标相关性随时间变化（when-and-where localisation / target-relevant frames，tIoU 指标）**的 in-the-wild RVOS；我们的 benchmark **显式地把 prediction faithfulness 分解为 temporal absence / identity confusion / global absence / counterfactual mismatch 四类**——两者互补，YoURVOS 关注 target-relevant frames，我们显式隔离"目标仍在但 prediction 跳到错误实例"的 selective faithfulness failure；
@@ -217,16 +232,16 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 **问题**：e_t 门控阈值 thr 决定"幻觉 ↔ 漏检"的操作点。论文不只报 thr=0.8，而是给完整曲线。
 
 ### 4.7.1 presence 指标 vs 阈值（faithfulness valid 全集 1986 查询 / 52284 帧，rebalanced global/cf）
-| thr | overall 幻觉 | overall 漏检 | frame_acc | macro 幻觉 | temporal | identity | global | counterfactual |
-|---|---|---|---|---|---|---|---|---|
-| 0（无门控） | 17.04% | 0.60% | — | 55.71% | 97.5% | 98.1% | 4.2% | 23.1% |
-| 0.4 | 13.99% | 3.62% | — | 39.93% | 65.3% | 70.3% | 3.6% | 20.4% |
-| 0.5 | 13.54% | 4.50% | — | 37.86% | 61.3% | 66.6% | 3.6% | 19.9% |
-| 0.6 | 13.04% | 5.57% | — | 36.04% | 57.8% | 63.6% | 3.5% | 19.3% |
-| 0.7 | 12.58% | 7.09% | — | 34.02% | 53.9% | 60.0% | 3.4% | 18.6% |
-| **0.8** | **11.97%** | **8.85%** | — | **31.48%** | **49.2%** | **55.3%** | 3.4% | **18.0%** |
+| thr | overall 幻觉 | overall 漏检 | macro 幻觉（3 类） | temporal | global | counterfactual |
+|---|---|---|---|---|---|---|
+| 0（无门控） | 17.04% | 0.60% | 41.60% | 97.5% | 4.2% | 23.1% |
+| 0.4 | 13.99% | 3.62% | 29.77% | 65.3% | 3.6% | 20.4% |
+| 0.5 | 13.54% | 4.50% | 28.27% | 61.3% | 3.6% | 19.9% |
+| 0.6 | 13.04% | 5.57% | 26.87% | 57.8% | 3.5% | 19.3% |
+| 0.7 | 12.58% | 7.09% | 25.30% | 53.9% | 3.4% | 18.6% |
+| **0.8** | **11.97%** | **8.85%** | **23.53%** | **49.2%** | 3.4% | **18.0%** |
 
-**解读**：thr 从 0.4→0.8，整体幻觉 14.0%→12.0%（-2pp），漏检 3.6%→8.9%（+5.2pp）——典型的**选择性预测权衡曲线**；`global`/`counterfactual` 相对不受阈值影响（3.4%/18.0%），全部代价集中在 **temporal/identity 边界**（时序判别是真正 hard case）。注：与旧 elephant-heavy 集相比（overall 9.7%），rebalanced 后 overall 12.0% 更诚实——模型在 "elephant absent" 上略过拟合，泛化到多样类别略有上升。
+**解读**：thr 从 0.4→0.8，整体幻觉 14.0%→12.0%（-2pp），漏检 3.6%→8.9%（+5.2pp）——典型的**选择性预测权衡曲线**；`global`/`counterfactual` 相对不受阈值影响（3.4%/18.0%），主要代价集中在 **temporal 边界**（时序判别是真正 hard case；identity 单独见 4.2b 的 IDErr）。注：与旧 elephant-heavy 集相比（overall 9.7%），rebalanced 后 overall 12.0% 更诚实——模型在 "elephant absent" 上略过拟合，泛化到多样类别略有上升。
 
 ### 4.7.2 J&F vs 阈值（官方式 evaluator，逐表达式 827，空预测帧记 0、拒绝项计入分母）
 | thr | J&F | J | F | 完全拒绝表达式 | 幻觉(overall) | 漏检 |
@@ -248,17 +263,17 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 
 **协议**：faithfulness benchmark（rebalanced 全集 1986）上，把每个 case 的帧按 stride 降采样后重跑 Faithful+v6（thr=0.8）；延迟 = predict_forward 实测。
 
-| stride | 平均帧数 | overall 幻觉 | temporal 幻觉 | identity 幻觉 | 每 case 延迟 | 加速 |
-|---|---|---|---|---|---|---|
-| 1（全帧） | 26.3 | **12.0%** | 49.2% | 55.3% | 6.16s | 1.0× |
-| 2 | 13.3 | 12.6%（+0.6） | 54.1%（+4.9） | 61.6%（+6.3） | **3.13s** | **2.0×** |
-| 3 | 9.0 | 13.6%（+1.7） | 54.6%（+5.4） | 64.9%（+9.6） | **2.23s** | **2.8×** |
+| stride | 平均帧数 | overall 幻觉 | temporal 幻觉 | 每 case 延迟 | 加速 |
+|---|---|---|---|---|---|
+| 1（全帧） | 26.3 | **12.0%** | 49.2% | 6.16s | 1.0× |
+| 2 | 13.3 | 12.6%（+0.6） | 54.1%（+4.9） | **3.13s** | **2.0×** |
+| 3 | 9.0 | 13.6%（+1.7） | 54.6%（+5.4） | **2.23s** | **2.8×** |
 
 **8B 同款验证（跨规模一致）**：stride1 overall 17.06% / stride2 17.49%（+0.4）/ stride3 17.77%（+0.7）——**8B 对帧降采样更鲁棒**（8B VLM 每帧特征更丰富，时序信息冗余更高）。
 
 **结论（轻量化）**：
 1. **帧降采样是 graceful 的**：stride2 帧减半 → **2.0× 加速**，4B faithfulness 仅 +0.6pp、8B +0.4pp（overall）；stride3 2.8× 加速，4B +1.7pp、8B +0.7pp——**e_t/分割对时间分辨率有很强的鲁棒性，且规模越大越稳**；
-2. **identity 最敏感**（stride2 已 +6.3~7.6pp）——实例级判别需要更密的时序上下文，符合其"最难 hard case"的定位；
+2. **identity 对帧降采样也最敏感**（按 IDErr 度量，见 4.2b；实例级判别需要更密的时序上下文）——符合其"最难 hard case"的定位；
 3. **论文定位**：主结果用 stride1（全帧，最准）；轻量化部署可用 stride2（2× 加速、近无损）——给出一档可选的 speed-accuracy 操作点。
 
 **Verifier 边际成本（"4.5M 头几乎免费"的量化证据）**：base（无门控）6.070s/case vs +v6 6.131s/case，**边际 +0.061s（+1.0%）**——推理瓶颈是 VLM 全帧前向（分割共用），e_t 头本身几乎零成本。
@@ -278,18 +293,18 @@ Sa2VA 0.507 / MultiTask 0.504 / **图像 Faithful 0.516（无门控）** / Faith
 **评测**（与主模型同协议）：① faithfulness valid 幻觉（全集 1986）；② Ref-YT-VOS J&F（40 视频对照子集，与 4.4 表同子集）。
 
 **结果表**（幻觉 = faithfulness valid 全量 1986；J&F = 40 视频对照子集，同 4.4 表；c1-c3 训练统一 1500 iters）：
-| 模型 | temporal 幻觉 | identity 幻觉 | overall 幻觉 | J&F (40-vid) | 结论 |
-|---|---|---|---|---|---|
-| 图像 Faithful（对照，无视频 SFT） | — | — | — | **0.516** | 分割无损基线（40-vid 无门控） |
-| VideoFaithful（原配方 6376 iters） | 76.3% | 90.9% | 4.2% | 0.221 | 分割崩 |
-| **c1_negratio**（NoTarget×1） | 96.7% | 97.2% | 7.5% | **0.212** | 没学会拒答，分割照样崩 |
-| **c2_lr**（lr=1e-5） | 96.4% | 97.2% | 7.1% | **0.298** | 同上 |
-| **c3_lora**（r=16） | 96.6% | 96.1% | 12.6% | **0.220** | 同上 |
+| 模型 | temporal 幻觉 | overall 幻觉 | J&F (40-vid) | 结论 |
+|---|---|---|---|---|
+| 图像 Faithful（对照，无视频 SFT） | — | — | **0.516** | 分割无损基线（40-vid 无门控） |
+| VideoFaithful（原配方 6376 iters） | 76.3% | 4.2% | 0.221 | 分割崩 |
+| **c1_negratio**（NoTarget×1） | 96.7% | 7.5% | **0.212** | 没学会拒答，分割照样崩 |
+| **c2_lr**（lr=1e-5） | 96.4% | 7.1% | **0.298** | 同上 |
+| **c3_lora**（r=16） | 96.6% | 12.6% | **0.220** | 同上 |
 
-> temporal/identity 幻觉基于真实表达（rebalance 不影响）；overall 列基于 pre-rebalance 的 global/cf（elephant-heavy），rebalance 后略有上移，但不影响"分割–拒答干扰"结论（temporal/identity + J&F 才是关键证据）。
+> 表中用 temporal（帧级 presence 语义有效）与 J&F 作为"分割–拒答干扰"证据；identity 因目标始终存在、非空 mask ≠ 幻觉，不在此表用帧级幻觉（见 4.2b IDErr）。overall 列基于 pre-rebalance 的 global/cf，rebalance 后略有上移，不影响结论。
 
 **关键发现（比预期更强的证据，3 个控制全部一致）**：
-1. **三个控制（lr 1e-5 / LoRA r=16 / NoTarget×1）在 1500 iters 都没学会时序拒答**（temporal 96.4-96.7% / identity 96.1-97.2% 幻觉，≈ 基线水平）——文字级拒答（global 0.6-1.5% / counterfactual 3.3-16%）学会了，但"mask 停住"这种难拒答没学会；
+1. **三个控制（lr 1e-5 / LoRA r=16 / NoTarget×1）在 1500 iters 都没学会时序拒答**（temporal 96.4-96.7% 幻觉，≈ 基线水平）——文字级拒答（global 0.6-1.5% / counterfactual 3.3-16%）学会了，但"mask 停住"这种难拒答没学会；
 2. **但三个控制的 J&F 全部崩到 0.21-0.30**（0.205 / 0.290 / 0.214，基线 0.516）——**在我们测试的配置范围内，分割–拒答干扰持续出现**：zero-mask 时序监督对 mask decoder 的损伤与"拒答有没有学会"无关，且不受 LR / LoRA 容量 / 负样本比例的调节；
 3. 这比"SFT 教拒答→分割崩"更彻底：**只要视频 faithfulness SFT 包含 absent 帧的 zero-mask 监督，分割能力就被打掉一半以上**——该干扰在测试的负样本比例、学习率、LoRA 容量三个维度上都持续存在。
 
