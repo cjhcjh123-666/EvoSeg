@@ -166,14 +166,17 @@ def main():
                     d_ = abs(float(va) - float(vb))
                     cont[name].append(d_)
                     row['max_abs_delta'][name] = max(row['max_abs_delta'].get(name, 0.0), d_)
-            fa = [r['id_err'] for r in (ra.get('raw') or {}).get('per_frame', [])]
-            fb = [r['id_err'] for r in (rb.get('raw') or {}).get('per_frame', [])]
+            # frame-level comparison follows the compared stream (raw by default,
+            # or the named stream when the reference is a flat schema-v1 file)
+            fblock = args.reference_flat_stream or 'raw'
+            fa = [r['id_err'] for r in (ra.get(fblock) or {}).get('per_frame', [])]
+            fb = [r['id_err'] for r in (rb.get(fblock) or {}).get('per_frame', [])]
             if len(fa) == len(fb) and fa:
                 frame_total += len(fa)
                 frame_equal += int(sum(1 for x, y in zip(fa, fb) if x == y))
                 frame_iou_deltas += [abs(x['iou_target'] - y['iou_target'])
-                                     for x, y in zip((ra.get('raw') or {}).get('per_frame', []),
-                                                     (rb.get('raw') or {}).get('per_frame', []))]
+                                     for x, y in zip((ra.get(fblock) or {}).get('per_frame', []),
+                                                     (rb.get(fblock) or {}).get('per_frame', []))]
                 row['frame_id_err_equal_frac'] = float(
                     np.mean([x == y for x, y in zip(fa, fb)]))
         per_case.append(row)
