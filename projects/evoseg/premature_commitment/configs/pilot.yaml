@@ -19,6 +19,11 @@ audit:            # M5.0
   n_cases: 20
   prefixes: [0.2, 0.4, 0.6, 0.8, 1.0]
   seed: 0
+  schema_version: 2        # raw_masks primary, gated secondary, other-query calibration
+  identity_stream: raw     # never 'gated' for identity claims
+  calib_other_query: true  # extra run with a different expression of the same video
+  shard_count: 4           # one GPU per shard; results merged by case_id
+  window_cap: 5            # upper bound on the per-case common window W_i
 
 mining:           # M5.1
   pool_size: 250

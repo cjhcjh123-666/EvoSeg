@@ -2,10 +2,10 @@
  "reference": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/P0_prefix_audit_identity_swap_n20.json",
  "shards": [
   {
-   "shard": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/repro/P0_prefix_audit_identity_swap_repro_shard0.json",
-   "meta": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/repro/P0_prefix_audit_identity_swap_repro_shard0.meta.json",
-   "git_sha": "4559c331cc8474320c17c7eb238f5b43a2dccb50",
-   "command": "projects/evoseg/premature_commitment/audit_inference_information_flow.py --n-cases 20 --category identity_swap --shard-index 0 --shard-count 4 --tag repro_shard0 --out-dir /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/repro",
+   "shard": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2/P0_prefix_audit_identity_swap_v2_shard0.json",
+   "meta": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2/P0_prefix_audit_identity_swap_v2_shard0.meta.json",
+   "git_sha": "b02664a2c0b839138610a89096bbdc527106fc5a",
+   "command": "projects/evoseg/premature_commitment/audit_inference_information_flow.py --n-cases 20 --category identity_swap --shard-index 0 --shard-count 4 --tag v2_shard0 --out-dir /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2",
    "shard_index": 0,
    "shard_count": 4,
    "case_ids": [
@@ -17,10 +17,10 @@
    ]
   },
   {
-   "shard": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/repro/P0_prefix_audit_identity_swap_repro_shard1.json",
-   "meta": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/repro/P0_prefix_audit_identity_swap_repro_shard1.meta.json",
-   "git_sha": "4559c331cc8474320c17c7eb238f5b43a2dccb50",
-   "command": "projects/evoseg/premature_commitment/audit_inference_information_flow.py --n-cases 20 --category identity_swap --shard-index 1 --shard-count 4 --tag repro_shard1 --out-dir /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/repro",
+   "shard": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2/P0_prefix_audit_identity_swap_v2_shard1.json",
+   "meta": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2/P0_prefix_audit_identity_swap_v2_shard1.meta.json",
+   "git_sha": "b02664a2c0b839138610a89096bbdc527106fc5a",
+   "command": "projects/evoseg/premature_commitment/audit_inference_information_flow.py --n-cases 20 --category identity_swap --shard-index 1 --shard-count 4 --tag v2_shard1 --out-dir /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2",
    "shard_index": 1,
    "shard_count": 4,
    "case_ids": [
@@ -32,10 +32,10 @@
    ]
   },
   {
-   "shard": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/repro/P0_prefix_audit_identity_swap_repro_shard2.json",
-   "meta": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/repro/P0_prefix_audit_identity_swap_repro_shard2.meta.json",
-   "git_sha": "4559c331cc8474320c17c7eb238f5b43a2dccb50",
-   "command": "projects/evoseg/premature_commitment/audit_inference_information_flow.py --n-cases 20 --category identity_swap --shard-index 2 --shard-count 4 --tag repro_shard2 --out-dir /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/repro",
+   "shard": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2/P0_prefix_audit_identity_swap_v2_shard2.json",
+   "meta": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2/P0_prefix_audit_identity_swap_v2_shard2.meta.json",
+   "git_sha": "b02664a2c0b839138610a89096bbdc527106fc5a",
+   "command": "projects/evoseg/premature_commitment/audit_inference_information_flow.py --n-cases 20 --category identity_swap --shard-index 2 --shard-count 4 --tag v2_shard2 --out-dir /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2",
    "shard_index": 2,
    "shard_count": 4,
    "case_ids": [
@@ -47,10 +47,10 @@
    ]
   },
   {
-   "shard": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/repro/P0_prefix_audit_identity_swap_repro_shard3.json",
-   "meta": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/repro/P0_prefix_audit_identity_swap_repro_shard3.meta.json",
-   "git_sha": "4559c331cc8474320c17c7eb238f5b43a2dccb50",
-   "command": "projects/evoseg/premature_commitment/audit_inference_information_flow.py --n-cases 20 --category identity_swap --shard-index 3 --shard-count 4 --tag repro_shard3 --out-dir /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/repro",
+   "shard": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2/P0_prefix_audit_identity_swap_v2_shard3.json",
+   "meta": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2/P0_prefix_audit_identity_swap_v2_shard3.meta.json",
+   "git_sha": "b02664a2c0b839138610a89096bbdc527106fc5a",
+   "command": "projects/evoseg/premature_commitment/audit_inference_information_flow.py --n-cases 20 --category identity_swap --shard-index 3 --shard-count 4 --tag v2_shard3 --out-dir /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2",
    "shard_index": 3,
    "shard_count": 4,
    "case_ids": [
@@ -68,31 +68,37 @@
  "cases_only_in_reference": [],
  "cases_only_in_reproduction": [],
  "discrete": {
-  "n_compared": 480,
-  "n_equal": 480,
+  "n_compared": 720,
+  "n_equal": 720,
   "equal_frac": 1.0,
   "n_mismatch": 0
  },
  "continuous_abs_delta": {
-  "iou_target_mean": {
+  "gated.iou_target_mean": {
    "n": 120,
    "mean": 0.0,
    "max": 0.0,
    "n_over_atol": 0
   },
-  "iou_distractor_mean": {
+  "gated.iou_distractor_mean": {
    "n": 120,
    "mean": 0.0,
    "max": 0.0,
    "n_over_atol": 0
   },
-  "identity_margin_mean": {
+  "gated.identity_margin_mean": {
    "n": 120,
    "mean": 0.0,
    "max": 0.0,
    "n_over_atol": 0
   },
-  "id_err_rate": {
+  "gated.id_err_rate": {
+   "n": 120,
+   "mean": 0.0,
+   "max": 0.0,
+   "n_over_atol": 0
+  },
+  "gated.empty_rate": {
    "n": 120,
    "mean": 0.0,
    "max": 0.0,
@@ -100,11 +106,11 @@
   }
  },
  "frame_level": {
-  "n_frames_compared": 1909,
-  "n_id_err_equal": 1909,
-  "id_err_equal_frac": 1.0,
-  "iou_target_abs_delta_mean": 0.0,
-  "iou_target_abs_delta_max": 0.0
+  "n_frames_compared": 0,
+  "n_id_err_equal": 0,
+  "id_err_equal_frac": null,
+  "iou_target_abs_delta_mean": null,
+  "iou_target_abs_delta_max": null
  },
  "atol": 0.0,
  "discrete_mismatches": [],
@@ -114,240 +120,260 @@
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "0e8a6b63bb:5",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "246e38963b:5",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "30fe0ed0ce:8",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "33c8dcbe09:3",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "35948a7fca:3",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "3dd327ab4e:2",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "54526e3c66:4",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "65350fd60a:1",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "696e01387c:2",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "7a19a80b19:3",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "a4bce691c6:1",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "a806e58451:1",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "a806e58451:2",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "b00ff71889:0",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "b5514f75d8:1",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "d1ac0d8b81:3",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "eb263ef128:5",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "f143fede6f:2",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   },
   {
    "case_id": "f3678388a7:0",
    "n_runs": 6,
    "discrete_mismatches": [],
    "max_abs_delta": {
-    "iou_target_mean": 0.0,
-    "iou_distractor_mean": 0.0,
-    "identity_margin_mean": 0.0,
-    "id_err_rate": 0.0
+    "gated.iou_target_mean": 0.0,
+    "gated.iou_distractor_mean": 0.0,
+    "gated.identity_margin_mean": 0.0,
+    "gated.id_err_rate": 0.0,
+    "gated.empty_rate": 0.0
    },
-   "frame_id_err_equal_frac": 1.0
+   "frame_id_err_equal_frac": null
   }
  ]
 }

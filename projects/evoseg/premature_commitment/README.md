@@ -6,9 +6,13 @@ This directory implements the M5 research pilot defined in **Issue #3**:
 **Goal of M5 is diagnosis, not a new model.** No Agent, RL, controller,
 belief network, new verifier or SAM3.1 integration belongs here.
 
-> **Status: pilot complete, verdict NO-GO for the prefix-causal
-> "premature commitment" hypothesis** — see
-> `docs/premature_commitment/pilot_report.md`.
+> **Status: pilot complete (revision 2).**
+> **NO-GO for the prefix-causal "premature commitment" hypothesis — and that is
+> not a NO-GO for EvoSeg.** The surviving finding is a *candidate* one: the
+> single query-level conditioning token is not turned into a better referent by
+> showing the VLM more of the video (controlled A/B: IDErr 25.0 % → 35.0 %,
+> paired +10.0 pp [1.0, 22.0] on identical frames and identical propagation).
+> See `docs/premature_commitment/pilot_report.md` §3.1 and §7.
 
 ## Layout
 
@@ -17,10 +21,14 @@ projects/evoseg/premature_commitment/
   utils.py                              shared paths / GT masks / metrics helpers
   metrics.py                            identity + commitment metrics, bootstrap CIs
   audit_inference_information_flow.py   M5.0 prefix / information-flow audit
+                                        (schema v2: raw_masks primary, gated secondary,
+                                         other-query cosine calibration, sharding)
   mine_ambiguous_candidates.py          M5.1 ambiguous-referent candidate miner
   build_annotation_bundle.py            M5.2 human annotation bundle generator
-  eval_prefix_identity.py               M5.3 prefix identity curve + full-vs-prefix
-  eval_delayed_commit.py                M5.3 delayed / ORACLE_* headroom diagnostics
+  eval_prefix_identity.py               M5.3 prefix identity: strict per-case common
+                                        window, controlled VLM-evidence A/B, gate check
+  eval_delayed_commit.py                M5.3 delayed / ORACLE_* headroom (horizon-matched)
+  verify_reproduction.py                determinism / reproduction checks
   configs/pilot.yaml                    default paths + flags for the pilot
   tests/                                smoke tests (no model download required)
 ```
@@ -64,12 +72,13 @@ for the GO / NO-GO decision.
 | P1 candidate mining | `docs/premature_commitment/P1_candidate_mining.md` |
 | P2 annotation protocol | `docs/premature_commitment/P2_pilot_protocol.md` |
 | pilot report + GO/NO-GO | `docs/premature_commitment/pilot_report.md` |
-| raw P0 diagnostics | `docs/premature_commitment/results/P0_prefix_audit_identity_swap_n20.json` |
+| **raw-mask P0 diagnostics (schema v2, primary)** | `docs/premature_commitment/results/P0_prefix_audit_v2_identity_swap_n20.json` |
+| gated P0 diagnostics (revision 1, superseded) | `docs/premature_commitment/results/P0_prefix_audit_identity_swap_n20.json` |
 | candidate pool / summary / stats | `docs/premature_commitment/results/candidate_{pool.json,summary.csv,stats.json}` |
-| prefix identity curve + CIs | `docs/premature_commitment/results/prefix_identity_eval.json` |
-| delayed / ORACLE_* headroom | `docs/premature_commitment/results/delayed_oracle_headroom.json` |
-| reproduction check (P0 re-inferred on 4 GPUs) | `docs/premature_commitment/results/reproduction_check.json` |
-| prefix identity curve plot | `docs/premature_commitment/figures/prefix_identity_curve.png` |
+| **prefix identity, common window + CIs (v2)** | `docs/premature_commitment/results/prefix_identity_eval_v2.json` |
+| **delayed / ORACLE_* headroom, horizon-matched (v2)** | `docs/premature_commitment/results/delayed_oracle_headroom_v2.json` |
+| determinism check (revision 1 == v2 gated stream) | `docs/premature_commitment/results/reproduction_check.json` |
+| prefix identity curve plot (v2) | `docs/premature_commitment/figures/prefix_identity_curve_v2.png` |
 | annotation bundle index | `docs/premature_commitment/results/annotation_bundle_index.json` |
 
 Heavy per-run artifacts (raw per-frame IoUs, propagated masks, the 4 817-frame

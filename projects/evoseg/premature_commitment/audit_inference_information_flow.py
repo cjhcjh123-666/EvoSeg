@@ -7,12 +7,29 @@ Runs the SAME video/query through the real EvoSeg/Sa2VA inference path under:
   * the default VLM path (`vlm_all_frames=False`, i.e. only the first 5 frames
     reach the VLM) on the full video, for the full-video-vs-prefix comparison.
 
-For every run it records: decoded text, whether `[SEG]` was emitted, the
+Two mask streams are recorded for every run, and they are NOT the same thing:
+
+  raw    — the SAM2 propagation output before the temporal verifier gate
+           (`model._raw_masks`), i.e. segmentation + tracking only;
+  gated  — the final system output (`prediction_masks`), i.e. raw * e_t.
+
+Identity analysis uses **raw**, because the gated stream mixes referent identity
+with the verifier's abstention: a gated-off frame is empty, and an empty frame
+counts as "no identity error" under the IoU comparison. The gated numbers are
+kept as a secondary, clearly labelled result.
+
+For every run it also records: decoded text, whether `[SEG]` was emitted, the
 projected `[SEG]` / segmentation-conditioning vector, cosine similarity of that
-vector against the 100%-prefix vector, first non-empty mask frame, per-frame
-target IoU / max-distractor IoU / identity margin / IDErr / empty flag, the
-resulting identity decision, and the SAM2 prompt/propagation frame counts the
-architecture implies (prompt on the first min(5, N) frames, propagate over all).
+vector against the 100%-prefix vector, per-frame target IoU / max-distractor
+IoU / identity margin / IDErr / empty flag, the resulting identity decision, and
+the SAM2 prompt/propagation frame counts the architecture implies (prompt on the
+first min(5, N) frames, propagate over all).
+
+Optionally (default on) one extra run per case uses a *different* expression of
+the same video, to calibrate what a given cosine similarity between two `[SEG]`
+vectors means.
+
+Output schema version 2 (see `schema_version` in the JSON).
 
 Nothing here is tuned on GT: GT masks are used ONLY to compute metrics.
 
@@ -71,7 +88,31 @@ def parse_args():
     ap.add_argument('--shard-count', type=int, default=1)
     ap.add_argument('--tag', default=None,
                     help='override the output filename tag (default: n<#cases>)')
+    ap.add_argument('--no-calib-other-query', action='store_true',
+                    help='skip the extra run with a different expression of the same '
+                         'video used to calibrate [SEG] cosine similarity')
     return ap.parse_args()
+
+
+def mask_stream(obj, n_frames, label):
+    """[T,H,W] tensor / ndarray -> (list of bool masks, available flag, reason).
+
+    A stream that is missing, or whose frame count does not match the video, is
+    reported explicitly instead of being silently reused (a stale `_raw_masks`
+    from a previous call would look plausible but belong to another video).
+    """
+    if obj is None:
+        return [None] * n_frames, False, f'{label}: not returned by predict_forward'
+    arr = obj.detach().cpu().numpy() if hasattr(obj, 'detach') else np.asarray(obj)
+    if arr.ndim == 4 and arr.shape[0] == 1:
+        arr = arr[0]
+    if arr.ndim != 3:
+        return [None] * n_frames, False, f'{label}: unexpected shape {arr.shape}'
+    if arr.shape[0] != n_frames:
+        return [None] * n_frames, False, (
+            f'{label}: {arr.shape[0]} frames for a {n_frames}-frame input '
+            f'(stale buffer?) — treated as unavailable')
+    return [arr[t] > 0 for t in range(n_frames)], True, None
 
 
 def select_cases(cases, category, n, seed):
@@ -116,16 +157,28 @@ def run_once(model, tok, proc, frames, query, vlm_all_frames):
     info['iou_state_head_present'] = iou_state is not None
 
     pm = out.get('prediction_masks')
-    masks = []
-    if pm:
-        pred = pm[0]
-        masks = [np.asarray(pred[t]) > 0 if t < len(pred) else None
-                 for t in range(len(frames))]
-    else:
-        masks = [None] * len(frames)
-    info['n_masks'] = len(masks)
+    n_t = len(frames)
+    gated, gated_ok, gated_reason = mask_stream(
+        pm[0] if pm else None, n_t, 'prediction_masks (gated)')
+    raw, raw_ok, raw_reason = mask_stream(out.get('raw_masks'), n_t, 'raw_masks')
+    if not raw_ok:
+        # Explicit, recorded fallback: without the pre-gate stream the identity
+        # metrics would silently become "gated identity", which is a different
+        # quantity. Say so instead.
+        print(f'  [warn] raw mask stream unavailable ({raw_reason}); '
+              f'identity metrics fall back to the GATED stream for this run', flush=True)
+    info['n_masks'] = len(gated)
     info['n_seg_tokens'] = int(len(pm)) if pm else 0
-    return info, masks
+    info['raw_available'] = bool(raw_ok)
+    info['raw_unavailable_reason'] = raw_reason
+    info['gated_available'] = bool(gated_ok)
+    info['gated_unavailable_reason'] = gated_reason
+    info['e_logit'] = None
+    el = out.get('e_logit')
+    if el is not None:
+        el = el.detach().cpu().numpy() if hasattr(el, 'detach') else np.asarray(el)
+        info['e_logit'] = np.asarray(el).reshape(-1).astype(float).tolist()
+    return info, raw, gated
 
 
 def audit_case(case, model, tok, proc, args, meta):
@@ -147,7 +200,8 @@ def audit_case(case, model, tok, proc, args, meta):
         'runs': [],
     }
 
-    def summarise(info, masks, n_used, prefix_frac, mode):
+    def stream_metrics(masks, n_used):
+        """Per-frame identity metrics for one mask stream (raw or gated)."""
         per_frame = []
         first_nonempty = None
         for t in range(n_used):
@@ -160,16 +214,7 @@ def audit_case(case, model, tok, proc, args, meta):
                 first_nonempty = t
             per_frame.append(st)
         nonempty = [r for r in per_frame if not r['empty']]
-        d = {
-            'mode': mode,
-            'prefix_fraction': prefix_frac,
-            'n_frames_used': n_used,
-            'has_seg': info['has_seg'],
-            'text': info['text'],
-            'vlm_all_frames_requested': info['vlm_all_frames_requested'],
-            'vlm_all_frames_fallback': info['vlm_all_frames_fallback'],
-            'seg_vec': info['seg_vec'],
-            'seg_vec_dim': info['seg_vec_dim'],
+        return {
             'first_nonempty_frame': first_nonempty,
             'n_nonempty_frames': len(nonempty),
             'iou_target_mean': float(np.mean([r['iou_target'] for r in per_frame])) if per_frame else None,
@@ -180,29 +225,100 @@ def audit_case(case, model, tok, proc, args, meta):
             'identity_decision': ('empty' if not nonempty else
                                   'target' if np.mean([r['identity_margin'] for r in nonempty]) >= 0 else
                                   'distractor'),
+            'per_frame': per_frame,
+        }
+
+    def summarise(info, raw_masks, gated_masks, n_used, prefix_frac, mode, other_query=None):
+        d = {
+            'mode': mode,
+            'prefix_fraction': prefix_frac,
+            'n_frames_used': n_used,
+            'has_seg': info['has_seg'],
+            'text': info['text'],
+            'vlm_all_frames_requested': info['vlm_all_frames_requested'],
+            'vlm_all_frames_fallback': info['vlm_all_frames_fallback'],
+            'seg_vec': info['seg_vec'],
+            'seg_vec_dim': info['seg_vec_dim'],
             'sam2_prompt_frames': int(min(N_DEFAULT_PROMPT_FRAMES, n_used)),
             'sam2_propagation_frames': int(n_used),
-            'per_frame': per_frame,
+            'other_query': other_query,
+            'raw_available': info['raw_available'],
+            'raw_unavailable_reason': info['raw_unavailable_reason'],
+            'gated_available': info['gated_available'],
+            'e_logit': info['e_logit'],
+            # PRIMARY stream: segmentation + tracking, before the verifier gate.
+            'raw': stream_metrics(raw_masks, n_used),
+            # SECONDARY stream: final system output (raw * e_t), mixes identity
+            # with the verifier's abstention — never used for identity claims.
+            'gated': stream_metrics(gated_masks, n_used) if info['gated_available'] else None,
         }
         return d
 
     # ---- prefix runs (all frames to the VLM within the prefix) ----
+    def add_run(info, raw, gated, n_used, frac, mode, other_query=None):
+        """Append one run; falls back to the gated stream only if raw is missing."""
+        if info['raw_available']:
+            use_raw, stream_used = raw, 'raw'
+        else:
+            use_raw, stream_used = gated, 'gated_fallback'
+        d = summarise(info, use_raw, gated, n_used, frac, mode, other_query=other_query)
+        d['identity_stream_used'] = stream_used
+        rec['runs'].append(d)
+        return d
+
     for frac in sorted(args.prefixes):
         n_used = max(args.min_prefix_frames, int(round(frac * T)))
         n_used = min(n_used, T)
-        info, masks = run_once(model, tok, proc, frames_all[:n_used], case['query'],
-                               vlm_all_frames=True)
-        rec['runs'].append(summarise(info, masks, n_used, float(frac), 'prefix_vlm_all_frames'))
+        info, raw, gated = run_once(model, tok, proc, frames_all[:n_used], case['query'],
+                                    vlm_all_frames=True)
+        d = add_run(info, raw, gated, n_used, float(frac), 'prefix_vlm_all_frames')
         print(f'  [{rec["case_id"]}] prefix={frac:.2f} n={n_used} seg={info["has_seg"]} '
-              f'id={rec["runs"][-1]["identity_decision"]} '
-              f'iou_t={rec["runs"][-1]["iou_target_mean"]} '
-              f'iou_d={rec["runs"][-1]["iou_distractor_mean"]}', flush=True)
+              f'id={d["raw"]["identity_decision"]} '
+              f'iou_t={d["raw"]["iou_target_mean"]:.4f} '
+              f'iou_d={d["raw"]["iou_distractor_mean"]:.4f} '
+              f'stream={d["identity_stream_used"]}', flush=True)
 
     # ---- default VLM path on the full video (only first 5 frames reach the VLM) ----
-    info, masks = run_once(model, tok, proc, frames_all, case['query'], vlm_all_frames=False)
-    rec['runs'].append(summarise(info, masks, T, 1.0, 'full_video_default_vlm_first5'))
-    print(f'  [{rec["case_id"]}] default(first-5 VLM) id={rec["runs"][-1]["identity_decision"]} '
-          f'iou_t={rec["runs"][-1]["iou_target_mean"]}', flush=True)
+    info, raw, gated = run_once(model, tok, proc, frames_all, case['query'],
+                                vlm_all_frames=False)
+    d = add_run(info, raw, gated, T, 1.0, 'full_video_default_vlm_first5')
+    print(f'  [{rec["case_id"]}] default(first-5 VLM) '
+          f'id={d["raw"]["identity_decision"]} iou_t={d["raw"]["iou_target_mean"]:.4f} '
+          f'stream={d["identity_stream_used"]}', flush=True)
+
+    # ---- calibration run: a DIFFERENT expression of the same video ----
+    # Gives the scale for "how different are two [SEG] vectors when the query is
+    # really different", without which a cosine of 0.96 is uninterpretable.
+    rec['calib'] = None
+    if not args.no_calib_other_query:
+        exps = meta[case['video_id']]['expressions']
+        others = [(str(eid), e['exp']) for eid, e in exps.items()
+                  if str(eid) != str(case.get('exp_id'))]
+        if others:
+            oid, oquery = others[0]
+            info_c, raw_c, gated_c = run_once(model, tok, proc, frames_all, oquery,
+                                              vlm_all_frames=False)
+            v_c = info_c.get('seg_vec')
+            v_full = None
+            for r in rec['runs']:
+                if r['mode'] == 'full_video_default_vlm_first5':
+                    v_full = r['seg_vec']
+            cos_oq = None
+            if v_c is not None and v_full is not None:
+                a = np.asarray(v_c, dtype=np.float32)
+                b = np.asarray(v_full, dtype=np.float32)
+                den = float(np.linalg.norm(a) * np.linalg.norm(b))
+                cos_oq = float(np.dot(a, b) / den) if den > 0 else None
+            rec['calib'] = {
+                'other_exp_id': oid, 'other_query': oquery,
+                'same_frames': True, 'vlm_all_frames': False,
+                'cos_to_full_prefix_segvec': cos_oq,
+                'seg_vec_dim': info_c.get('seg_vec_dim'),
+            }
+            print(f'  [{rec["case_id"]}] calib cos(other query)={cos_oq}', flush=True)
+        else:
+            print(f'  [{rec["case_id"]}] calib skipped: no other expression in video',
+                  flush=True)
 
     # ---- cosine similarity of the [SEG] vector vs the 100% prefix ----
     full = [r for r in rec['runs'] if r['mode'] == 'prefix_vlm_all_frames'
@@ -261,11 +377,16 @@ def main():
         records.append(audit_case(case, model, tok, proc, args, meta))
 
     out = {
+        'schema_version': 2,
         'category': args.category,
         'model_path': model_path,
         'manifest': args.manifest,
         'prefix_fractions': args.prefixes,
         'temporal_head_loaded': head_loaded,
+        'identity_stream': 'raw_masks (pre-gate SAM2 propagation)',
+        'secondary_stream': 'gated prediction_masks (raw * e_t), recorded but never '
+                            'used for identity claims',
+        'calib_other_query': not args.no_calib_other_query,
         'records': records,
     }
     tag = args.tag or ('dryrun' if args.dry_run else f'n{len(cases)}')
@@ -297,6 +418,11 @@ def main():
                        n_cases_selected_before_sharding=n_selected,
                        case_ids=[c['video_id'] + ':' + str(c['exp_id']) for c in cases],
                        temporal_head_loaded=head_loaded,
+                       schema_version=2,
+                       identity_stream='raw_masks',
+                       secondary_stream='gated prediction_masks',
+                       calib_other_query=not args.no_calib_other_query,
+                       n_runs_per_case=len(args.prefixes) + 2,
                        output=out_path)
 
 

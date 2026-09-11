@@ -27,6 +27,30 @@ is unchanged; see §6 of `pilot_report.md`.
 
 ---
 
+**Revision note (2026-09-11, M5.5 — after review).** §0–§6 below were written on
+the *gated* mask stream (`prediction_masks` = raw \* e_t) and with each prefix
+averaged over its **own** horizon. Both are wrong for the questions this document
+asks, and both are fixed in the schema-v2 audit:
+
+* identity is now measured on **`raw_masks`** (pre-gate SAM2 propagation). The
+  gated stream mixes referent identity with the verifier's abstention, and an
+  abstained (empty) frame scores `id_err = 0`;
+* every cross-prefix number now uses a strict per-case common window
+  `W_i = min(sam2_prompt_frames)`, the *same* frames for both sides (revision 1
+  compared 80 frames against 100 while claiming they were identical);
+* `cos = 0.960` is now calibrated against a **different query on the same video**
+  (0.761), and the headline number for "does more evidence help" is the
+  horizon-free controlled A/B in `pilot_report.md` §3.1.
+
+Corrected numbers (raw masks, common window, 20 cases): prefix 0.2 → 1.0 gives
+`IDErr` **23.0 % → 35.0 %** (paired **+12.0 pp [0.0, +26.0]**), and the
+horizon-free comparison (VLM first-5 vs VLM all-frames, same prompt frames, same
+propagation) gives **25.0 % → 35.0 %** (paired **+10.0 pp [+1.0, +22.0]**). The
+*direction* of every conclusion below survives; magnitudes and the
+`0.960`-based phrasing are superseded. See `pilot_report.md` §3 and §7.
+
+---
+
 ## 0. TL;DR — decision
 
 1. The official Ref-YT-VOS runner feeds **all sampled frames to the VLM**
@@ -85,6 +109,14 @@ identity margin, IDErr and empty flags.
 
 ### 2.1 Prefix identity curve (case-macro over 20 cases)
 
+> ⚠️ **Superseded on two counts — see the revision note at the top.** These
+> numbers come from the **gated** stream (`prediction_masks` = raw \* e_t) and
+> each prefix is averaged over its **own** horizon, so a prefix with 5 frames is
+> not comparable to one with 24. Corrected (raw masks, identical per-case window):
+> `IDErr` 23.0 / 31.0 / 30.0 / 31.2 / 35.0 % for prefixes 0.2 → 1.0. The table is
+> kept because the *direction* of every observation is unchanged and the size of
+> the confound is itself informative.
+
 | prefix | avg frames | decisions (target/distractor/empty) | IoU_t | IoU_d | margin | IDErr | cos([SEG])→full |
 |---|---|---|---|---|---|---|---|
 | 0.2 | 5 | 14 / 5 / 1 | 0.479 | 0.198 | **+0.280** | **25.5%** | 0.960 |
@@ -109,6 +141,12 @@ Observations that matter:
 ### 2.2 Is the degradation propagation drift, or the referent choice?
 
 Scoring the **same first-5 frames** but with different evidence volume:
+
+> ⚠️ **Superseded**: the v1 pairing did not actually align the windows (80 vs 100
+> frames, because short videos have prefixes shorter than 5). The strict version
+> (per-case `W_i`, raw masks) is `IDErr 23.0 % → 35.0 %`, paired
+> **+12.0 pp [0.0, +26.0]**; the horizon-free version is `25.0 % → 35.0 %`, paired
+> **+10.0 pp [+1.0, +22.0]** (`pilot_report.md` §3.1–§3.2).
 
 | run | IoU_t (first 5 frames) | IDErr (first 5 frames) | decision agreement |
 |---|---|---|---|
@@ -142,6 +180,16 @@ referent.
 ## 3. P0 decision gate
 
 ### Chosen formulation: **B — offline hard referential commitment / single-hypothesis bottleneck**
+
+> ⚠️ **Downgraded to a *candidate* finding after review (M5.5).** B is still the
+> best description of the *mechanism available in code*, but this audit does not
+> establish that the single hypothesis is the **cause** of the identity errors:
+> that would need an architecture that can hold multiple hypotheses, or an
+> `ORACLE_ID`-style isolation diagnostic. What is measured is (i) exactly one
+> hypothesis exists, (ii) the conditioning is nearly invariant to evidence volume
+> (calibrated: 0.988 same-query vs 0.761 different-query), and (iii) identity does
+> not improve — and in the horizon-free controlled A/B *degrades* — when the VLM
+> sees more. See `pilot_report.md` §4 (Q5) and §7.
 
 Evidence:
 

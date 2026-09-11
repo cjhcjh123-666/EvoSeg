@@ -1,0 +1,27 @@
+{
+ "timestamp": "2026-09-11T17:45:21",
+ "command": "projects/evoseg/premature_commitment/eval_delayed_commit.py --audit /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2/*_shard[0-9].json --out-dir /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/headroom_v2",
+ "script": "/9950backfile/chenjiahui/EvoSeg/projects/evoseg/premature_commitment/eval_delayed_commit.py",
+ "git_sha": "b02664a2c0b839138610a89096bbdc527106fc5a",
+ "audit_files": [
+  "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2/P0_prefix_audit_identity_swap_v2_shard0.json",
+  "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2/P0_prefix_audit_identity_swap_v2_shard1.json",
+  "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2/P0_prefix_audit_identity_swap_v2_shard2.json",
+  "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/v2/P0_prefix_audit_identity_swap_v2_shard3.json"
+ ],
+ "model": "/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-Faithful",
+ "dataset": "Ref-YT-VOS valid",
+ "ann_root": "/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/extracted/valid/Annotations",
+ "jpeg_root": "/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/extracted/valid/JPEGImages",
+ "manifest": "/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/faithfulness_valid.json",
+ "seed": 0,
+ "bootstrap_resamples": 1000,
+ "stream": "raw",
+ "window_cap": 5,
+ "normal_fraction": 1.0,
+ "gpu": "none",
+ "world_size": 1,
+ "new_inference": false,
+ "oracle_usage": "ORACLE_TIMING* uses GT only to choose the prefix (upper bound, not a method); DELAYED/ORACLE_ID are non-implementable, not methods",
+ "n_cases": 20
+}
