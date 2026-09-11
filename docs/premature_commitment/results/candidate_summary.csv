@@ -1,0 +1,251 @@
+video_id,exp_id,target_obj_id,target_category,query,n_same_cat,n_other,co_visible_frames,co_visible_ratio,min_centroid_dist_norm,max_dilated_overlap,target_gap_frames,target_absent_frames,query_type,rank_score,in_top_k
+226f1e10f7,7,4,sheep,a baby white sheep on the left side towards the back by the edge of grass on the right of larger one,4,4,27,0.9,0.0256,0.2432,1,1,multi_relation,10.4438,1
+b00ff71889,2,2,person,a person wearing a grey long sleeved shirt is flying in the air with another holding on to them,1,3,36,1.0,0.0168,0.2943,0,0,multi_relation,9.6117,1
+b00ff71889,3,2,person,an amateur sky diver strapped under a person wearing a red helmet,1,3,36,1.0,0.0168,0.2943,0,0,multi_relation,9.6117,1
+226f1e10f7,6,4,sheep,the smallest baby sheep of the herd,4,4,27,0.9,0.0256,0.2432,1,1,other,9.308,1
+226f1e10f7,2,2,sheep,a baby sheep walking behind the white baby sheep,4,4,24,1.0,0.0454,0.1549,0,7,motion,8.2395,1
+226f1e10f7,3,2,sheep,a small white sheep is behind another small one on the left by the edge of the grass,4,4,24,1.0,0.0454,0.1549,0,7,multi_relation,8.2395,1
+226f1e10f7,8,5,sheep,a sheep walking behind the smallest baby sheep,4,4,28,1.0,0.0256,0.1384,0,3,motion,7.8856,1
+226f1e10f7,9,5,sheep,a larger tan sheep on the left in the back among the group with a smaller white baby to the right of it,4,4,28,1.0,0.0256,0.1384,0,3,multi_relation,7.8856,1
+b00ff71889,0,1,person,a person wearing a red helmet and black shirt flying in the air with a parachute,1,3,36,1.0,0.0168,0.2064,0,0,multi_relation,7.5022,1
+b00ff71889,1,1,person,a skydiver wearing a red helmet carrying another person under them,1,3,36,1.0,0.0168,0.2064,0,0,multi_relation,7.5022,1
+226f1e10f7,4,3,sheep,a brown sheep walking directly behind a baby sheep,4,4,22,1.0,0.0454,0.106,0,9,motion,7.0673,1
+226f1e10f7,5,3,sheep,a larger tan sheep on the left in the middle by the edge of the grass with a smaller one on the right,4,4,22,1.0,0.0454,0.106,0,9,multi_relation,7.0673,1
+226f1e10f7,0,1,sheep,a white baby sheep running in the middle of the herd,4,4,22,1.0,0.0698,0.107,0,9,multi_relation,7.0405,1
+226f1e10f7,1,1,sheep,a small white sheep is in front of the group in the middle walking to the right,4,4,22,1.0,0.0698,0.107,0,9,multi_relation,7.0405,1
+0e8a6b63bb,2,2,bird,a black bird flying highest then below another bird,2,2,20,1.0,0.0411,0.1505,0,0,motion,6.7887,1
+0e8a6b63bb,3,2,bird,a bird is flying and following the top bird above the water,2,2,20,1.0,0.0411,0.1505,0,0,multi_relation,6.7887,1
+0e8a6b63bb,4,3,bird,a black bird flying among other birds to the left,2,2,20,1.0,0.0411,0.1437,0,0,motion,6.6237,1
+0e8a6b63bb,5,3,bird,a bird which is flying below the top two is flying on the water,2,2,20,1.0,0.0411,0.1437,0,0,multi_relation,6.6237,1
+b5514f75d8,0,1,fish,a black and white fish,2,2,23,1.0,0.0967,0.0765,6,6,multi_appearance,6.4169,1
+b5514f75d8,1,1,fish,a black fish swimming in an aquarium,2,2,23,1.0,0.0967,0.0765,6,6,motion,6.4169,1
+eb263ef128,2,2,ape,an ape right behind another one,3,3,36,1.0,0.0821,0.1042,0,0,multi_relation,6.2704,1
+eb263ef128,3,2,ape,first seated gorilla from the right of the view playing with another on its left,3,3,36,1.0,0.0821,0.1042,0,0,multi_relation,6.2704,1
+623d24ce2b,7,4,tennis_racket,a tennis racket being used by a woman in a rose colored muscle shirt,1,3,11,0.8462,0.1158,0.0264,14,17,relation,6.2044,1
+eb263ef128,4,3,ape,an ape with another behind it holding on,3,3,36,1.0,0.0821,0.1005,0,0,multi_relation,6.1822,1
+eb263ef128,5,3,ape,a gorilla in between two other seated gorillas,3,3,36,1.0,0.0821,0.1005,0,0,multi_relation,6.1822,1
+547416bda1,4,3,person,a person in yellow with a black helmet,2,2,20,1.0,0.079,0.1195,0,0,multi_relation,5.9665,1
+547416bda1,5,3,person,a person is riding a bike with others on the road by the blue cones on the left side wearing a blue and yellow shirt,2,2,20,1.0,0.079,0.1195,0,0,multi_relation,5.9665,1
+01c88b5b60,4,3,earless_seal,a earless seal is sitting far behind the two seals,2,2,20,1.0,0.1539,0.0084,10,10,multi_relation,5.6786,1
+01c88b5b60,5,3,earless_seal,a seal on the extreme left end of two others,2,2,20,1.0,0.1539,0.0084,10,10,multi_relation,5.6786,1
+547416bda1,2,2,person,a rider with blue cloths and with lines,2,2,20,1.0,0.079,0.0977,0,0,relation,5.4439,1
+547416bda1,3,2,person,a person wearing a blue dress is riding a bicycle in a race,2,2,20,1.0,0.079,0.0977,0,0,multi_relation,5.4439,1
+33c8dcbe09,8,5,surfboard,a blue and purple surfboard,2,4,29,0.8056,0.0242,0.1034,0,0,multi_appearance,5.2871,1
+33c8dcbe09,9,5,surfboard,a light blue and dark blue surfboard being carried by a man that runs into the water,2,4,29,0.8056,0.0242,0.1034,0,0,multi_appearance,5.2871,1
+35948a7fca,4,3,tiger,a tiger in the middle is playing with another which is on the right,2,2,36,1.0,0.0748,0.0852,0,0,multi_relation,5.1507,1
+35948a7fca,5,3,tiger,a small white tiger laying on it s back while playing with another tiger,2,2,36,1.0,0.0748,0.0852,0,0,multi_relation,5.1507,1
+623d24ce2b,6,4,tennis_racket,a black tennis racket,1,3,11,0.8462,0.1158,0.0264,14,17,appearance,5.0687,1
+c9ef04fe59,4,3,person,a person wearing a black shirt and grey shorts standing directly to the right of a man with a white shirt on,2,2,20,1.0,0.0332,0.0754,0,0,multi_relation,5.001,1
+c9ef04fe59,5,3,person,a person is standing behind a person wearing a white shirt,2,2,20,1.0,0.0332,0.0754,0,0,multi_relation,5.001,1
+c9ef04fe59,2,2,person,a man wearing a white shirt and black shorts standing to the right of a grey car,2,2,20,1.0,0.0332,0.0742,0,0,multi_relation,4.9722,1
+c9ef04fe59,3,2,person,a person with white shirt is standing back to the car,2,2,20,1.0,0.0332,0.0742,0,0,multi_relation,4.9722,1
+5d2020eff8,0,1,fish,an orange fish in the middle,1,1,31,0.9118,0.0777,0.1011,1,1,multi_relation,4.919,1
+5d2020eff8,1,1,fish,a yellow fish is swimming above another one on the fish tank,1,1,31,0.9118,0.0777,0.1011,1,1,multi_relation,4.919,1
+33c8dcbe09,3,2,surfboard,a surfboard with a shirtless man on the left hand side of the view,2,4,29,1.0,0.0242,0.0701,0,7,multi_relation,4.8927,1
+35948a7fca,2,2,tiger,a tiger which is on the right end playing with another tiger in the middle,2,2,36,1.0,0.0748,0.0744,0,0,multi_relation,4.8915,1
+35948a7fca,3,2,tiger,a small white tiger laying on top of another tiger as they play,2,2,36,1.0,0.0748,0.0744,0,0,multi_relation,4.8915,1
+b5514f75d8,2,2,fish,a fish swimming on the right of another when moving rightwards and vice versa,2,2,29,1.0,0.0845,0.0696,0,0,multi_motion,4.7571,1
+b5514f75d8,3,2,fish,a black fish is swimming in the middle of the tank in front of the pink coral,2,2,29,1.0,0.0845,0.0696,0,0,multi_relation,4.7571,1
+749f1abdf9,2,2,person,a small child with a green snow suit on walking towards a school bus,1,2,19,1.0,0.0479,0.0927,0,0,multi_relation,4.7081,1
+749f1abdf9,3,2,person,a child walking to the bus with an adult,1,2,19,1.0,0.0479,0.0927,0,0,motion,4.7081,0
+b5514f75d8,4,3,fish,a fish swimming on the left of another when moving rightwards and vice versa,2,2,29,1.0,0.0845,0.0642,0,0,multi_motion,4.6277,1
+b5514f75d8,5,3,fish,a fish in the middle of the tank to the right of the black fish and near the pebbles,2,2,29,1.0,0.0845,0.0642,0,0,multi_relation,4.6277,1
+eea1a45e49,2,2,sedan,a sedan making a dangerous swerve on the left of another car,1,1,11,1.0,0.1025,0.0611,3,8,multi_relation,4.5974,1
+eea1a45e49,3,2,sedan,a white sedan following the black sedan in the corner,1,1,11,1.0,0.1025,0.0611,3,8,multi_appearance,4.5974,1
+bf4cc89b18,0,1,monkey,a baby monkey held by a monkey on the left hand side of the view,2,2,30,1.0,0.043,0.0546,0,0,multi_relation,4.4815,1
+bf4cc89b18,1,1,monkey,a baby monkey is in the adult monkey s arms on the left side of another ,2,2,30,1.0,0.043,0.0546,0,0,multi_relation,4.4815,1
+5d2020eff8,2,2,fish,an orange fish below the other fish,1,1,31,0.9688,0.0777,0.087,0,3,relation,4.4455,1
+5d2020eff8,3,2,fish,a fish is swimming below another fish in the fish tank,1,1,31,0.9688,0.0777,0.087,0,3,multi_relation,4.4455,1
+3dd327ab4e,2,2,cow,a cow is standing a fair distance behind the brown cow which is moving forward,2,2,20,1.0,0.1129,0.054,0,0,multi_relation,4.3255,1
+3dd327ab4e,3,2,cow,a white cow with black spots standing in the middle background,2,2,20,1.0,0.1129,0.054,0,0,multi_relation,4.3255,1
+f2a45acf1c,0,1,person,a man with a lady strapped to his body both jumping from an airplane,1,2,36,1.0,0.1173,0.0806,0,0,motion,4.2752,0
+f2a45acf1c,1,1,person,a person wearing white glasses is getting ready to jump out of a plane with his hand on another person forehead,1,2,36,1.0,0.1173,0.0806,0,0,multi_relation,4.2752,1
+749f1abdf9,0,1,person,a person walking with a child to a parked school bus,1,2,19,1.0,0.0479,0.0745,0,0,motion,4.2726,0
+749f1abdf9,1,1,person,a person walking with a kid on the road to a bus,1,2,19,1.0,0.0479,0.0745,0,0,multi_relation,4.2726,1
+e027ebc228,2,2,duck,a small duck in front of another poke in the grass field,2,2,36,1.0,0.127,0.0528,0,0,multi_relation,4.2675,1
+e027ebc228,3,2,duck,a small bird walking away from a duck,2,2,36,1.0,0.127,0.0528,0,0,motion,4.2675,0
+f2a45acf1c,3,2,person,a person with red glasses is in front of another and both are going to jump out of the plane,1,2,36,1.0,0.1173,0.0794,0,0,multi_relation,4.2482,1
+3dd327ab4e,0,1,cow,a brown colored cow at the center is standing and advancing forward in the grass field,2,2,20,1.0,0.1129,0.0454,0,0,multi_relation,4.1179,1
+3dd327ab4e,1,1,cow,a brown and white cow walking towards the camera,2,2,20,1.0,0.1129,0.0454,0,0,multi_appearance,4.1179,1
+0788b4033d,4,3,person,a man walkng in an all black outfit,1,2,12,1.0,0.0957,0.0702,0,7,relation,4.0709,1
+0788b4033d,5,3,person,a man next to the one carrying the mask for lion dance,1,2,12,1.0,0.0957,0.0702,0,7,multi_relation,4.0709,1
+e027ebc228,1,1,duck,a duck is standing tall between two small ducks in the grass field,2,2,36,1.0,0.2069,0.0514,0,0,multi_relation,4.0695,1
+b205d868e6,4,3,person,a person in a pink shirt,1,2,20,1.0,0.1645,0.0748,0,0,relation,4.0404,1
+b205d868e6,5,3,person,a person wearing a red shirt and black shorts is standing on the wooden table,1,2,20,1.0,0.1645,0.0748,0,0,multi_relation,4.0404,1
+0daaddc9da,0,1,person,a person wearing a blue jumpsuit is being held by another with a parachute flying in the sky,1,1,36,1.0,0.1457,0.0719,0,0,multi_relation,4.01,0
+0daaddc9da,1,1,person,a person is flying in the air with another person tied back,1,1,36,1.0,0.1457,0.0719,0,0,multi_relation,4.01,0
+30fe0ed0ce,4,3,person,a person in a white shirt and shorts riding a surfboard,3,4,16,1.0,0.1111,0.0116,0,13,motion,3.9876,0
+30fe0ed0ce,5,3,person,a person in white paddling on a surfboard,3,4,16,1.0,0.1111,0.0116,0,13,multi_relation,3.9876,0
+bf4cc89b18,2,2,monkey,an adult monkey on the left hand side of the view with a baby in its arm,2,2,30,1.0,0.043,0.0333,0,0,multi_relation,3.9709,0
+bf4cc89b18,3,2,monkey,the adult monkey is to the left of another sitting on the grass holding a baby,2,2,30,1.0,0.043,0.0333,0,0,multi_relation,3.9709,0
+0daaddc9da,2,2,person,a man behind another man in a harness,1,1,36,1.0,0.1457,0.07,0,0,multi_relation,3.9631,0
+1ab5f4bbc5,0,1,zebra,the black and white zebra is on the left in the grass with its head down,2,2,11,1.0,0.6602,0.0,8,8,multi_relation,3.9302,0
+1ab5f4bbc5,1,1,zebra,a zebra to the left of the frame,2,2,11,1.0,0.6602,0.0,8,8,relation,3.9302,1
+0e8a6b63bb,0,1,bird,a black bird flying highest to the left,2,2,20,1.0,0.0579,0.0328,0,0,motion,3.9291,0
+0e8a6b63bb,1,1,bird,a bird which is flying on the top fly with other birds,2,2,20,1.0,0.0579,0.0328,0,0,multi_relation,3.9291,0
+b205d868e6,2,2,person,a person holding a red cloth,1,2,20,1.0,0.1645,0.0661,0,0,relation,3.8322,1
+b205d868e6,3,2,person,a person wearing a black and grey hoodie with white sleeves in front of the wooden table,1,2,20,1.0,0.1645,0.0661,0,0,multi_relation,3.8322,0
+33c8dcbe09,2,2,surfboard,a red surfboard,2,4,29,1.0,0.0242,0.0701,0,7,appearance,3.7569,1
+30fe0ed0ce,0,1,person,a surf-boarder with a white surfboard,3,4,25,0.8621,0.1111,0.0136,0,0,relation,3.7493,1
+30fe0ed0ce,1,1,person,a person wearing a white shirt is on a surfboard in the ocean riding a wave,3,4,25,0.8621,0.1111,0.0136,0,0,multi_relation,3.7493,0
+3f4bacb16a,0,1,person,a rider on the leftside of the view without an helmet wearing a yellow shirt with blue stripe moving towards the direction of the forest,1,2,20,1.0,0.0692,0.0544,0,0,multi_relation,3.747,0
+3f4bacb16a,1,1,person,a person in a yellow and blue shirt with no helmet,1,2,20,1.0,0.0692,0.0544,0,0,multi_relation,3.747,0
+3f4bacb16a,2,2,person,"a person on the right side of the view wearing a blue shirt with a red strip in the arm, moving forward",1,2,20,1.0,0.0692,0.0544,0,0,multi_relation,3.7452,0
+3f4bacb16a,3,2,person,a person in a dark jacket with red near the shoulders,1,2,20,1.0,0.0692,0.0544,0,0,multi_relation,3.7452,0
+30fe0ed0ce,8,5,person,a person body surfing to the far right,3,4,9,1.0,0.1273,0.0,0,20,relation,3.6765,1
+30fe0ed0ce,9,5,person,a person in white paddling on a surfboard,3,4,9,1.0,0.1273,0.0,0,20,multi_relation,3.6765,0
+822c31928a,2,2,jellyfish,a jellyfish third from the left,2,2,36,1.0,0.2122,0.0354,0,0,temporal_order,3.6736,1
+822c31928a,3,2,jellyfish,"a smaller jellyfish swimming in the middle of the frame, then behind another jellyfish",2,2,36,1.0,0.2122,0.0354,0,0,multi_relation,3.6736,0
+822c31928a,4,3,jellyfish,a jelly fish swimming on the top right hand of the view,2,2,36,1.0,0.2122,0.035,0,0,multi_relation,3.6652,0
+7daa6343e6,3,3,zebra,a zebra which is standing second from the right is standing on the grass field,2,2,19,1.0,0.1027,0.0252,0,0,multi_relation,3.6534,0
+7daa6343e6,4,3,zebra,a zebra standing second from the left,2,2,19,1.0,0.1027,0.0252,0,0,multi_relation,3.6534,0
+c280d21988,4,3,cow,third cow from the right of the view,2,2,15,1.0,0.2309,0.0348,0,4,temporal_order,3.6207,1
+c280d21988,5,3,cow,a black and white cow fourth from the left,2,2,15,1.0,0.2309,0.0348,0,4,multi_appearance,3.6207,1
+4ee0105885,1,1,earless_seal,a wet black seal sitting in the bottom left foreground,2,2,30,1.0,0.31,0.0406,0,0,multi_relation,3.5977,0
+4ee0105885,2,2,earless_seal,an adult seal to the left of another adult seal,2,2,30,1.0,0.31,0.0399,0,0,relation,3.5811,1
+4ee0105885,3,2,earless_seal,a large brown seal sitting on the left side,2,2,30,1.0,0.31,0.0399,0,0,multi_relation,3.5811,0
+c280d21988,2,2,cow,second cow on the left hand side of the view,2,2,19,1.0,0.2309,0.0328,0,0,multi_relation,3.574,0
+c280d21988,3,2,cow,a black and white cow second from the left,2,2,19,1.0,0.2309,0.0328,0,0,multi_appearance,3.574,1
+33c8dcbe09,6,4,surfboard,a light blue and white surfboard,2,4,26,1.0,0.2333,0.0287,0,10,multi_appearance,3.4706,0
+33c8dcbe09,7,4,surfboard,a blue and white colored surfboard in the right hand of dark blue swim suit,2,4,26,1.0,0.2333,0.0287,0,10,multi_appearance,3.4706,0
+623d24ce2b,4,3,person,a person in a pink shirt,1,3,24,0.96,0.1888,0.0347,2,5,relation,3.4521,1
+623d24ce2b,5,3,person,a person wearing a red tank top is playing tennis on the tennis court,1,3,24,0.96,0.1888,0.0347,2,5,multi_relation,3.4521,0
+0062f687f1,4,3,dog,a puppy dog in front of dog s mouth goes in to the dog,2,2,19,1.0,0.2825,0.0321,0,0,multi_relation,3.4491,0
+0062f687f1,5,3,dog,a dark colored puppy near the adult dog s head,2,2,19,1.0,0.2825,0.0321,0,0,relation,3.4491,0
+623d24ce2b,2,2,tennis_racket,a tennis racket held by a person in a white shirt,1,3,11,0.4231,0.1158,0.0529,4,4,relation,3.4278,0
+623d24ce2b,3,2,tennis_racket,the tennis racket is being held by a person wearing a white shirt on the tennis court,1,3,11,0.4231,0.1158,0.0529,4,4,multi_relation,3.4278,0
+0b0c90e21a,2,2,ape,an ape is eating something from its left hand,1,1,36,1.0,0.0454,0.0386,0,0,relation,3.4157,0
+0b0c90e21a,3,2,ape,an adult gorilla seated near its baby,1,1,36,1.0,0.0454,0.0386,0,0,relation,3.4157,0
+0b0c90e21a,1,1,ape,a baby ape is sitting to the right of the adult rubbing their head with their hand,1,1,36,1.0,0.0454,0.0383,0,0,multi_relation,3.4097,0
+01c88b5b60,0,1,earless_seal,a earless seal in the left is sitting with another,2,2,30,1.0,0.1539,0.0181,0,0,multi_relation,3.3787,0
+01c88b5b60,1,1,earless_seal,an earless seal on the left of another,2,2,30,1.0,0.1539,0.0181,0,0,multi_relation,3.3787,0
+0788b4033d,2,2,person,a person in a red hoodie,1,2,12,0.6316,0.0957,0.071,0,0,relation,3.3241,0
+7daa6343e6,1,2,zebra,a zebra which is third from the right is standing on the grass field,2,2,19,1.0,0.1027,0.011,0,0,multi_relation,3.3139,0
+7daa6343e6,2,2,zebra,a zebra standing third from the left,2,2,19,1.0,0.1027,0.011,0,0,multi_relation,3.3139,0
+c16d9a4ade,3,2,frog,a frog on top of another frog,1,2,4,1.0,0.2507,0.0515,0,25,multi_relation,3.3028,0
+eb263ef128,6,4,ape,an ape walking away from three others,3,3,36,1.0,0.3099,0.0,0,0,motion,3.3012,0
+eb263ef128,7,4,ape,a gorilla walking away from three other seated gorilla,3,3,36,1.0,0.3099,0.0,0,0,motion,3.3012,0
+0062f687f1,0,1,dog,a dog is with its puppies on the cloth,2,2,19,1.0,0.2825,0.0242,0,0,multi_relation,3.2607,0
+0062f687f1,1,1,dog,a dog with puppies all around,2,2,19,1.0,0.2825,0.0242,0,0,relation,3.2607,0
+1ab5f4bbc5,4,3,zebra,a black and white zebra is in the back on the right behind another looking towards the left,2,2,15,1.0,0.2365,0.0196,0,4,multi_relation,3.244,0
+1ab5f4bbc5,5,3,zebra,a zebra in the foreground,2,2,15,1.0,0.2365,0.0196,0,4,relation,3.244,0
+1ab5f4bbc5,2,2,zebra,a black and white zebra is on the right eating the grass,2,2,19,1.0,0.2365,0.0155,0,0,multi_relation,3.1464,0
+1ab5f4bbc5,3,2,zebra,"a zebra to the right of the frame, in front of the other zebra",2,2,19,1.0,0.2365,0.0155,0,0,multi_relation,3.1464,0
+30fe0ed0ce,6,4,person,a person floating in the water to the left of a surfer wearing a white shirt,3,4,17,1.0,0.3898,0.0,0,12,multi_relation,3.1371,0
+30fe0ed0ce,7,4,person,a person in black paddling on a surfboard,3,4,17,1.0,0.3898,0.0,0,12,multi_relation,3.1371,0
+246e38963b,4,3,chameleon,"a green chamelon on a branch, a top another chameleon",2,3,12,1.0,0.2519,0.0158,0,0,multi_relation,3.1227,0
+246e38963b,5,3,chameleon,a chameleon which is at left is sitting on the plant,2,3,12,1.0,0.2519,0.0158,0,0,multi_relation,3.1227,0
+f2a45acf1c,2,2,person,a lady strapped to a man both skydiving,1,2,36,1.0,0.1173,0.0794,0,0,other,3.1124,0
+eb263ef128,0,1,ape,an ape on the far left in the grass,3,3,36,1.0,0.4037,0.0,0,0,multi_relation,3.1085,0
+eb263ef128,1,1,ape,a black ape farthest on the left watching other apes play,3,3,36,1.0,0.4037,0.0,0,0,multi_relation,3.1085,0
+35948a7fca,0,1,tiger,a big mother white tiger is sitting on the left,2,2,36,1.0,0.2584,0.0151,0,0,multi_relation,3.0918,0
+35948a7fca,1,1,tiger,a large white tiger sitting in the bottom left foreground,2,2,36,1.0,0.2584,0.0151,0,0,multi_relation,3.0918,0
+33e8066265,4,3,person,a person in blue shorts,1,2,32,1.0,0.3266,0.0069,4,4,relation,3.091,0
+33e8066265,5,3,person,a person on the far side of a tennis court serving a tennis ball,1,2,32,1.0,0.3266,0.0069,4,4,relation,3.091,0
+e027ebc228,4,3,duck,a bird is poking behind the big bird in the grass field,2,2,36,1.0,0.127,0.0023,0,0,multi_relation,3.056,0
+e027ebc228,5,3,duck,a duck in front of another duck,2,2,36,1.0,0.127,0.0023,0,0,multi_relation,3.056,0
+246e38963b,2,2,chameleon,a green chamelon on the bottom left,2,3,12,1.0,0.2519,0.0126,0,0,multi_relation,3.0462,0
+246e38963b,3,2,chameleon,a chameleon is standing by holding the branch facing right,2,3,12,1.0,0.2519,0.0126,0,0,multi_relation,3.0462,0
+623d24ce2b,0,1,person,a person in a white shirt,1,3,24,0.8276,0.1888,0.0398,1,1,relation,3.0459,0
+623d24ce2b,1,1,person,a person wearing a white shirt and visor is holding a tennis racket,1,3,24,0.8276,0.1888,0.0398,1,1,multi_relation,3.0459,0
+c280d21988,0,1,cow,a cow on the leftmost side of the view,2,2,11,1.0,0.2762,0.0144,0,8,relation,3.0392,0
+c280d21988,1,1,cow,a black and white cow to the far left,2,2,11,1.0,0.2762,0.0144,0,8,multi_appearance,3.0392,0
+65e0640a2a,0,1,person,a person on the left side of the road wearing a red shirt and grey pants,1,2,19,0.95,0.0612,0.0273,0,0,multi_relation,3.0084,0
+65e0640a2a,1,1,person,a dark haired woman in a red shirt clapping,1,2,19,0.95,0.0612,0.0273,0,0,multi_appearance,3.0084,0
+65e0640a2a,4,3,person,a person wearing a white shirt and black pants is standing on the left side of the road watching the bikers,1,2,19,1.0,0.0612,0.0121,1,1,multi_relation,3.0012,0
+65e0640a2a,5,3,person,"a man in a black hat, white shirt and jeans",1,2,19,1.0,0.0612,0.0121,1,1,multi_appearance,3.0012,0
+65350fd60a,1,2,person,a person in the back on the left is wearing a white shirt moving ahead with a group,1,2,20,1.0,0.1583,0.0306,0,0,multi_relation,2.9916,0
+65350fd60a,2,2,person,a person holding up a camera,1,2,20,1.0,0.1583,0.0306,0,0,relation,2.9916,0
+547416bda1,0,1,person,a rider with white helmet and cloths,2,2,20,1.0,0.1706,0.0034,0,0,relation,2.9908,0
+547416bda1,1,1,person,a person wearing white dress is riding bicycle in a race,2,2,20,1.0,0.1706,0.0034,0,0,multi_relation,2.9908,0
+8e2e5af6a8,2,2,giraffe,the second giraffe from the right,2,2,20,1.0,0.1934,0.0041,0,0,temporal_order,2.9626,0
+8e2e5af6a8,3,2,giraffe,the giraffe is on the side side of the group standing straight up with its head held high,2,2,20,1.0,0.1934,0.0041,0,0,multi_relation,2.9626,0
+8e2e5af6a8,0,1,giraffe,the third giraffe from the right,2,2,20,1.0,0.1934,0.004,0,0,temporal_order,2.9602,0
+8e2e5af6a8,1,1,giraffe,the giraffe is in the middle of the group with its head hanging over the railing eating grass,2,2,20,1.0,0.1934,0.004,0,0,multi_relation,2.9602,0
+03fe6115d4,0,1,hat,a hat is weared by the person who is standing second from the left in the front row,2,2,20,1.0,0.1502,0.0,0,0,multi_relation,2.952,0
+03fe6115d4,1,1,hat,a black helmet worn by a man in white and blue,2,2,20,1.0,0.1502,0.0,0,0,multi_appearance,2.952,0
+03fe6115d4,2,2,hat,a hat is weared by a person in the center and third in the front row,2,2,20,1.0,0.1502,0.0,0,0,multi_relation,2.952,0
+03fe6115d4,3,2,hat,a black and white helmet worn by a person on a blue bike,2,2,20,1.0,0.1502,0.0,0,0,multi_appearance,2.952,0
+e027ebc228,0,1,duck,an adult goose,2,2,36,1.0,0.2069,0.0514,0,0,other,2.9338,0
+c74fc37224,0,1,sheep,the white sheep is on the left side in the back of the circle facing the front,2,2,29,1.0,0.1664,0.0,0,0,multi_relation,2.9186,0
+c74fc37224,1,1,sheep,a sheep is standing on the top left of the circle and moves down and comes out of the circle,2,2,29,1.0,0.1664,0.0,0,0,multi_relation,2.9186,0
+c74fc37224,2,2,sheep,the white sheep is in the middle and back part of the circle moving towards the right,2,2,29,1.0,0.1664,0.0,0,0,multi_relation,2.9186,0
+c74fc37224,3,2,sheep,a sheep top second right moves down and comes out of the circle on right side,2,2,29,1.0,0.1664,0.0,0,0,multi_relation,2.9186,0
+f7255a57d0,4,3,zebra,a zebra standing in the background with it s head down,1,2,20,1.0,0.2235,0.0329,0,0,multi_relation,2.9136,0
+f7255a57d0,5,3,zebra,a zebra to the right of another zebra,1,2,20,1.0,0.2235,0.0329,0,0,relation,2.9136,0
+01c88b5b60,2,2,earless_seal,a baby earless seal in the right is sitting with another,2,2,30,1.0,0.3871,0.018,0,0,multi_relation,2.8969,0
+01c88b5b60,3,2,earless_seal,an earless seal on the right of another,2,2,30,1.0,0.3871,0.018,0,0,multi_relation,2.8969,0
+65350fd60a,3,3,person,a person with black hair is in the middle of the group of people walking forward,1,2,20,1.0,0.1583,0.0266,0,0,multi_relation,2.8966,0
+0062f687f1,2,2,dog,a puppy dog on the left drinking milk from its mother,2,2,19,1.0,0.2971,0.0096,0,0,multi_relation,2.8793,0
+0062f687f1,3,2,dog,a white puppy near the rear end of an adult dog,2,2,19,1.0,0.2971,0.0096,0,0,relation,2.8793,0
+8e2e5af6a8,4,3,giraffe,the first giraffe from the right,2,2,20,1.0,0.2027,0.0,0,0,temporal_order,2.844,0
+8e2e5af6a8,5,3,giraffe,the giraffe is on the right side of the railing and has its head hanging over and eating grass,2,2,20,1.0,0.2027,0.0,0,0,multi_relation,2.844,0
+f7255a57d0,2,2,zebra,a zebra putting it s head on a large blue bird,1,2,20,1.0,0.2235,0.0298,0,0,multi_appearance,2.8397,0
+f7255a57d0,3,2,zebra,a zebra following a peacock,1,2,20,1.0,0.2235,0.0298,0,0,temporal_order,2.8397,0
+0daaddc9da,3,2,person,a person strapped to another person s back,1,1,36,1.0,0.1457,0.07,0,0,other,2.8273,0
+03fe6115d4,4,3,hat,a red and black helmet on a man in black and white,2,2,20,1.0,0.2129,0.0,0,0,multi_appearance,2.8231,0
+03fe6115d4,5,3,hat,a red helmet on the head of the man wearing a black and white outfit to the right,2,2,20,1.0,0.2129,0.0,0,0,multi_relation,2.8231,0
+bf4cc89b18,4,3,monkey,a monkey to the right of view,2,2,30,1.0,0.2268,0.0006,0,0,relation,2.8077,0
+bf4cc89b18,5,3,monkey,a monkey in the grass to the right of another monkey,2,2,30,1.0,0.2268,0.0006,0,0,multi_relation,2.8077,0
+c16d9a4ade,0,1,frog,a frog is holded by a person in his hand and place near the another frog,1,2,4,0.1667,0.2507,0.0486,5,5,multi_relation,2.7693,0
+c16d9a4ade,1,1,frog,a frog below another frog,1,2,4,0.1667,0.2507,0.0486,5,5,relation,2.7693,0
+7daa6343e6,0,1,zebra,a zebra is standing on the center with group in the grass field,2,2,19,1.0,0.2424,0.0,0,0,multi_relation,2.7625,0
+822c31928a,0,1,jellyfish,a jellyfish second from the left,2,2,36,1.0,0.2724,0.0,0,0,temporal_order,2.7008,0
+822c31928a,1,1,jellyfish,"a jellyfish in the middle of the ocean, with its whole body showing",2,2,36,1.0,0.2724,0.0,0,0,multi_relation,2.7008,0
+3dd327ab4e,4,3,cow,second cow from the right of the view,2,2,17,1.0,0.2917,0.0,0,3,temporal_order,2.6612,0
+3dd327ab4e,5,3,cow,a cow standing second from the right is grazing the grass field,2,2,17,1.0,0.2917,0.0,0,3,multi_relation,2.6612,0
+cd896a9bee,3,2,monkey,a baby monkey is standing to its mother,1,1,30,1.0,0.3863,0.0339,0,0,relation,2.6018,0
+eea1a45e49,0,1,sedan,a sedan making a dangerous swerve on the right of another car,1,1,11,0.5789,0.1025,0.0459,0,0,multi_relation,2.5978,0
+eea1a45e49,1,1,sedan,a black sedan leading the race is sliding in the corners,1,1,11,0.5789,0.1025,0.0459,0,0,motion,2.5978,0
+dce363032d,1,1,ape,a baby ape is sitting near its mother in the right,1,1,36,1.0,0.3767,0.0314,0,0,multi_relation,2.5632,0
+246e38963b,0,1,chameleon,a green chameleon in the background,2,3,12,1.0,0.3492,0.0,0,0,relation,2.5429,0
+246e38963b,1,1,chameleon,a chameleon is coming down using plants,2,3,12,1.0,0.3492,0.0,0,0,motion,2.5429,0
+0a598e18a8,2,2,monkey,a monkey to the right of another monkey,1,1,30,1.0,0.2812,0.0224,0,0,relation,2.542,0
+0a598e18a8,3,2,monkey,a monkey is on the right side of another on the leaves sitting up and looking down at their hands,1,1,30,1.0,0.2812,0.0224,0,0,multi_relation,2.542,0
+64c6f2ed76,6,4,person,a person wearing grey pants is in between two others skateboarding on the road up the hill,1,3,29,1.0,0.1205,0.0086,0,0,multi_relation,2.5413,0
+64c6f2ed76,7,4,person,a person skating in between two other people,1,3,29,1.0,0.1205,0.0086,0,0,multi_relation,2.5413,0
+cd896a9bee,0,1,monkey,a brown monkey is sitting on the cement ground while holding a baby monkey in their arms,1,1,30,1.0,0.3863,0.0311,0,0,multi_relation,2.5366,0
+cd896a9bee,1,1,monkey,a monkey is holding a baby which is standing downwards,1,1,30,1.0,0.3863,0.0311,0,0,multi_relation,2.5366,0
+43115c42b2,4,3,person,a person riding a bike behind another person,1,3,28,1.0,0.2706,0.0,2,2,motion,2.5336,0
+43115c42b2,5,3,person,the arms of a person in black gloves riding a bike,1,3,28,1.0,0.2706,0.0,2,2,motion,2.5336,0
+6a75316e99,0,1,bottle,the bottle is in front of the paper towels and to the left of the toilet,1,3,19,1.0,0.1515,0.0,1,1,multi_relation,2.525,0
+6a75316e99,1,1,bottle,a red bottle on the sink near a tissue paper bundle,1,3,19,1.0,0.1515,0.0,1,1,multi_relation,2.525,0
+0a598e18a8,0,1,monkey,a monkey to the left of another monkey,1,1,30,1.0,0.2812,0.0212,0,0,relation,2.5151,0
+0a598e18a8,1,1,monkey,a small and white monkey is laying on its back in the leaves on the the ground,1,1,30,1.0,0.2812,0.0212,0,0,multi_relation,2.5151,0
+64c6f2ed76,4,3,person,a person with red pants and a grey shirt is skateboarding in the road towards the yellow line,1,3,29,1.0,0.1205,0.0072,0,0,multi_appearance,2.5092,0
+64c6f2ed76,5,3,person,a person wearing red and green,1,3,29,1.0,0.1205,0.0072,0,0,multi_appearance,2.5092,0
+d69812339e,2,2,person,a man in black who hands the mic off to another person,1,2,20,1.0,0.14,0.0073,0,0,relation,2.4715,0
+d69812339e,3,2,person,a person dressed in all black on the right walking toward a person on stage while holding a microphone,1,2,20,1.0,0.14,0.0073,0,0,multi_relation,2.4715,0
+4ee0105885,0,1,earless_seal,a baby seal,2,2,30,1.0,0.31,0.0406,0,0,other,2.4619,0
+4ee0105885,4,3,earless_seal,an adult seal to the right of another seal,2,2,30,1.0,0.3908,0.0,0,0,relation,2.4574,0
+4ee0105885,5,3,earless_seal,an a aggressive on the right side fighting another seal,2,2,30,1.0,0.3908,0.0,0,0,multi_relation,2.4574,0
+20a93b4c54,0,1,knife,a knife cover on the left hand side of a knife,1,2,20,1.0,0.2863,0.0186,0,0,multi_relation,2.4418,0
+d69812339e,0,1,person,a person in white pants who takes the mic,1,2,20,1.0,0.14,0.0052,0,0,relation,2.4212,0
+d69812339e,1,1,person,a person dressed in black and white in the center of stage holding a microphone,1,2,20,1.0,0.14,0.0052,0,0,multi_relation,2.4212,0
+c9ef04fe59,0,1,person,a man wearing a black shirt standing the closest to a grey car,2,2,20,1.0,0.4334,0.0,0,0,multi_relation,2.3699,0
+c9ef04fe59,1,1,person,a person is standing behind the car,2,2,20,1.0,0.4334,0.0,0,0,multi_relation,2.3699,0
+c74fc37224,4,3,sheep,the white sheep is on the right side of the circle in the front and to the right of the white dog,2,2,14,1.0,0.4423,0.0,0,15,multi_relation,2.3516,0
+c74fc37224,5,3,sheep,a sheep at the bottom right moves out of the circle,2,2,14,1.0,0.4423,0.0,0,15,multi_relation,2.3516,0
+9f429af409,2,2,elephant,the black elephant is in front of another facing towards the right,1,1,7,1.0,0.3286,0.0175,0,12,multi_relation,2.3282,0
+9f429af409,3,2,elephant,an elephant behind another elephant,1,1,7,1.0,0.3286,0.0175,0,12,relation,2.3282,0
+61fca8cbf1,0,1,owl,an owl which is sitting on left eat something from its leg,1,1,30,1.0,0.2698,0.0119,0,0,multi_relation,2.3134,0
+61fca8cbf1,1,1,owl,a small yellow and black owl is sitting in the tree to the left of another,1,1,30,1.0,0.2698,0.0119,0,0,multi_relation,2.3134,0
+61fca8cbf1,2,2,owl,an owl sitting on the right scratches his body around with its beak,1,1,30,1.0,0.2698,0.0114,0,0,multi_relation,2.3021,0
+61fca8cbf1,3,2,owl,a yellow and black owl is sitting next to another on the right side in a tree,1,1,30,1.0,0.2698,0.0114,0,0,multi_relation,2.3021,0
+a2948d4116,0,1,person,the first man closest to the camera on the left hand side looks at a landing man in parachute,2,3,16,1.0,0.4779,0.0,0,14,multi_relation,2.2785,0
+a2948d4116,1,1,person,a skydiver to the far left standing in the grass,2,3,16,1.0,0.4779,0.0,0,14,multi_relation,2.2785,0
+0b0c90e21a,0,1,ape,a baby gorilla,1,1,36,1.0,0.0454,0.0383,0,0,other,2.2739,0
+64c6f2ed76,0,1,skateboard,a skateboard is being rode by a person wearing red pants up the hill,1,3,29,1.0,0.1618,0.0,0,0,relation,2.2506,0
+64c6f2ed76,1,1,skateboard,a skateboard being used by a skateboarder wearing a red pant,1,3,29,1.0,0.1618,0.0,0,0,relation,2.2506,0
+64c6f2ed76,2,2,skateboard,a skateboard is being rode by a person wearing black pants between two others moving up the hill,1,3,29,1.0,0.1618,0.0,0,0,multi_relation,2.2506,0
+64c6f2ed76,3,2,skateboard,a skateboard being used by a person wearing a purple pant,1,3,29,1.0,0.1618,0.0,0,0,relation,2.2506,0
+a00c3fa88e,2,2,knife,the grey and white knife is behind another sitting on the grey leather,1,2,20,1.0,0.3548,0.0164,0,0,multi_relation,2.2477,0
+a00c3fa88e,3,2,knife,a small grey switch blade on sitting to the left a blue switch blade,1,2,20,1.0,0.3548,0.0164,0,0,multi_relation,2.2477,0
+a00c3fa88e,4,3,knife,the blue and grey knife is sitting on the grey leather with a hand picking it up and putting it down,1,2,20,1.0,0.3548,0.0162,0,0,multi_relation,2.242,0
+a00c3fa88e,5,3,knife,a small knife with a blue handle,1,2,20,1.0,0.3548,0.0162,0,0,multi_appearance,2.242,0
+541ccb0844,0,1,person,a person in brown blouse and blue jeans riding a horse,1,3,19,1.0,0.1707,0.0,0,0,multi_appearance,2.2322,0
+541ccb0844,1,1,person,a person on the left side in the water is riding a brown horse,1,3,19,1.0,0.1707,0.0,0,0,multi_relation,2.2322,0
+541ccb0844,4,3,person,a person in black singlet and blue jeans riding a horse,1,3,19,1.0,0.1707,0.0,0,0,multi_appearance,2.2322,0
+541ccb0844,5,3,person,a person is riding a brown and white horse on the right side moving toward the rocks,1,3,19,1.0,0.1707,0.0,0,0,multi_motion,2.2322,0
+696e01387c,0,1,turtle,a tortoise second from the front all the way to the left,1,1,36,1.0,0.3176,0.0123,0,0,multi_relation,2.2252,0
+696e01387c,1,1,turtle,a turtle to the bottom left,1,1,36,1.0,0.3176,0.0123,0,0,multi_relation,2.2252,0

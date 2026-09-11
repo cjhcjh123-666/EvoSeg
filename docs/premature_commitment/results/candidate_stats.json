@@ -1,0 +1,82 @@
+{
+ "n_cases_total_mined": 834,
+ "pool_size": 250,
+ "top_k": 80,
+ "pool_co_visible_frames_median": 20.0,
+ "pool_co_visible_ratio_median": 1.0,
+ "pool_n_same_cat_ge2_frac": 0.584,
+ "topk_co_visible_frames_median": 23.5,
+ "topk_n_same_cat_ge2_frac": 0.725,
+ "topk_query_type_distribution": {
+  "multi_relation": 49,
+  "other": 1,
+  "motion": 6,
+  "multi_appearance": 7,
+  "relation": 11,
+  "appearance": 2,
+  "multi_motion": 2,
+  "temporal_order": 2
+ },
+ "videos": 53,
+ "target_category_top20": {
+  "person": 76,
+  "sheep": 16,
+  "zebra": 15,
+  "ape": 13,
+  "monkey": 13,
+  "earless_seal": 12,
+  "cow": 12,
+  "fish": 10,
+  "bird": 6,
+  "surfboard": 6,
+  "tiger": 6,
+  "duck": 6,
+  "dog": 6,
+  "chameleon": 6,
+  "giraffe": 6,
+  "hat": 6,
+  "jellyfish": 5,
+  "knife": 5,
+  "tennis_racket": 4,
+  "sedan": 4
+ },
+ "query_type_distribution": {
+  "multi_relation": 153,
+  "other": 6,
+  "motion": 18,
+  "multi_appearance": 21,
+  "relation": 39,
+  "appearance": 2,
+  "multi_motion": 3,
+  "temporal_order": 8
+ },
+ "n_same_cat_distribution": {
+  "4": 10,
+  "1": 104,
+  "2": 120,
+  "3": 16
+ },
+ "co_visible_frames": {
+  "mean": 9.87410071942446,
+  "median": 0.0,
+  "max": 36
+ },
+ "co_visible_ratio": {
+  "mean": 0.4063434802014699,
+  "median": 0.0
+ },
+ "has_reappearance_gap": 72,
+ "has_absent_frames": 186,
+ "has_dilated_overlap": 252,
+ "strata_in_top_k": {
+  "multi_relation": 49,
+  "other": 1,
+  "motion": 6,
+  "multi_appearance": 7,
+  "relation": 11,
+  "appearance": 2,
+  "multi_motion": 2,
+  "temporal_order": 2
+ },
+ "note": "pool is stratified across query types; baseline failure is a separate optional column"
+}
