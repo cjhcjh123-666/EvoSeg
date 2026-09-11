@@ -1,0 +1,30 @@
+{
+ "timestamp": "2026-09-11T16:06:23",
+ "command": "projects/evoseg/premature_commitment/eval_prefix_identity.py --audit /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/P0_prefix_audit_identity_swap_n20.json --out-dir /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/prefix_eval",
+ "script": "/9950backfile/chenjiahui/EvoSeg/projects/evoseg/premature_commitment/eval_prefix_identity.py",
+ "git_sha": "d667c86efc4bb0d50cb6ab1f572d9a3030218ee6",
+ "audit_json": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/P0_prefix_audit_identity_swap_n20.json",
+ "model": "/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-Faithful",
+ "dataset": "Ref-YT-VOS valid",
+ "ann_root": "/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/extracted/valid/Annotations",
+ "jpeg_root": "/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/extracted/valid/JPEGImages",
+ "manifest": "/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/faithfulness_valid.json",
+ "seed": 0,
+ "bootstrap_resamples": 1000,
+ "prefix_mode": "prefix_vlm_all_frames",
+ "default_mode": "full_video_default_vlm_first5",
+ "window_frames": 5,
+ "gpu": "none",
+ "world_size": 1,
+ "vlm_all_frames": true,
+ "new_inference": false,
+ "note": "consumes the P0 audit JSON; no model is loaded and no GPU is used",
+ "n_cases": 20,
+ "prefixes": [
+  0.2,
+  0.4,
+  0.6,
+  0.8,
+  1.0
+ ]
+}
