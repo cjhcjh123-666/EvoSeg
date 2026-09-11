@@ -292,20 +292,30 @@ def main():
         'target_category_top20': dict(Counter(c['target_category'] for c in pool).most_common(20)),
         'query_type_distribution': dist['query_type'],
         'n_same_cat_distribution': dist['n_same_cat'],
-        'co_visible_frames': {
+        # NOTE: the three blocks below are over ALL MINED cases (n_cases_total_mined),
+        # not over the pool; the `pool_*` keys above are the pool-scoped ones.
+        'mined_co_visible_frames': {
             'mean': float(np.mean([s['co_visible_frames'] for s in sig])),
             'median': float(np.median([s['co_visible_frames'] for s in sig])),
             'max': int(np.max([s['co_visible_frames'] for s in sig])),
         },
-        'co_visible_ratio': {
+        'mined_co_visible_ratio': {
             'mean': float(np.mean([s['co_visible_ratio'] for s in sig])),
             'median': float(np.median([s['co_visible_ratio'] for s in sig])),
+            'max': float(np.max([s['co_visible_ratio'] for s in sig])),
         },
-        'has_reappearance_gap': int(sum(1 for s in sig if s['target_gap_frames'] > 0)),
-        'has_absent_frames': int(sum(1 for s in sig if s['target_absent_frames'] > 0)),
-        'has_dilated_overlap': int(sum(1 for s in sig if s['max_dilated_overlap'] > 0)),
+        'mined_has_reappearance_gap': int(sum(1 for s in sig if s['target_gap_frames'] > 0)),
+        'mined_has_absent_frames': int(sum(1 for s in sig if s['target_absent_frames'] > 0)),
+        'mined_has_dilated_overlap': int(sum(1 for s in sig if s['max_dilated_overlap'] > 0)),
+        'pool_has_reappearance_gap': int(sum(1 for s in psig if s['target_gap_frames'] > 0)),
+        'pool_has_absent_frames': int(sum(1 for s in psig if s['target_absent_frames'] > 0)),
+        'pool_has_dilated_overlap': int(sum(1 for s in psig if s['max_dilated_overlap'] > 0)),
+        'topk_has_reappearance_gap': int(sum(1 for s in tsig if s['target_gap_frames'] > 0)),
+        'topk_has_absent_frames': int(sum(1 for s in tsig if s['target_absent_frames'] > 0)),
+        'topk_has_dilated_overlap': int(sum(1 for s in tsig if s['max_dilated_overlap'] > 0)),
         'strata_in_top_k': dict(Counter(c['mining_signals']['query_type'] for c in top)),
-        'note': 'pool is stratified across query types; baseline failure is a separate optional column',
+        'note': 'pool is stratified across query types; baseline failure is a separate optional '
+                'column; keys prefixed mined_/pool_/topk_ state their scope explicitly',
     }
     json.dump(stats, open(os.path.join(args.out_dir, 'candidate_stats.json'), 'w'), indent=1, ensure_ascii=False)
 
@@ -331,7 +341,8 @@ img{{width:100%;border-radius:4px}}.h{{font-weight:700;margin-bottom:4px}}.m{{fo
 
     print(f'[mine] mined={len(cases)} pool={len(pool)} top_k={len(top)} -> {args.out_dir}', flush=True)
     print(f'[mine] query_type dist (pool): {stats["query_type_distribution"]}', flush=True)
-    print(f'[mine] co_visible_ratio mean={stats["co_visible_ratio"]["mean"]:.3f}', flush=True)
+    print(f'[mine] co_visible_ratio (all mined) mean={stats["mined_co_visible_ratio"]["mean"]:.3f} '
+          f'max={stats["mined_co_visible_ratio"]["max"]:.3f}', flush=True)
 
 
 if __name__ == '__main__':

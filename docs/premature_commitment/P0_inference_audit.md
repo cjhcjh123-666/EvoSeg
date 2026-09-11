@@ -16,6 +16,15 @@ commitment" is made.
 Model audited: `EvoSeg-Qwen3-VL-4B-Faithful` (image-Faithful base + external v6
 temporal head), the current main-branch model.
 
+**Metadata note (2026-09-11, M5.4).** The committed run metadata was repaired:
+the original writer recorded the repository path in `git_sha` and a single
+global `vlm_all_frames=true` although the file contains two run modes. The
+repaired file records the three defects, the reconstructed run SHA (`730451a`,
+the parent of the commit documenting this run) and the fact that every number
+below was reproduced exactly by an independent 4-GPU re-inference
+(`docs/premature_commitment/results/reproduction_check.json`). Measured content
+is unchanged; see §6 of `pilot_report.md`.
+
 ---
 
 ## 0. TL;DR — decision

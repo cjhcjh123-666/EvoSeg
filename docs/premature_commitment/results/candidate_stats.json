@@ -56,18 +56,25 @@
   "2": 120,
   "3": 16
  },
- "co_visible_frames": {
+ "mined_co_visible_frames": {
   "mean": 9.87410071942446,
   "median": 0.0,
   "max": 36
  },
- "co_visible_ratio": {
+ "mined_co_visible_ratio": {
   "mean": 0.4063434802014699,
-  "median": 0.0
+  "median": 0.0,
+  "max": 1.0
  },
- "has_reappearance_gap": 72,
- "has_absent_frames": 186,
- "has_dilated_overlap": 252,
+ "mined_has_reappearance_gap": 72,
+ "mined_has_absent_frames": 186,
+ "mined_has_dilated_overlap": 252,
+ "pool_has_reappearance_gap": 30,
+ "pool_has_absent_frames": 67,
+ "pool_has_dilated_overlap": 201,
+ "topk_has_reappearance_gap": 14,
+ "topk_has_absent_frames": 31,
+ "topk_has_dilated_overlap": 78,
  "strata_in_top_k": {
   "multi_relation": 49,
   "other": 1,
@@ -78,5 +85,5 @@
   "multi_motion": 2,
   "temporal_order": 2
  },
- "note": "pool is stratified across query types; baseline failure is a separate optional column"
+ "note": "pool is stratified across query types; baseline failure is a separate optional column; keys prefixed mined_/pool_/topk_ state their scope explicitly"
 }

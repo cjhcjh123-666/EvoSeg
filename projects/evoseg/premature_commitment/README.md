@@ -68,6 +68,7 @@ for the GO / NO-GO decision.
 | candidate pool / summary / stats | `docs/premature_commitment/results/candidate_{pool.json,summary.csv,stats.json}` |
 | prefix identity curve + CIs | `docs/premature_commitment/results/prefix_identity_eval.json` |
 | delayed / ORACLE_* headroom | `docs/premature_commitment/results/delayed_oracle_headroom.json` |
+| reproduction check (P0 re-inferred on 4 GPUs) | `docs/premature_commitment/results/reproduction_check.json` |
 | prefix identity curve plot | `docs/premature_commitment/figures/prefix_identity_curve.png` |
 | annotation bundle index | `docs/premature_commitment/results/annotation_bundle_index.json` |
 

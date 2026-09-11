@@ -32,7 +32,7 @@ python projects/evoseg/premature_commitment/mine_ambiguous_candidates.py \
   --pool-size 250 --top-k 80
 ```
 
-Runtime ≈ 7.5 min for the 53 videos with GT instance tracks that are reachable
+Runtime ≈ 8 min for the 53 videos with GT instance tracks that are reachable
 from the Ref-YT-VOS `valid` annotations present locally. The pipeline has no
 stochastic step and is deterministic (`--seed` is accepted for interface
 uniformity and prints a notice that it is unused).
@@ -101,15 +101,19 @@ dominated by a single query family.
 | share of pool with ≥2 same-category distractors | 58.4% |
 | median co-visible frames (top-80) | 23.5 |
 | share of top-80 with ≥2 same-category distractors | 72.5% |
-| cases with a disappearance gap | 72 |
-| cases with ≥1 absent annotated frame | 186 |
-| cases with non-zero dilated overlap | 252 (all of the top-80) |
+| cases with a disappearance gap (all mined / pool) | 72 / 30 |
+| cases with ≥1 absent annotated frame (all mined / pool) | 186 / 67 |
+| cases with non-zero dilated overlap (all mined / pool) | 252 / 201 |
 
 `n_same_cat` distribution in the pool: `1 → 104`, `2 → 120`, `3 → 16`,
 `4 → 10` (every pooled case has at least one same-category competitor).
 
-`co_visible_ratio` across the mined cases: mean **0.406**, median 0.0, max
-36 frames. `co_visible_frames`: mean 9.87.
+Scoped statistics are prefixed explicitly in `candidate_stats.json`
+(`mined_*` = all 834 mined cases, `pool_*` = the 250-case pool, `topk_*` = the
+80-case annotation subset); an earlier revision reported three of these
+quantities under an ambiguous name, which is fixed here. Across the **mined**
+cases: `co_visible_ratio` mean **0.406**, median 0.0, max **1.000**;
+`co_visible_frames` mean 9.87, median 0, max 36.
 
 Query-type distribution in the pool:
 
@@ -124,11 +128,14 @@ Query-type distribution in the pool:
 | `multi_motion` | 3 |
 | `appearance` | 2 |
 
-Top-80 (the annotation subset): `multi_relation` 55, `motion` 11,
-`multi_appearance` 5, `relation` 5, `multi_motion` 2, `temporal_order` 2,
-`appearance` 1, `other` 1; 22 distinct videos; 12 cases with a disappearance
-gap; 27 with absent frames; 80/80 with non-zero dilated overlap; 54 with ≥2
-same-category distractors.
+Top-80 (the annotation subset, i.e. the rows with `in_top_k=1` in
+`candidate_summary.csv`): `multi_relation` 49, `relation` 11,
+`multi_appearance` 7, `motion` 6, `multi_motion` 2, `temporal_order` 2,
+`appearance` 2, `other` 1; 25 distinct videos; 14 cases with a disappearance
+gap; 31 with absent frames; 78/80 with non-zero dilated overlap; 58 with ≥2
+same-category distractors. Note that the subset is *not* simply the first 80
+rows of the pool file — quotas reorder it, so subset statistics must be read
+from `topk_*` / `in_top_k`, not from a list slice.
 
 Target categories (pool, top-20): `person` 76, `sheep` 16, `zebra` 15,
 `ape` 13, `monkey` 13, `earless_seal` 12, `cow` 12, `fish` 10, then `bird`,

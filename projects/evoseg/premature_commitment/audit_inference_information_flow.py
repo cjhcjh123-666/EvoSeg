@@ -65,6 +65,12 @@ def parse_args():
     ap.add_argument('--dry-run', action='store_true',
                     help='run one case only, for a quick sanity check')
     ap.add_argument('--device', default='cuda')
+    ap.add_argument('--shard-index', type=int, default=0,
+                    help='run only this shard of the selected cases (for a multi-GPU '
+                         'reproduction check); recorded in the metadata')
+    ap.add_argument('--shard-count', type=int, default=1)
+    ap.add_argument('--tag', default=None,
+                    help='override the output filename tag (default: n<#cases>)')
     return ap.parse_args()
 
 
@@ -224,6 +230,13 @@ def main():
     cases_all = load_manifest(args.manifest)
     meta = load_meta(args.meta)
     cases = select_cases(cases_all, args.category, 1 if args.dry_run else args.n_cases, args.seed)
+    n_selected = len(cases)
+    if args.shard_count > 1:
+        if not (0 <= args.shard_index < args.shard_count):
+            raise ValueError(f'--shard-index must be in [0, {args.shard_count})')
+        cases = [c for i, c in enumerate(cases) if i % args.shard_count == args.shard_index]
+        print(f'[audit] shard {args.shard_index}/{args.shard_count}: '
+              f'{len(cases)} of {n_selected} selected cases', flush=True)
 
     print(f'[audit] model={model_path}', flush=True)
     print(f'[audit] {len(cases)} cases of category={args.category}', flush=True)
@@ -255,19 +268,34 @@ def main():
         'temporal_head_loaded': head_loaded,
         'records': records,
     }
-    tag = 'dryrun' if args.dry_run else f'n{len(cases)}'
+    tag = args.tag or ('dryrun' if args.dry_run else f'n{len(cases)}')
     out_path = os.path.join(args.out_dir, f'P0_prefix_audit_{args.category}_{tag}.json')
     with open(out_path, 'w') as fh:
         json.dump(out, fh, ensure_ascii=False)
     print(f'[audit] wrote {out_path}', flush=True)
 
     write_run_metadata(os.path.join(args.out_dir, f'P0_prefix_audit_{args.category}_{tag}.meta.json'),
-                       git_sha='/9950backfile/chenjiahui/EvoSeg',
+                       git_sha=git_sha(os.path.dirname(os.path.dirname(os.path.dirname(
+                           os.path.dirname(os.path.abspath(__file__)))))),
                        command=' '.join(sys.argv),
                        model_path=model_path, dataset_root=args.artifact_root,
                        manifest_path=args.manifest, seed=args.seed,
                        world_size=1, n_cases=len(cases), category=args.category,
-                       prefix_fractions=args.prefixes, vlm_all_frames=True,
+                       prefix_fractions=args.prefixes,
+                       # flags are per run mode, not global: the prefix runs set
+                       # vlm_all_frames=True and the default-path run sets False
+                       run_modes=[
+                           {'mode': 'prefix_vlm_all_frames', 'prefix_fraction': float(f),
+                            'vlm_all_frames': True} for f in sorted(args.prefixes)
+                       ] + [{'mode': 'full_video_default_vlm_first5', 'prefix_fraction': 1.0,
+                             'vlm_all_frames': False}],
+                       vlm_all_frames_prefix_runs=True,
+                       vlm_all_frames_default_path=False,
+                       device=args.device,
+                       gpu=os.environ.get('CUDA_VISIBLE_DEVICES', 'all'),
+                       shard_index=args.shard_index, shard_count=args.shard_count,
+                       n_cases_selected_before_sharding=n_selected,
+                       case_ids=[c['video_id'] + ':' + str(c['exp_id']) for c in cases],
                        temporal_head_loaded=head_loaded,
                        output=out_path)
 
