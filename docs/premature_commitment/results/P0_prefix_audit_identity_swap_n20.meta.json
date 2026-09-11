@@ -1,0 +1,22 @@
+{
+ "timestamp": "2026-09-11T15:34:55",
+ "command": "projects/evoseg/premature_commitment/audit_inference_information_flow.py --n-cases 20 --out-dir /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment",
+ "git_sha": "/9950backfile/chenjiahui/EvoSeg",
+ "model_path": "/9950backfile/chenjiahui/evo_artifacts/models/EvoSeg-Qwen3-VL-4B-Faithful",
+ "dataset_root": "/9950backfile/chenjiahui/evo_artifacts",
+ "manifest_path": "/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/faithfulness_valid.json",
+ "seed": 0,
+ "world_size": 1,
+ "n_cases": 20,
+ "category": "identity_swap",
+ "prefix_fractions": [
+  0.2,
+  0.4,
+  0.6,
+  0.8,
+  1.0
+ ],
+ "vlm_all_frames": true,
+ "temporal_head_loaded": true,
+ "output": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/P0_prefix_audit_identity_swap_n20.json"
+}
