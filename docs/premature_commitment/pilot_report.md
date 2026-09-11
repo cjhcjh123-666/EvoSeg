@@ -322,6 +322,12 @@ Specifically:
 Per the stop condition, the pilot stops here: **no belief model, no SAM3.1, no
 Agent, no RL, no new verifier.**
 
+**Next step under this verdict: none — do not start method work.** (Had the
+verdict been GO, the pre-registered next step would have been: complete the P2
+annotation, then run a *diagnostic-only* `ORACLE_ID` experiment to localise the
+bottleneck to the VLM→prompt interface before designing anything, with any
+belief/multi-hypothesis model coming only after that localization.)
+
 ## 8. Reproduction
 
 ```bash
