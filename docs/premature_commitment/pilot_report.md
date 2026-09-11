@@ -301,6 +301,12 @@ versus SAM2 propagation. Neither exists in M5.
   every-5th-frame annotations; "visible" is derived from GT mask non-emptiness.
 * **The cosine calibration uses the first other expression** of the same video,
   which may itself be unusually similar or dissimilar — 20 samples, median 0.789.
+* **The `Δz → Δmask` sensitivity was not measured.** The cosine calibration fixes
+  the *scale* of the conditioning drift, but it does not say how the drift maps
+  onto mask decisions (e.g. per case, does a larger `Δz` predict a larger
+  `Δmargin`/`IDErr`?). That is a cheap follow-up on the existing JSONs, and it
+  would strengthen or kill the "the token is not being used to revise the referent"
+  reading; it is not in this revision.
 
 ## 6. Threats to validity / honest caveats
 
