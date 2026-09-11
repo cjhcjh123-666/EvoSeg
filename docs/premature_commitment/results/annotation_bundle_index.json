@@ -1,0 +1,7 @@
+{
+ "bundle": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/annotation_bundle/annotation_bundle.json",
+ "html": "/9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/annotation_bundle/annotate.html",
+ "n_cases": 80,
+ "n_checkpoints": 806,
+ "regenerate": "python projects/evoseg/premature_commitment/build_annotation_bundle.py --pool /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/candidate_pool.json --out-dir /9950backfile/chenjiahui/evo_artifacts/results/premature_commitment/annotation_bundle --top-k 80"
+}

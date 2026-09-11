@@ -6,6 +6,10 @@ This directory implements the M5 research pilot defined in **Issue #3**:
 **Goal of M5 is diagnosis, not a new model.** No Agent, RL, controller,
 belief network, new verifier or SAM3.1 integration belongs here.
 
+> **Status: pilot complete, verdict NO-GO for the prefix-causal
+> "premature commitment" hypothesis** — see
+> `docs/premature_commitment/pilot_report.md`.
+
 ## Layout
 
 ```
@@ -47,5 +51,41 @@ python projects/evoseg/premature_commitment/build_annotation_bundle.py --help
 ```
 
 See `docs/premature_commitment/P0_inference_audit.md` for the inference-flow
-findings and `docs/premature_commitment/pilot_report.md` for the GO / NO-GO
-decision.
+findings, `docs/premature_commitment/P1_candidate_mining.md` for the candidate
+pool, `docs/premature_commitment/P2_pilot_protocol.md` for the (still
+unlabelled) annotation bundle, and `docs/premature_commitment/pilot_report.md`
+for the GO / NO-GO decision.
+
+## Reports, results and figures (committed)
+
+| what | path |
+|---|---|
+| P0 inference audit | `docs/premature_commitment/P0_inference_audit.md` |
+| P1 candidate mining | `docs/premature_commitment/P1_candidate_mining.md` |
+| P2 annotation protocol | `docs/premature_commitment/P2_pilot_protocol.md` |
+| pilot report + GO/NO-GO | `docs/premature_commitment/pilot_report.md` |
+| raw P0 diagnostics | `docs/premature_commitment/results/P0_prefix_audit_identity_swap_n20.json` |
+| candidate pool / summary / stats | `docs/premature_commitment/results/candidate_{pool.json,summary.csv,stats.json}` |
+| prefix identity curve + CIs | `docs/premature_commitment/results/prefix_identity_eval.json` |
+| delayed / ORACLE_* headroom | `docs/premature_commitment/results/delayed_oracle_headroom.json` |
+| prefix identity curve plot | `docs/premature_commitment/figures/prefix_identity_curve.png` |
+| annotation bundle index | `docs/premature_commitment/results/annotation_bundle_index.json` |
+
+Heavy per-run artifacts (raw per-frame IoUs, propagated masks, the 4 817-frame
+annotation image set) are **not** committed; the generated JSON above is the
+committed, sufficient summary. Every committed result file records the exact
+command that produced it in its sibling `<name>.meta.json` or its `index.json`.
+
+## Annotation entry point (human work required)
+
+```bash
+python projects/evoseg/premature_commitment/build_annotation_bundle.py \
+  --pool <artifact_root>/results/premature_commitment/candidate_pool.json \
+  --out-dir <artifact_root>/results/premature_commitment/annotation_bundle \
+  --top-k 80 --max-checkpoints 12 --thumb-width 320
+# then open <artifact_root>/results/premature_commitment/annotation_bundle/annotate.html
+```
+
+80 cases × 806 checkpoints, 3 annotators, labels
+`AMBIGUOUS / UNIQUE / INVALID / UNCERTAIN` (+ object id, confidence 1–5,
+evidence type, note). See `docs/premature_commitment/P2_pilot_protocol.md`.
