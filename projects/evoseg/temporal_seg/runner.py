@@ -400,13 +400,30 @@ def run(args):
             allowed.append(item)
         objects = allowed
     total = sum(len(item["expressions"]) * len(args.frame_budgets) for item in objects)
-    status.update({"state": "running", "planned_results_this_phase": total})
+    pending_at_start = sum(
+        stable_key(item, expression, budget) not in done
+        for item in objects
+        for expression in item["expressions"]
+        for budget in args.frame_budgets
+    )
+    phase_started = time.monotonic()
+    status.update(
+        {
+            "state": "running",
+            "planned_results_this_phase": total,
+            "pending_results_at_phase_start": pending_at_start,
+            "attempted_results_this_process": 0,
+            "elapsed_seconds_this_process": 0.0,
+            "estimated_remaining_seconds_this_phase": None,
+        }
+    )
     atomic_json(status_path, status)
 
     # Every process has a cold first inference even when it resumes existing
     # JSONL results from an earlier process.
     first_inference = True
     failed = 0
+    attempted = 0
     for item in objects:
         segmentation_names = item["segmentation_frame_names"]
         segmentation_paths = [
@@ -516,12 +533,20 @@ def run(args):
                     )
                 append_record(predictions_path, base_record)
                 first_inference = False
+                attempted += 1
+                elapsed = time.monotonic() - phase_started
+                remaining = max(pending_at_start - attempted, 0)
                 status.update(
                     {
                         "updated_at": utc_now(),
                         "state": "running",
                         "completed_unique_results": len(done),
                         "failed_results_this_process": failed,
+                        "attempted_results_this_process": attempted,
+                        "elapsed_seconds_this_process": elapsed,
+                        "estimated_remaining_seconds_this_phase": (
+                            elapsed / attempted * remaining if attempted else None
+                        ),
                         "current_key": key,
                     }
                 )
@@ -532,6 +557,9 @@ def run(args):
             "state": "phase_complete",
             "completed_unique_results": len(done),
             "failed_results_this_process": failed,
+            "attempted_results_this_process": attempted,
+            "elapsed_seconds_this_process": time.monotonic() - phase_started,
+            "estimated_remaining_seconds_this_phase": 0.0,
             "current_key": None,
         }
     )
