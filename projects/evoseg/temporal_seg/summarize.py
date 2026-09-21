@@ -364,6 +364,23 @@ def summarize(run_dir: Path):
         )
 
     dynamic_b = b_stats["dynamic"]
+    accuracy_lines = ["| 描述类型 | N=8 J&F | N=16 J&F | N=32 J&F | N=32−N=8 (95% CI) |", "|---|---:|---:|---:|---:|"]
+    for typ in ("static", "dynamic", "hybrid"):
+        by_budget = {}
+        for budget in (8, 16, 32):
+            by_budget[budget] = mean_or_none(
+                [
+                    value["J_and_F"]
+                    for (_video, _obj, row_type, row_budget), value in means.items()
+                    if row_type == typ and row_budget == budget
+                ]
+            )
+        point, low, high = b_stats[typ]
+        accuracy_lines.append(
+            f"| {typ} | {fmt(by_budget[8])} | {fmt(by_budget[16])} | "
+            f"{fmt(by_budget[32])} | {fmt(point)} [{fmt(low)}, {fmt(high)}] |"
+        )
+    accuracy_table = "\n".join(accuracy_lines)
     report = f"""# EvoSeg 跨帧过程诊断：首轮报告
 
 ## ① 实际跑了什么、覆盖多少视频和对象
@@ -377,6 +394,8 @@ N=16 时，先在对象内分别平均同类型多表达，再计算 Dynamic−S
 ## ③ 增加帧数是否改善、代价是多少
 
 动态描述的对象内 N=32−N=8 J&F 差值为 {fmt(dynamic_b[0])} 个百分点，95% 区间为 [{fmt(dynamic_b[1])}, {fmt(dynamic_b[2])}]，完整配对对象数为 {len([r for r in b_rows if r['description_type'] == 'dynamic'])}。
+
+{accuracy_table}
 
 - {cost_line(8)}
 - {cost_line(16)}
