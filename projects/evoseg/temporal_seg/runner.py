@@ -249,10 +249,19 @@ class SeparatedSa2VA:
 
 def audit_loaded_model(model, model_path):
     runtime_source = Path(inspect.getfile(type(model))).resolve()
+    # ``gate_proj`` is a standard Qwen MLP parameter, not the legacy temporal
+    # existence gate.  Match only the experiment-specific head/gate names so
+    # the audit remains strict without rejecting the untouched base VLM.
+    forbidden_name_fragments = (
+        "temporal_existence",
+        "existence_head",
+        "temporal_gate",
+        "frame_gate",
+    )
     forbidden_parameters = [
         name
         for name, _ in model.named_parameters()
-        if any(word in name.lower() for word in ("temporal_existence", "existence_head", "gate"))
+        if any(fragment in name.lower() for fragment in forbidden_name_fragments)
     ]
     forbidden_attributes = [
         name
