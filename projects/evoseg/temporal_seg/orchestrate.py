@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -210,12 +211,58 @@ def main():
     full_rc, full_snapshot = monitor(full, worktree, run_dir, deadline)
     full_handle.close()
     summarize(worktree, run_dir)
+
+    # The first full pass is the fixed 64-object batch.  Once it finishes,
+    # deterministically extend the same selection order to every paired
+    # validation object and resume from the per-result JSONL checkpoint.
+    shutil.copy2(manifest_path, run_dir / "manifest_first64.json")
+    extended_path = run_dir / "manifest_extended.json"
+    extended_command = command.copy()
+    extended_command[extended_command.index(str(manifest_path))] = str(extended_path)
+    extended_command.extend(["--max-objects", "100000"])
+    extension_log = (run_dir / "logs" / "manifest_extended.log").open("a")
+    extended_result = subprocess.run(
+        extended_command,
+        cwd=worktree,
+        stdout=extension_log,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    extension_log.close()
+    if extended_result.returncode:
+        update_status(
+            status_path,
+            state="first_batch_complete_extension_blocked",
+            first_batch_return_code=full_rc,
+            blockers=["full paired-object manifest validation failed"],
+        )
+        return extended_result.returncode
+    extended_path.replace(manifest_path)
     update_status(
         status_path,
-        state="complete" if full_rc == 0 else "complete_with_failures",
-        full_return_code=full_rc,
+        state="extension_running",
+        first_batch_return_code=full_rc,
+    )
+    extension, extension_handle = run_logged(
+        common + ["--phase", "full"],
+        run_dir / "logs" / "extension.log",
+        env,
+    )
+    update_status(status_path, inference_pid=extension.pid)
+    extension_rc, extension_snapshot = monitor(
+        extension, worktree, run_dir, deadline
+    )
+    extension_handle.close()
+    summarize(worktree, run_dir)
+    update_status(
+        status_path,
+        state="complete" if full_rc == 0 and extension_rc == 0 else "complete_with_failures",
+        first_batch_return_code=full_rc,
+        extension_return_code=extension_rc,
         inference_pid=None,
-        first_round_snapshot_written=snapshot_written or full_snapshot,
+        first_round_snapshot_written=(
+            snapshot_written or full_snapshot or extension_snapshot
+        ),
     )
     return 0
 

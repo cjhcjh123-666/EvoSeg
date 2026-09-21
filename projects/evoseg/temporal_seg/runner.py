@@ -403,7 +403,9 @@ def run(args):
     status.update({"state": "running", "planned_results_this_phase": total})
     atomic_json(status_path, status)
 
-    first_inference = not done
+    # Every process has a cold first inference even when it resumes existing
+    # JSONL results from an earlier process.
+    first_inference = True
     failed = 0
     for item in objects:
         segmentation_names = item["segmentation_frame_names"]
