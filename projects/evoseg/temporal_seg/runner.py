@@ -42,6 +42,14 @@ def atomic_json(path: Path, value):
     tmp.replace(path)
 
 
+def merge_status(path: Path, **updates):
+    """Preserve fields written by the independent periodic summarizer."""
+    current = json.loads(path.read_text()) if path.exists() else {}
+    current.update(updates)
+    atomic_json(path, current)
+    return current
+
+
 def file_sha256(path: str | Path):
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -316,17 +324,14 @@ def run(args):
     predictions_path = run_dir / "predictions.jsonl"
     done = completed_keys(predictions_path)
     status_path = run_dir / "STATUS.json"
-    status = json.loads(status_path.read_text()) if status_path.exists() else {}
-    status.update({
-        "updated_at": utc_now(),
-        "state": "loading_model",
-        "pid": os.getpid(),
-        "phase": args.phase,
-        "completed_unique_results": len(done),
-        "failed_results": 0,
-        "blockers": [],
-    })
-    atomic_json(status_path, status)
+    status = merge_status(
+        status_path,
+        updated_at=utc_now(),
+        state="loading_model",
+        pid=os.getpid(),
+        phase=args.phase,
+        completed_unique_results=len(done),
+    )
 
     torch.cuda.set_device(args.device)
     load_started = time.perf_counter()
@@ -416,17 +421,15 @@ def run(args):
         for budget in args.frame_budgets
     )
     phase_started = time.monotonic()
-    status.update(
-        {
-            "state": "running",
-            "planned_results_this_phase": total,
-            "pending_results_at_phase_start": pending_at_start,
-            "attempted_results_this_process": 0,
-            "elapsed_seconds_this_process": 0.0,
-            "estimated_remaining_seconds_this_phase": None,
-        }
+    status = merge_status(
+        status_path,
+        state="running",
+        planned_results_this_phase=total,
+        pending_results_at_phase_start=pending_at_start,
+        attempted_results_this_process=0,
+        elapsed_seconds_this_process=0.0,
+        estimated_remaining_seconds_this_phase=None,
     )
-    atomic_json(status_path, status)
 
     # Every process has a cold first inference even when it resumes existing
     # JSONL results from an earlier process.
@@ -545,34 +548,30 @@ def run(args):
                 attempted += 1
                 elapsed = time.monotonic() - phase_started
                 remaining = max(pending_at_start - attempted, 0)
-                status.update(
-                    {
-                        "updated_at": utc_now(),
-                        "state": "running",
-                        "completed_unique_results": len(done),
-                        "failed_results_this_process": failed,
-                        "attempted_results_this_process": attempted,
-                        "elapsed_seconds_this_process": elapsed,
-                        "estimated_remaining_seconds_this_phase": (
-                            elapsed / attempted * remaining if attempted else None
-                        ),
-                        "current_key": key,
-                    }
+                status = merge_status(
+                    status_path,
+                    updated_at=utc_now(),
+                    state="running",
+                    completed_unique_results=len(done),
+                    failed_results_this_process=failed,
+                    attempted_results_this_process=attempted,
+                    elapsed_seconds_this_process=elapsed,
+                    estimated_remaining_seconds_this_phase=(
+                        elapsed / attempted * remaining if attempted else None
+                    ),
+                    current_key=key,
                 )
-                atomic_json(status_path, status)
-    status.update(
-        {
-            "updated_at": utc_now(),
-            "state": "phase_complete",
-            "completed_unique_results": len(done),
-            "failed_results_this_process": failed,
-            "attempted_results_this_process": attempted,
-            "elapsed_seconds_this_process": time.monotonic() - phase_started,
-            "estimated_remaining_seconds_this_phase": 0.0,
-            "current_key": None,
-        }
+    merge_status(
+        status_path,
+        updated_at=utc_now(),
+        state="phase_complete",
+        completed_unique_results=len(done),
+        failed_results_this_process=failed,
+        attempted_results_this_process=attempted,
+        elapsed_seconds_this_process=time.monotonic() - phase_started,
+        estimated_remaining_seconds_this_phase=0.0,
+        current_key=None,
     )
-    atomic_json(status_path, status)
     return 0 if failed == 0 else 2
 
 
