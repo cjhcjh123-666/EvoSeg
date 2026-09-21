@@ -358,6 +358,7 @@ def run(args):
         "loading_info": loading_summary,
         "runtime_audit": audit,
         "environment": {
+            "python_executable": sys.executable,
             "python": sys.version,
             "platform": platform.platform(),
             "torch": torch.__version__,
