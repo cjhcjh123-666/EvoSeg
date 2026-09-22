@@ -612,13 +612,15 @@ def load_ground_truth(item: dict, shape: tuple[int, int]) -> np.ndarray:
     masks = []
     for path_value in item["evaluation_mask_paths"]:
         path = Path(path_value)
-        if path.is_file():
-            with Image.open(path) as image:
-                mask = np.asarray(image.convert("L")) > 0
-            if mask.shape != shape:
-                raise ValueError(f"GT shape mismatch: {mask.shape} != {shape}: {path}")
-        else:
-            mask = np.zeros(shape, dtype=bool)
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"missing evaluation GT for {item['video_id']}/{item['object_id']}: "
+                f"{path}"
+            )
+        with Image.open(path) as image:
+            mask = np.asarray(image.convert("L")) > 0
+        if mask.shape != shape:
+            raise ValueError(f"GT shape mismatch: {mask.shape} != {shape}: {path}")
         masks.append(mask)
     return np.stack(masks)
 
@@ -804,6 +806,20 @@ def run_evaluation(args) -> int:
     summary = aggregate_candidate_rows(rows)
     write_csv(output_dir / "sam31_candidate_metrics.csv", rows)
     write_csv(output_dir / "sam31_candidate_summary.csv", summary)
+    source_states = [
+        source["status"].get("state")
+        for source in source_status
+        if source["status"] is not None
+    ]
+    planned_values = [
+        int(source["status"]["planned"])
+        for source in source_status
+        if source["status"] is not None
+        and source["status"].get("planned") is not None
+    ]
+    expected_generation_records = (
+        sum(planned_values) if len(planned_values) == len(source_run_dirs) else None
+    )
     atomic_json(
         output_dir / "evaluation_status.json",
         {
@@ -812,6 +828,17 @@ def run_evaluation(args) -> int:
             "generation_records": len(all_records),
             "successful_generation_records": len(records),
             "failed_generation_records": len(all_records) - len(records),
+            "expected_generation_records": expected_generation_records,
+            "missing_generation_records": (
+                expected_generation_records - len(all_records)
+                if expected_generation_records is not None
+                else None
+            ),
+            "all_source_runs_complete": len(source_states) == len(source_run_dirs)
+            and all(
+                state in {"complete", "complete_with_failures"}
+                for state in source_states
+            ),
             "unique_successful_keys": len(set(keys)),
             "evaluated_records": len(rows),
             "output_dir": str(output_dir),

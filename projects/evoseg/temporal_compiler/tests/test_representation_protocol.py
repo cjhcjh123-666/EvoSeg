@@ -25,6 +25,7 @@ from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     candidate_key,
     decode_rle,
     encode_rle,
+    load_ground_truth,
     select_pilot_objects,
 )
 from projects.evoseg.temporal_compiler.extract_qwen_concepts import (
@@ -85,6 +86,20 @@ def test_candidate_rle_round_trip():
     mask = np.zeros((5, 7), dtype=bool)
     mask[1:4, 2:6] = True
     assert np.array_equal(mask, decode_rle(encode_rle(mask)))
+
+
+def test_candidate_evaluation_rejects_missing_gt(tmp_path):
+    item = {
+        "video_id": "v",
+        "object_id": "o",
+        "evaluation_mask_paths": [str(tmp_path / "missing.png")],
+    }
+    try:
+        load_ground_truth(item, (5, 7))
+    except FileNotFoundError as error:
+        assert "missing evaluation GT" in str(error)
+    else:
+        raise AssertionError("missing GT was silently evaluated as an empty mask")
 
 
 def test_final_sam31_checkpoint_audit_checks_keys_and_values(tmp_path):
