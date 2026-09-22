@@ -149,6 +149,64 @@ def cluster_bootstrap(
     return point, float(low), float(high)
 
 
+def summarize_shared_pairs(
+    pairs: list[dict], model_names: list[str], iterations: int, seed: int
+) -> list[dict]:
+    """Summarize every model on the identical all-model-complete object set."""
+    by_model = defaultdict(list)
+    object_sets = {}
+    for row in pairs:
+        by_model[row["model"]].append(row)
+    for name in model_names:
+        object_sets[name] = {
+            (row["dataset"], row["video_id"], str(row["object_id"]))
+            for row in by_model[name]
+        }
+    shared = (
+        set.intersection(*(object_sets[name] for name in model_names))
+        if model_names
+        else set()
+    )
+    summaries = []
+    for name in model_names:
+        rows = [
+            row
+            for row in by_model[name]
+            if (row["dataset"], row["video_id"], str(row["object_id"])) in shared
+        ]
+        if not rows:
+            summaries.append(
+                {
+                    "model": name,
+                    "status": "unavailable_no_shared_complete_pairs",
+                    "shared_paired_objects": 0,
+                }
+            )
+            continue
+        point, low, high = cluster_bootstrap(rows, iterations, seed)
+        summary = {
+            "model": name,
+            "status": "success",
+            "shared_paired_objects": len(rows),
+            "source_videos": len({row["video_id"] for row in rows}),
+            "dynamic_minus_static_J_and_F": point,
+            "bootstrap_ci_low": low,
+            "bootstrap_ci_high": high,
+            "dynamic_worse_object_fraction": float(
+                np.mean([row["dynamic_worse"] for row in rows])
+            ),
+            "bootstrap_unit": "source_video",
+            "bootstrap_iterations": iterations,
+        }
+        for description_type in ("static", "dynamic"):
+            for metric in ("J", "F", "J_and_F"):
+                summary[f"{description_type}_{metric}"] = float(
+                    np.mean([row[f"{description_type}_{metric}"] for row in rows])
+                )
+        summaries.append(summary)
+    return summaries
+
+
 def summarize_model(
     spec: dict,
     expected: set,
@@ -362,6 +420,13 @@ def main(args) -> None:
     (output_dir / "cross_model_pair_overlap.json").write_text(
         json.dumps(overlap, indent=2, ensure_ascii=False) + "\n"
     )
+    shared_summaries = summarize_shared_pairs(
+        pairs,
+        successful_model_names,
+        args.bootstrap_iterations,
+        args.seed,
+    )
+    write_csv(output_dir / "cross_model_shared_summary.csv", shared_summaries)
     protocol = {
         "manifest": config["manifest"],
         "selection": (

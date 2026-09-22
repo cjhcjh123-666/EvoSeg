@@ -43,8 +43,9 @@ from projects.evoseg.temporal_compiler.summarize_cross_model import (
     manifest_expressions_by_object,
     manifest_identities,
     read_prediction_files,
-    summarize_model,
     select_manifest_objects,
+    summarize_model,
+    summarize_shared_pairs,
 )
 
 import numpy as np
@@ -256,6 +257,37 @@ def test_cross_model_pilot_selection_and_pair_overlap_are_explicit():
     assert audit["complete_paired_objects_by_model"] == {"a": 2, "b": 1}
     assert audit["shared_complete_paired_objects"] == 1
     assert audit["all_models_have_identical_complete_object_set"] is False
+
+
+def test_cross_model_shared_summary_uses_identical_object_intersection():
+    def row(model, video, obj, static, dynamic):
+        return {
+            "model": model,
+            "dataset": "d",
+            "video_id": video,
+            "object_id": obj,
+            "static_J": static,
+            "static_F": static,
+            "static_J_and_F": static,
+            "dynamic_J": dynamic,
+            "dynamic_F": dynamic,
+            "dynamic_J_and_F": dynamic,
+            "dynamic_minus_static_J_and_F": dynamic - static,
+            "dynamic_worse": int(dynamic < static),
+        }
+
+    pairs = [
+        row("a", "v0", "0", 0.8, 0.6),
+        row("a", "v1", "1", 0.1, 0.9),
+        row("b", "v0", "0", 0.7, 0.6),
+        row("b", "v2", "2", 0.2, 0.8),
+    ]
+    summaries = summarize_shared_pairs(pairs, ["a", "b"], iterations=20, seed=42)
+    assert [summary["shared_paired_objects"] for summary in summaries] == [1, 1]
+    assert np.isclose(summaries[0]["dynamic_minus_static_J_and_F"], -0.2)
+    assert np.isclose(summaries[1]["dynamic_minus_static_J_and_F"], -0.1)
+    assert np.isclose(summaries[0]["static_J_and_F"], 0.8)
+    assert np.isclose(summaries[1]["static_J_and_F"], 0.7)
 
 
 def test_cross_model_reads_multiple_prediction_shards_without_silent_duplicates(
