@@ -59,5 +59,6 @@ raw expression 在 132 条成功记录中有 60 条零候选；deterministic con
 - `results/sam31_candidate_pilot32_summary.csv`
 - `results/sam31_candidate_pilot32_metrics.csv`
 - `results/sam31_candidate_pilot32_evaluation_status.json`
+- `figures/sam31_candidate_pilot32_coverage.png`
 
 原始候选 RLE、视频、GT 和模型权重只保存在 artifact 根目录，不进入 git。
