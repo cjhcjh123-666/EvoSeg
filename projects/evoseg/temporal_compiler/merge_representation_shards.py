@@ -103,7 +103,10 @@ def run(args) -> int:
         "planned": args.expected_count,
         "failed": audit["failed_rows"],
         "worker_status_files": [
-            path.name for path in sorted(run_dir.glob("STATUS.worker-*-of-*.json"))
+            path.name.replace("representation_records.", "STATUS.").replace(
+                ".jsonl", ".json"
+            )
+            for path in worker_paths
         ],
         "merge_audit": "representation_merge_audit.json",
     }
