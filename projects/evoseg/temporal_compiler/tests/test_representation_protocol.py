@@ -33,6 +33,7 @@ from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     encode_rle,
     load_ground_truth,
     select_pilot_objects,
+    summarize_generation_attempts,
 )
 from projects.evoseg.temporal_compiler.extract_qwen_concepts import (
     clean_concept,
@@ -88,6 +89,21 @@ def test_candidate_protocol_identity_and_selection():
     assert {item["object_id"] for shard in shards for item in shard} == {
         str(index) for index in range(32)
     }
+
+
+def test_candidate_attempt_summary_counts_retries_without_negative_missing():
+    records = [
+        {"key": "a", "status": "failed"},
+        {"key": "a", "status": "success"},
+        {"key": "b", "status": "success"},
+    ]
+    summary = summarize_generation_attempts(records, expected_successful_records=2)
+    assert summary["generation_attempt_records"] == 3
+    assert summary["successful_generation_records"] == 2
+    assert summary["failed_generation_attempt_records"] == 1
+    assert summary["unique_attempted_keys"] == 2
+    assert summary["retry_attempt_records"] == 1
+    assert summary["missing_successful_generation_records"] == 0
 
 
 def test_candidate_rle_round_trip():

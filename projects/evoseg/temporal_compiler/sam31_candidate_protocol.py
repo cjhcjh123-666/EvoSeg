@@ -787,6 +787,34 @@ def aggregate_candidate_rows(rows: list[dict]) -> list[dict]:
     return summary
 
 
+def summarize_generation_attempts(
+    records: list[dict], expected_successful_records: int | None
+) -> dict:
+    successful = [record for record in records if record.get("status") == "success"]
+    failed = [record for record in records if record.get("status") != "success"]
+    attempted_keys = [record["key"] for record in records]
+    unique_attempted_keys = set(attempted_keys)
+    missing_successful = (
+        max(expected_successful_records - len(successful), 0)
+        if expected_successful_records is not None
+        else None
+    )
+    return {
+        # Preserve old field names while explicitly distinguishing unique
+        # records from attempts retained across retries.
+        "generation_records": len(records),
+        "generation_attempt_records": len(records),
+        "successful_generation_records": len(successful),
+        "failed_generation_records": len(failed),
+        "failed_generation_attempt_records": len(failed),
+        "unique_attempted_keys": len(unique_attempted_keys),
+        "retry_attempt_records": len(records) - len(unique_attempted_keys),
+        "expected_generation_records": expected_successful_records,
+        "missing_generation_records": missing_successful,
+        "missing_successful_generation_records": missing_successful,
+    }
+
+
 def run_evaluation(args) -> int:
     source_run_dirs = [Path(args.run_dir).resolve()] + [
         Path(path).resolve() for path in args.additional_run_dir
@@ -844,20 +872,15 @@ def run_evaluation(args) -> int:
     expected_generation_records = (
         sum(planned_values) if len(planned_values) == len(source_run_dirs) else None
     )
+    attempt_summary = summarize_generation_attempts(
+        all_records, expected_generation_records
+    )
     atomic_json(
         output_dir / "evaluation_status.json",
         {
             "created_at": utc_now(),
             "source_runs": source_status,
-            "generation_records": len(all_records),
-            "successful_generation_records": len(records),
-            "failed_generation_records": len(all_records) - len(records),
-            "expected_generation_records": expected_generation_records,
-            "missing_generation_records": (
-                expected_generation_records - len(all_records)
-                if expected_generation_records is not None
-                else None
-            ),
+            **attempt_summary,
             "all_source_runs_complete": len(source_states) == len(source_run_dirs)
             and all(
                 state in {"complete", "complete_with_failures"}
