@@ -17,6 +17,9 @@ from projects.evoseg.temporal_compiler.virst_long_rvos_adapter import (
     prepare as prepare_virst,
     select_objects as select_virst_objects,
 )
+from projects.evoseg.temporal_compiler.virst_instrumented_eval import (
+    build_frame_audit_record,
+)
 from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     audit_loaded_checkpoint,
     candidate_key,
@@ -250,6 +253,39 @@ def test_cross_model_shards_partition_pilot_objects_without_overlap():
         assert len(flattened) == 64
         assert {item["object_id"] for item in flattened} == {str(index) for index in range(64)}
         assert all(len(shard) == 16 for shard in shards)
+
+
+def test_virst_frame_audit_records_realized_vlm_and_sam_indices():
+    class TensorStub:
+        def __init__(self, shape, nonzero=0):
+            self.shape = shape
+            self.nonzero = nonzero
+
+        def count_nonzero(self):
+            return ScalarStub(self.nonzero)
+
+    class ScalarStub:
+        def __init__(self, value):
+            self.value = value
+
+        def item(self):
+            return self.value
+
+    record = build_frame_audit_record(
+        7,
+        {
+            "frame_ids": [[0, 4, 9]],
+            "images_clip": TensorStub((3, 3, 448, 448)),
+            "images_sam": TensorStub((3, 3, 1024, 1024)),
+            "masks": [TensorStub((1, 3, 1024, 1024))],
+            "video_paths": ["/data/v"],
+            "exp_ids": ["e"],
+            "image_path": "/data/v/000.jpg,/data/v/004.jpg,/data/v/009.jpg",
+        },
+    )
+    assert record["model_input_frame_indices"] == [0, 4, 9]
+    assert record["vlm_frame_count"] == record["sam_frame_count"] == 3
+    assert record["gt_available_to_model"] is False
 
 
 def test_virst_adapter_uses_gt_free_test_schema_and_symlink(tmp_path):
