@@ -847,14 +847,66 @@ def run_evaluation(args) -> int:
     keys = [record["key"] for record in records]
     if len(keys) != len(set(keys)):
         raise RuntimeError("duplicate successful candidate keys across input shards")
-    rows = [
-        evaluate_record(
-            record,
-            Path(record["_source_run_dir"]),
-            object_lookup[(record["dataset"], record["video_id"], record["object_id"])],
+    progress_path = output_dir / "evaluation_progress.json"
+    evaluation_started = time.monotonic()
+    rows = []
+    atomic_json(
+        progress_path,
+        {
+            "state": "running",
+            "pid": os.getpid(),
+            "planned": len(records),
+            "completed": 0,
+            "current_key": None,
+            "elapsed_seconds": 0.0,
+            "estimated_remaining_seconds": None,
+            "updated_at": utc_now(),
+        },
+    )
+    try:
+        for index, record in enumerate(records, start=1):
+            rows.append(
+                evaluate_record(
+                    record,
+                    Path(record["_source_run_dir"]),
+                    object_lookup[
+                        (record["dataset"], record["video_id"], record["object_id"])
+                    ],
+                )
+            )
+            elapsed = time.monotonic() - evaluation_started
+            atomic_json(
+                progress_path,
+                {
+                    "state": "running",
+                    "pid": os.getpid(),
+                    "planned": len(records),
+                    "completed": index,
+                    "current_key": record["key"],
+                    "elapsed_seconds": elapsed,
+                    "estimated_remaining_seconds": (
+                        elapsed / index * (len(records) - index)
+                    ),
+                    "updated_at": utc_now(),
+                },
+            )
+    except Exception as error:
+        atomic_json(
+            progress_path,
+            {
+                "state": "failed",
+                "pid": os.getpid(),
+                "planned": len(records),
+                "completed": len(rows),
+                "current_key": record["key"],
+                "elapsed_seconds": time.monotonic() - evaluation_started,
+                "estimated_remaining_seconds": None,
+                "error": str(error),
+                "traceback": traceback.format_exc(),
+                "updated_at": utc_now(),
+            },
         )
-        for record in records
-    ]
+        raise
     summary = aggregate_candidate_rows(rows)
     write_csv(output_dir / "sam31_candidate_metrics.csv", rows)
     write_csv(output_dir / "sam31_candidate_summary.csv", summary)
@@ -890,6 +942,19 @@ def run_evaluation(args) -> int:
             "evaluated_records": len(rows),
             "output_dir": str(output_dir),
             "ground_truth_used_only_in_evaluation": True,
+        },
+    )
+    atomic_json(
+        progress_path,
+        {
+            "state": "complete",
+            "pid": os.getpid(),
+            "planned": len(records),
+            "completed": len(rows),
+            "current_key": None,
+            "elapsed_seconds": time.monotonic() - evaluation_started,
+            "estimated_remaining_seconds": 0.0,
+            "updated_at": utc_now(),
         },
     )
     return 0
