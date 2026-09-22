@@ -9,6 +9,7 @@ from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     encode_rle,
     select_pilot_objects,
 )
+from projects.evoseg.temporal_compiler.summarize_cross_model import cluster_bootstrap
 
 import numpy as np
 
@@ -47,3 +48,14 @@ def test_candidate_rle_round_trip():
     mask = np.zeros((5, 7), dtype=bool)
     mask[1:4, 2:6] = True
     assert np.array_equal(mask, decode_rle(encode_rle(mask)))
+
+
+def test_cluster_bootstrap_preserves_constant_gap():
+    rows = [
+        {"video_id": "a", "dynamic_minus_static_J_and_F": -0.1},
+        {"video_id": "b", "dynamic_minus_static_J_and_F": -0.1},
+    ]
+    point, low, high = cluster_bootstrap(rows, iterations=20, seed=42)
+    assert np.isclose(point, -0.1)
+    assert np.isclose(low, -0.1)
+    assert np.isclose(high, -0.1)
