@@ -21,6 +21,12 @@ def sha256(path: Path):
     return digest.hexdigest()
 
 
+def atomic_json(path: Path, value):
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
+    temporary.replace(path)
+
+
 def parse_time(value: str):
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
@@ -83,9 +89,22 @@ def materialize(run_dir: Path, cutoff: str, name: str = "first_round_8h"):
         "covered_objects": summary_status.get("covered_objects", 0),
         "predictions_sha256": sha256(snapshot_predictions),
     }
-    (destination / "SNAPSHOT.json").write_text(
-        json.dumps(metadata, indent=2, ensure_ascii=False) + "\n"
+    snapshot_metadata = destination / "SNAPSHOT.json"
+    atomic_json(snapshot_metadata, metadata)
+    source_status_path = run_dir / "STATUS.json"
+    source_status = (
+        json.loads(source_status_path.read_text()) if source_status_path.exists() else {}
     )
+    source_status.update(
+        {
+            "first_round_snapshot_path": str(destination.relative_to(run_dir)),
+            "first_round_snapshot_cutoff": cutoff,
+            "first_round_snapshot_predictions_sha256": metadata[
+                "predictions_sha256"
+            ],
+        }
+    )
+    atomic_json(source_status_path, source_status)
     return metadata
 
 
