@@ -19,6 +19,7 @@ import time
 import traceback
 import uuid
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -694,6 +695,11 @@ def evaluate_record(record: dict, run_dir: Path, item: dict) -> dict:
     }
 
 
+def evaluate_record_task(task: tuple[dict, dict]) -> dict:
+    record, item = task
+    return evaluate_record(record, Path(record["_source_run_dir"]), item)
+
+
 def write_csv(path: Path, rows: list[dict]) -> None:
     fields = list(rows[0]) if rows else []
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -849,7 +855,7 @@ def run_evaluation(args) -> int:
         raise RuntimeError("duplicate successful candidate keys across input shards")
     progress_path = output_dir / "evaluation_progress.json"
     evaluation_started = time.monotonic()
-    rows = []
+    rows_by_index = [None] * len(records)
     atomic_json(
         progress_path,
         {
@@ -858,38 +864,61 @@ def run_evaluation(args) -> int:
             "planned": len(records),
             "completed": 0,
             "current_key": None,
+            "workers": args.workers,
             "elapsed_seconds": 0.0,
             "estimated_remaining_seconds": None,
             "updated_at": utc_now(),
         },
     )
+    tasks = [
+        (
+            record,
+            object_lookup[(record["dataset"], record["video_id"], record["object_id"])],
+        )
+        for record in records
+    ]
+    executor = None
+    completed_count = 0
+    current_record = None
+
+    def update_running_progress(record: dict) -> None:
+        elapsed = time.monotonic() - evaluation_started
+        atomic_json(
+            progress_path,
+            {
+                "state": "running",
+                "pid": os.getpid(),
+                "planned": len(records),
+                "completed": completed_count,
+                "current_key": record["key"],
+                "workers": args.workers,
+                "elapsed_seconds": elapsed,
+                "estimated_remaining_seconds": (
+                    elapsed / completed_count * (len(records) - completed_count)
+                ),
+                "updated_at": utc_now(),
+            },
+        )
+
     try:
-        for index, record in enumerate(records, start=1):
-            rows.append(
-                evaluate_record(
-                    record,
-                    Path(record["_source_run_dir"]),
-                    object_lookup[
-                        (record["dataset"], record["video_id"], record["object_id"])
-                    ],
-                )
-            )
-            elapsed = time.monotonic() - evaluation_started
-            atomic_json(
-                progress_path,
-                {
-                    "state": "running",
-                    "pid": os.getpid(),
-                    "planned": len(records),
-                    "completed": index,
-                    "current_key": record["key"],
-                    "elapsed_seconds": elapsed,
-                    "estimated_remaining_seconds": (
-                        elapsed / index * (len(records) - index)
-                    ),
-                    "updated_at": utc_now(),
-                },
-            )
+        if args.workers == 1:
+            for row_index, (record, task) in enumerate(zip(records, tasks)):
+                current_record = record
+                rows_by_index[row_index] = evaluate_record_task(task)
+                completed_count += 1
+                update_running_progress(record)
+        else:
+            executor = ProcessPoolExecutor(max_workers=args.workers)
+            future_lookup = {
+                executor.submit(evaluate_record_task, task): (row_index, record)
+                for row_index, (record, task) in enumerate(zip(records, tasks))
+            }
+            for future in as_completed(future_lookup):
+                row_index, record = future_lookup[future]
+                current_record = record
+                rows_by_index[row_index] = future.result()
+                completed_count += 1
+                update_running_progress(record)
     except Exception as error:
         atomic_json(
             progress_path,
@@ -897,8 +926,8 @@ def run_evaluation(args) -> int:
                 "state": "failed",
                 "pid": os.getpid(),
                 "planned": len(records),
-                "completed": len(rows),
-                "current_key": record["key"],
+                "completed": completed_count,
+                "current_key": current_record["key"] if current_record else None,
                 "elapsed_seconds": time.monotonic() - evaluation_started,
                 "estimated_remaining_seconds": None,
                 "error": str(error),
@@ -907,6 +936,12 @@ def run_evaluation(args) -> int:
             },
         )
         raise
+    finally:
+        if executor is not None:
+            executor.shutdown(wait=True, cancel_futures=True)
+    if completed_count != len(records) or any(row is None for row in rows_by_index):
+        raise RuntimeError("candidate evaluation completed with missing result rows")
+    rows = list(rows_by_index)
     summary = aggregate_candidate_rows(rows)
     write_csv(output_dir / "sam31_candidate_metrics.csv", rows)
     write_csv(output_dir / "sam31_candidate_summary.csv", summary)
@@ -940,6 +975,7 @@ def run_evaluation(args) -> int:
             ),
             "unique_successful_keys": len(set(keys)),
             "evaluated_records": len(rows),
+            "evaluation_workers": args.workers,
             "output_dir": str(output_dir),
             "ground_truth_used_only_in_evaluation": True,
         },
@@ -952,6 +988,7 @@ def run_evaluation(args) -> int:
             "planned": len(records),
             "completed": len(rows),
             "current_key": None,
+            "workers": args.workers,
             "elapsed_seconds": time.monotonic() - evaluation_started,
             "estimated_remaining_seconds": 0.0,
             "updated_at": utc_now(),
@@ -985,6 +1022,7 @@ def parse_args():
     evaluation.add_argument("--run-dir", required=True)
     evaluation.add_argument("--additional-run-dir", action="append", default=[])
     evaluation.add_argument("--output-dir")
+    evaluation.add_argument("--workers", type=int, default=1)
     return parser.parse_args()
 
 
@@ -992,4 +1030,6 @@ if __name__ == "__main__":
     arguments = parse_args()
     if arguments.command == "generate":
         raise SystemExit(run_generation(arguments))
+    if arguments.workers < 1:
+        raise SystemExit("--workers must be positive")
     raise SystemExit(run_evaluation(arguments))
