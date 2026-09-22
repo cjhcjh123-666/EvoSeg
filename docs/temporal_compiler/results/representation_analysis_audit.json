@@ -1,0 +1,22 @@
+{
+  "representation_records": 3567,
+  "unique_representation_keys": 3567,
+  "successful_representation_records": 3567,
+  "failed_representation_records": 0,
+  "unique_expressions_with_n8_n32": 1189,
+  "seg_token_count_values": [
+    1
+  ],
+  "segmentation_invoked_values": [
+    false
+  ],
+  "ground_truth_loaded_values": [
+    false
+  ],
+  "normalized_l2_definition": "L2 distance between independently unit-normalized vectors",
+  "calibration_b_unit": "object; official expressions averaged within type first",
+  "calibration_c_unit": "source video; official expressions type-balanced within object",
+  "bootstrap_seed": 42,
+  "bootstrap_iterations": 2000,
+  "figure_warnings": []
+}

@@ -3,7 +3,11 @@ from projects.evoseg.temporal_compiler.extract_sa2va_representations import (
     stable_key,
 )
 from projects.evoseg.temporal_compiler.analyze_sa2va_representations import distances
-from projects.evoseg.temporal_compiler.merge_representation_shards import merge_records
+from projects.evoseg.temporal_compiler.merge_representation_shards import (
+    merge_records,
+    run as run_representation_merge,
+    select_merge_inputs,
+)
 from projects.evoseg.temporal_compiler.instructseg_long_rvos_adapter import (
     expression_key as instructseg_expression_key,
     prepare as prepare_instructseg,
@@ -77,6 +81,24 @@ def test_merge_representation_shards_is_unique_and_ordered(tmp_path):
     rows, audit = merge_records([base, shard])
     assert [row["key"] for row in rows] == ["a", "b"]
     assert audit["success_rows"] == 2
+    assert audit["duplicate_rows"] == 0
+
+
+def test_representation_merge_rerun_does_not_count_merged_output(tmp_path):
+    output = tmp_path / "representation_records.jsonl"
+    shard = tmp_path / "representation_records.worker-00-of-02.jsonl"
+    output.write_text('{"key":"a","status":"success","vector_sha256":"1"}\n')
+    shard.write_text('{"key":"b","status":"success","vector_sha256":"2"}\n')
+    args = type("Args", (), {"run_dir": str(tmp_path), "expected_count": 2})()
+    assert select_merge_inputs(output, [shard], 2) == [output, shard]
+    assert run_representation_merge(args) == 0
+    assert select_merge_inputs(output, [shard], 2) == [output]
+    assert run_representation_merge(args) == 0
+    audit = __import__("json").loads(
+        (tmp_path / "representation_merge_audit.json").read_text()
+    )
+    assert audit["input_rows"] == 2
+    assert audit["unique_rows"] == 2
     assert audit["duplicate_rows"] == 0
 
 

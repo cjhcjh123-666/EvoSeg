@@ -64,11 +64,33 @@ def atomic_json(path: Path, value: dict) -> None:
     temporary.replace(path)
 
 
+def select_merge_inputs(
+    output: Path, worker_paths: list[Path], expected_count: int
+) -> list[Path]:
+    """Choose inputs without double-counting an already completed merge.
+
+    A sharded resume may start from a partially populated monolithic output, so
+    the first merge needs both that file and the worker shards.  After that
+    merge the monolithic output is complete and is itself the authoritative,
+    idempotent input on later audit refreshes.
+    """
+    if output.exists():
+        _, output_audit = merge_records([output])
+        if (
+            output_audit["unique_rows"] == expected_count
+            and output_audit["success_rows"] == expected_count
+            and output_audit["failed_rows"] == 0
+            and output_audit["duplicate_rows"] == 0
+        ):
+            return [output]
+    return ([output] if output.exists() else []) + worker_paths
+
+
 def run(args) -> int:
     run_dir = Path(args.run_dir).resolve()
     output = run_dir / "representation_records.jsonl"
     worker_paths = sorted(run_dir.glob("representation_records.worker-*-of-*.jsonl"))
-    paths = [output, *worker_paths]
+    paths = select_merge_inputs(output, worker_paths, args.expected_count)
     rows, audit = merge_records(paths)
     audit.update(
         {

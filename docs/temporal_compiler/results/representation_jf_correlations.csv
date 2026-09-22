@@ -1,0 +1,13 @@
+description_type,space,representation_metric,outcome,bootstrap_unit,bootstrap_iterations,n,source_videos,rho,ci_low,ci_high,valid_bootstrap_iterations
+static,h_seg,angular_distance_radians,delta_jf_n32_minus_n8,source_video,2000,425,90,0.04023166747432431,-0.08964652168433386,0.15883266560051998,2000
+static,h_seg,normalized_l2,delta_jf_n32_minus_n8,source_video,2000,425,90,0.04023166747432431,-0.08964652168433386,0.15883266560051998,2000
+static,z_seg,angular_distance_radians,delta_jf_n32_minus_n8,source_video,2000,425,90,0.049498991730627946,-0.07019984513956673,0.15982833619796424,2000
+static,z_seg,normalized_l2,delta_jf_n32_minus_n8,source_video,2000,425,90,0.049498991730627946,-0.07019984513956673,0.15982833619796424,2000
+dynamic,h_seg,angular_distance_radians,delta_jf_n32_minus_n8,source_video,2000,418,90,0.11944803819538445,-0.005896944268715758,0.23330215059117967,2000
+dynamic,h_seg,normalized_l2,delta_jf_n32_minus_n8,source_video,2000,418,90,0.11944803819538445,-0.005896944268715758,0.23330215059117967,2000
+dynamic,z_seg,angular_distance_radians,delta_jf_n32_minus_n8,source_video,2000,418,90,0.09016646232400646,-0.02610739391562443,0.19878000488099268,2000
+dynamic,z_seg,normalized_l2,delta_jf_n32_minus_n8,source_video,2000,418,90,0.09016646232400646,-0.02610739391562443,0.19878000488099268,2000
+hybrid,h_seg,angular_distance_radians,delta_jf_n32_minus_n8,source_video,2000,346,87,-5.5913181025456606e-05,-0.10409144597620278,0.11956109712082585,2000
+hybrid,h_seg,normalized_l2,delta_jf_n32_minus_n8,source_video,2000,346,87,-5.5913181025456606e-05,-0.10409144597620278,0.11956109712082585,2000
+hybrid,z_seg,angular_distance_radians,delta_jf_n32_minus_n8,source_video,2000,346,87,0.005772818661677519,-0.1037550480741819,0.12308082215122984,2000
+hybrid,z_seg,normalized_l2,delta_jf_n32_minus_n8,source_video,2000,346,87,0.005772818661677519,-0.1037550480741819,0.12308082215122984,2000
