@@ -103,7 +103,7 @@ def test_candidate_evaluation_rejects_missing_gt(tmp_path):
     try:
         load_ground_truth(item, (5, 7))
     except FileNotFoundError as error:
-        assert "missing evaluation GT" in str(error)
+        assert "evaluation GT availability differs from manifest" in str(error)
     else:
         raise AssertionError("missing GT was silently evaluated as an empty mask")
 
@@ -318,7 +318,10 @@ def test_instructseg_adapter_preserves_official_expression_and_all_frames(tmp_pa
         "evaluation_frame_indices": [1], "evaluation_frame_names": ["001"],
         "evaluation_mask_paths": ["/gt/001.png"],
         "evaluation_mask_present": [True],
-        "expressions": [{"expression_id": "9", "type": "dynamic", "text": "the dog turns"}],
+        "expressions": [
+            {"expression_id": "9", "type": "dynamic", "text": "the dog turns"},
+            {"expression_id": "10", "type": "static", "text": "the brown dog"},
+        ],
     }
     payload, mapping = prepare_instructseg(
         {"dataset": {"image_root": str(image_root)}, "objects": [item]}, None
@@ -405,12 +408,17 @@ def test_virst_adapter_uses_gt_free_test_schema_and_symlink(tmp_path):
         {"dataset": {"image_root": str(image_root)}, "objects": [item]},
         dataset_root,
         None,
+        max_expressions_per_object=1,
     )
     payload = __import__("json").loads(
         (dataset_root / "mevis/valid/meta_expressions.json").read_text()
     )
     expression = payload["videos"]["v"]["expressions"]["object-2__expression-9"]
     assert expression == {"exp": "the dog turns"}
+    assert list(payload["videos"]["v"]["expressions"]) == [
+        "object-2__expression-9"
+    ]
+    assert len(mapping) == 1
     assert (dataset_root / "mevis/valid/JPEGImages/v").is_symlink()
     assert mapping[0]["gt_available_to_model"] is False
 

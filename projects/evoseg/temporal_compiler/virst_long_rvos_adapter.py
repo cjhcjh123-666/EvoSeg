@@ -42,6 +42,7 @@ def prepare(
     max_objects: int | None,
     shard_index: int = 0,
     num_shards: int = 1,
+    max_expressions_per_object: int | None = None,
 ) -> list[dict]:
     objects = select_objects(
         manifest["objects"], max_objects, shard_index=shard_index, num_shards=num_shards
@@ -67,7 +68,12 @@ def prepare(
         )
         if video["frames"] != item["frame_names"]:
             raise AssertionError(f"frame list differs within source video {video_id}")
-        for expression in item["expressions"]:
+        expressions = item["expressions"]
+        if max_expressions_per_object is not None:
+            if max_expressions_per_object < 1:
+                raise ValueError("max_expressions_per_object must be positive")
+            expressions = expressions[:max_expressions_per_object]
+        for expression in expressions:
             output_expression = (
                 f"object-{item['object_id']}__expression-{expression['expression_id']}"
             )
@@ -227,6 +233,7 @@ def run_prepare(args) -> None:
         args.max_objects,
         shard_index=args.shard_index,
         num_shards=args.num_shards,
+        max_expressions_per_object=args.max_expressions_per_object,
     )
 
 
@@ -268,6 +275,7 @@ def parse_args():
     prepare_parser.add_argument("--max-objects", type=int)
     prepare_parser.add_argument("--shard-index", type=int, default=0)
     prepare_parser.add_argument("--num-shards", type=int, default=1)
+    prepare_parser.add_argument("--max-expressions-per-object", type=int)
     evaluate_parser = subparsers.add_parser("evaluate")
     evaluate_parser.add_argument("--mapping-json", required=True)
     evaluate_parser.add_argument("--output-root", required=True)
