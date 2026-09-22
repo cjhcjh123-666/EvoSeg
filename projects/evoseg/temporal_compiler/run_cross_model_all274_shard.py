@@ -69,6 +69,11 @@ def run(args) -> int:
     validate_pilot_overlap(overlap)
 
     repo = Path(args.repo).resolve()
+    cross_model_config_path = Path(args.cross_model_config).resolve()
+    cross_model_config = json.loads(cross_model_config_path.read_text())
+    evoseg_commit = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+    ).strip()
     instruct_run_dir = Path(args.instruct_run_dir).resolve()
     virst_run_dir = Path(args.virst_run_dir).resolve()
     status_path = Path(args.status_json).resolve()
@@ -108,6 +113,10 @@ def run(args) -> int:
             "shard_index": args.shard_index,
             "pilot_overlap": str(pilot_overlap_path),
             "pilot_gate_validated": True,
+            "evoseg_repo": str(repo),
+            "evoseg_commit": evoseg_commit,
+            "cross_model_config": str(cross_model_config_path),
+            "model_provenance": cross_model_config["models"],
             "instructseg": {
                 "pid": instruct_process.pid,
                 "returncode": instruct_process.poll(),
@@ -147,6 +156,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--shard-index", type=int, choices=range(4), required=True)
     parser.add_argument("--master-port", type=int, required=True)
     parser.add_argument("--pilot-overlap", required=True)
+    parser.add_argument("--cross-model-config", required=True)
     parser.add_argument("--instruct-run-dir", required=True)
     parser.add_argument("--virst-run-dir", required=True)
     parser.add_argument("--status-json", required=True)
