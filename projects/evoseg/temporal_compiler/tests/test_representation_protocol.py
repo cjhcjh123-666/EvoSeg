@@ -8,6 +8,9 @@ from projects.evoseg.temporal_compiler.instructseg_long_rvos_adapter import (
     expression_key as instructseg_expression_key,
     prepare as prepare_instructseg,
 )
+from projects.evoseg.temporal_compiler.virst_long_rvos_adapter import (
+    prepare as prepare_virst,
+)
 from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     candidate_key,
     decode_rle,
@@ -98,3 +101,29 @@ def test_instructseg_adapter_preserves_official_expression_and_all_frames(tmp_pa
     assert payload["videos"][0]["file_names"] == ["v/000.jpg", "v/001.jpg"]
     assert mapping[0]["gt_available_to_model"] is False
     assert instructseg_expression_key(item, item["expressions"][0]) == "long_rvos/v/2/9/native"
+
+
+def test_virst_adapter_uses_gt_free_test_schema_and_symlink(tmp_path):
+    image_root = tmp_path / "images"
+    (image_root / "v").mkdir(parents=True)
+    item = {
+        "dataset": "long_rvos", "video_id": "v", "object_id": "2",
+        "frame_names": ["000", "001"],
+        "evaluation_frame_indices": [1], "evaluation_frame_names": ["001"],
+        "evaluation_mask_paths": ["/gt/001.png"],
+        "vlm_frame_indices": {"16": [0, 1]},
+        "expressions": [{"expression_id": "9", "type": "dynamic", "text": "the dog turns"}],
+    }
+    dataset_root = tmp_path / "adapter"
+    mapping = prepare_virst(
+        {"dataset": {"image_root": str(image_root)}, "objects": [item]},
+        dataset_root,
+        None,
+    )
+    payload = __import__("json").loads(
+        (dataset_root / "mevis/valid/meta_expressions.json").read_text()
+    )
+    expression = payload["videos"]["v"]["expressions"]["object-2__expression-9"]
+    assert expression == {"exp": "the dog turns"}
+    assert (dataset_root / "mevis/valid/JPEGImages/v").is_symlink()
+    assert mapping[0]["gt_available_to_model"] is False
