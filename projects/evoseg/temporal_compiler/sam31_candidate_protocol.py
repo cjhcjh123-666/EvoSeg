@@ -223,13 +223,20 @@ def audit_loaded_checkpoint(model: torch.nn.Module, checkpoint: Path) -> dict:
     checkpoint_keys = set(payload)
     missing = sorted(model_keys - checkpoint_keys)
     unexpected = sorted(checkpoint_keys - model_keys)
-    if missing or unexpected:
+    allowed_missing = [
+        key
+        for key in missing
+        if key.endswith(".attn.freqs_cis_real")
+        or key.endswith(".attn.freqs_cis_imag")
+    ]
+    disallowed_missing = sorted(set(missing) - set(allowed_missing))
+    if disallowed_missing or unexpected:
         raise RuntimeError(
             "final SAM3.1 multiplex checkpoint/model key mismatch: "
-            f"missing={missing[:10]} ({len(missing)}), "
+            f"missing={disallowed_missing[:10]} ({len(disallowed_missing)}), "
             f"unexpected={unexpected[:10]} ({len(unexpected)})"
         )
-    ordered = sorted(model_keys)
+    ordered = sorted(model_keys & checkpoint_keys)
     sample_positions = sorted({0, len(ordered) // 2, len(ordered) - 1})
     verified = []
     for position in sample_positions:
@@ -248,7 +255,14 @@ def audit_loaded_checkpoint(model: torch.nn.Module, checkpoint: Path) -> dict:
     return {
         "model_key_count": len(model_keys),
         "checkpoint_key_count": len(checkpoint_keys),
-        "missing_keys": [],
+        "missing_keys": allowed_missing,
+        "missing_keys_reason": (
+            "deterministically rebuilt real/imaginary RoPE buffers under "
+            "official use_rope_real=True"
+            if allowed_missing
+            else None
+        ),
+        "disallowed_missing_keys": [],
         "unexpected_keys": [],
         "sample_value_keys_verified": verified,
     }
