@@ -28,6 +28,21 @@ def read_jsonl(path: Path) -> list[dict]:
     return list(by_key.values())
 
 
+def read_prediction_files(value: str | list[str]) -> tuple[list[dict], list[str]]:
+    paths = [Path(path) for path in value] if isinstance(value, list) else [Path(value)]
+    if not paths:
+        raise ValueError("predictions file list must not be empty")
+    by_key = {}
+    for path in paths:
+        for record in read_jsonl(path):
+            if record["key"] in by_key:
+                raise RuntimeError(
+                    f"duplicate prediction key across files: {record['key']}"
+                )
+            by_key[record["key"]] = record
+    return list(by_key.values()), [str(path) for path in paths]
+
+
 def expression_identity(record: dict) -> tuple[str, str, str, str]:
     return (
         record["dataset"],
@@ -141,7 +156,7 @@ def summarize_model(
     iterations: int,
     seed: int,
 ):
-    records = read_jsonl(Path(spec["predictions"]))
+    records, prediction_files = read_prediction_files(spec["predictions"])
     if spec.get("frame_budget") is not None:
         records = [
             record
@@ -265,6 +280,7 @@ def summarize_model(
     }
     audit = {
         "model": spec["name"],
+        "prediction_files": prediction_files,
         "records_after_condition_filter": len(records),
         "successful_records": len(successful),
         "failed_records": len(failed),

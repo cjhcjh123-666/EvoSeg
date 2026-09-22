@@ -37,6 +37,7 @@ from projects.evoseg.temporal_compiler.summarize_cross_model import (
     cluster_bootstrap,
     manifest_expressions_by_object,
     manifest_identities,
+    read_prediction_files,
     summarize_model,
     select_manifest_objects,
 )
@@ -250,6 +251,25 @@ def test_cross_model_pilot_selection_and_pair_overlap_are_explicit():
     assert audit["complete_paired_objects_by_model"] == {"a": 2, "b": 1}
     assert audit["shared_complete_paired_objects"] == 1
     assert audit["all_models_have_identical_complete_object_set"] is False
+
+
+def test_cross_model_reads_multiple_prediction_shards_without_silent_duplicates(
+    tmp_path,
+):
+    shard_zero = tmp_path / "zero.jsonl"
+    shard_one = tmp_path / "one.jsonl"
+    shard_zero.write_text('{"key":"a"}\n')
+    shard_one.write_text('{"key":"b"}\n')
+    records, paths = read_prediction_files([str(shard_zero), str(shard_one)])
+    assert [record["key"] for record in records] == ["a", "b"]
+    assert paths == [str(shard_zero), str(shard_one)]
+    shard_one.write_text('{"key":"a"}\n')
+    try:
+        read_prediction_files([str(shard_zero), str(shard_one)])
+    except RuntimeError as error:
+        assert "duplicate prediction key across files" in str(error)
+    else:
+        raise AssertionError("cross-shard duplicate prediction key was accepted")
 
 
 def test_merge_representation_shards_is_unique_and_ordered(tmp_path):
