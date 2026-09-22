@@ -387,8 +387,14 @@ def run_generation(args) -> int:
     )
     torch.cuda.synchronize()
     final_weight_audit = audit_loaded_checkpoint(predictor.model, checkpoint)
+    evoseg_repo = Path(__file__).resolve().parents[3]
     config = {
         "created_at": utc_now(),
+        "evoseg_repo_path": str(evoseg_repo),
+        "evoseg_repo_commit": git_output(evoseg_repo, "rev-parse", "HEAD"),
+        "adapter_source": str(Path(__file__).resolve()),
+        "adapter_source_sha256": sha256(Path(__file__).resolve()),
+        "command": [sys.executable, *sys.argv],
         "official_repo": "https://github.com/facebookresearch/sam3",
         "official_repo_path": str(sam3_repo),
         "official_repo_commit": git_output(sam3_repo, "rev-parse", "HEAD"),
