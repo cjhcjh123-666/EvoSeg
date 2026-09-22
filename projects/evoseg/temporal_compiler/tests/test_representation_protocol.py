@@ -11,9 +11,11 @@ from projects.evoseg.temporal_compiler.merge_representation_shards import (
 from projects.evoseg.temporal_compiler.instructseg_long_rvos_adapter import (
     expression_key as instructseg_expression_key,
     prepare as prepare_instructseg,
+    select_objects as select_instructseg_objects,
 )
 from projects.evoseg.temporal_compiler.virst_long_rvos_adapter import (
     prepare as prepare_virst,
+    select_objects as select_virst_objects,
 )
 from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     candidate_key,
@@ -123,6 +125,16 @@ def test_instructseg_adapter_preserves_official_expression_and_all_frames(tmp_pa
     assert payload["videos"][0]["file_names"] == ["v/000.jpg", "v/001.jpg"]
     assert mapping[0]["gt_available_to_model"] is False
     assert instructseg_expression_key(item, item["expressions"][0]) == "long_rvos/v/2/9/native"
+
+
+def test_cross_model_shards_partition_pilot_objects_without_overlap():
+    objects = [{"object_id": str(index)} for index in range(70)]
+    for selector in (select_instructseg_objects, select_virst_objects):
+        shards = [selector(objects, 64, shard_index=index, num_shards=4) for index in range(4)]
+        flattened = [item for shard in shards for item in shard]
+        assert len(flattened) == 64
+        assert {item["object_id"] for item in flattened} == {str(index) for index in range(64)}
+        assert all(len(shard) == 16 for shard in shards)
 
 
 def test_virst_adapter_uses_gt_free_test_schema_and_symlink(tmp_path):

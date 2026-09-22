@@ -22,8 +22,30 @@ def expression_key(item: dict, expression: dict) -> str:
     )
 
 
-def prepare(manifest: dict, dataset_root: Path, max_objects: int | None) -> list[dict]:
-    objects = manifest["objects"][:max_objects] if max_objects else manifest["objects"]
+def select_objects(
+    objects: list[dict],
+    max_objects: int | None,
+    shard_index: int = 0,
+    num_shards: int = 1,
+) -> list[dict]:
+    if num_shards < 1 or not 0 <= shard_index < num_shards:
+        raise ValueError(
+            f"invalid shard {shard_index} of {num_shards}; expected 0 <= index < count"
+        )
+    selected = objects[:max_objects] if max_objects else objects
+    return [item for index, item in enumerate(selected) if index % num_shards == shard_index]
+
+
+def prepare(
+    manifest: dict,
+    dataset_root: Path,
+    max_objects: int | None,
+    shard_index: int = 0,
+    num_shards: int = 1,
+) -> list[dict]:
+    objects = select_objects(
+        manifest["objects"], max_objects, shard_index=shard_index, num_shards=num_shards
+    )
     image_root = Path(manifest["dataset"]["image_root"]).resolve()
     target = dataset_root / "mevis" / "valid"
     jpeg_root = target / "JPEGImages"
@@ -128,7 +150,13 @@ def evaluate_entry(entry: dict, output_root: Path) -> dict:
 
 def run_prepare(args) -> None:
     manifest = json.loads(Path(args.manifest).read_text())
-    prepare(manifest, Path(args.dataset_root).resolve(), args.max_objects)
+    prepare(
+        manifest,
+        Path(args.dataset_root).resolve(),
+        args.max_objects,
+        shard_index=args.shard_index,
+        num_shards=args.num_shards,
+    )
 
 
 def run_evaluate(args) -> None:
@@ -146,6 +174,8 @@ def parse_args():
     prepare_parser.add_argument("--manifest", required=True)
     prepare_parser.add_argument("--dataset-root", required=True)
     prepare_parser.add_argument("--max-objects", type=int)
+    prepare_parser.add_argument("--shard-index", type=int, default=0)
+    prepare_parser.add_argument("--num-shards", type=int, default=1)
     evaluate_parser = subparsers.add_parser("evaluate")
     evaluate_parser.add_argument("--mapping-json", required=True)
     evaluate_parser.add_argument("--output-root", required=True)
