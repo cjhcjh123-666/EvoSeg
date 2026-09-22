@@ -214,6 +214,46 @@ def completed_keys(path: Path) -> set[str]:
     }
 
 
+def audit_loaded_checkpoint(model: torch.nn.Module, checkpoint: Path) -> dict:
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    if "model" in payload and isinstance(payload["model"], dict):
+        payload = payload["model"]
+    model_state = model.state_dict()
+    model_keys = set(model_state)
+    checkpoint_keys = set(payload)
+    missing = sorted(model_keys - checkpoint_keys)
+    unexpected = sorted(checkpoint_keys - model_keys)
+    if missing or unexpected:
+        raise RuntimeError(
+            "final SAM3.1 multiplex checkpoint/model key mismatch: "
+            f"missing={missing[:10]} ({len(missing)}), "
+            f"unexpected={unexpected[:10]} ({len(unexpected)})"
+        )
+    ordered = sorted(model_keys)
+    sample_positions = sorted({0, len(ordered) // 2, len(ordered) - 1})
+    verified = []
+    for position in sample_positions:
+        key = ordered[position]
+        model_value = model_state[key].detach().reshape(-1)
+        checkpoint_value = payload[key].detach().reshape(-1)
+        if model_value.shape != checkpoint_value.shape:
+            raise RuntimeError(f"checkpoint tensor shape mismatch for {key}")
+        sample_length = min(16, model_value.numel())
+        if not torch.equal(
+            model_value[:sample_length].cpu(), checkpoint_value[:sample_length]
+        ):
+            raise RuntimeError(f"checkpoint tensor value mismatch for {key}")
+        verified.append(key)
+    del payload
+    return {
+        "model_key_count": len(model_keys),
+        "checkpoint_key_count": len(checkpoint_keys),
+        "missing_keys": [],
+        "unexpected_keys": [],
+        "sample_value_keys_verified": verified,
+    }
+
+
 def expression_key(item: dict, expression: dict) -> str:
     return "/".join(
         [
@@ -292,6 +332,7 @@ def run_generation(args) -> int:
         async_loading_frames=False,
     )
     torch.cuda.synchronize()
+    final_weight_audit = audit_loaded_checkpoint(predictor.model, checkpoint)
     config = {
         "created_at": utc_now(),
         "official_repo": "https://github.com/facebookresearch/sam3",
@@ -304,6 +345,7 @@ def run_generation(args) -> int:
         "checkpoint_expected_sha256": args.expected_checkpoint_sha256,
         "checkpoint_source": args.checkpoint_source,
         "checkpoint_bytes": checkpoint.stat().st_size,
+        "final_weight_audit": final_weight_audit,
         "model_load_seconds_synchronized": time.perf_counter() - load_started,
         "environment": {
             "python": sys.version,

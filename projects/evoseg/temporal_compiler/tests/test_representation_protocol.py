@@ -18,6 +18,7 @@ from projects.evoseg.temporal_compiler.virst_long_rvos_adapter import (
     select_objects as select_virst_objects,
 )
 from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
+    audit_loaded_checkpoint,
     candidate_key,
     decode_rle,
     encode_rle,
@@ -74,6 +75,26 @@ def test_candidate_rle_round_trip():
     mask = np.zeros((5, 7), dtype=bool)
     mask[1:4, 2:6] = True
     assert np.array_equal(mask, decode_rle(encode_rle(mask)))
+
+
+def test_final_sam31_checkpoint_audit_checks_keys_and_values(tmp_path):
+    import torch
+
+    model = torch.nn.Linear(2, 1)
+    checkpoint = tmp_path / "checkpoint.pt"
+    torch.save(model.state_dict(), checkpoint)
+    audit = audit_loaded_checkpoint(model, checkpoint)
+    assert audit["model_key_count"] == 2
+    assert audit["missing_keys"] == []
+    broken = model.state_dict()
+    broken.pop("bias")
+    torch.save(broken, checkpoint)
+    try:
+        audit_loaded_checkpoint(model, checkpoint)
+    except RuntimeError as error:
+        assert "missing" in str(error)
+    else:
+        raise AssertionError("missing checkpoint key was not rejected")
 
 
 def test_qwen_concept_output_cleaning_and_identity():
