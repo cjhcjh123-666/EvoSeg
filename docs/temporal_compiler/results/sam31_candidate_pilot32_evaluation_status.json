@@ -1,0 +1,80 @@
+{
+  "created_at": "2026-09-22T12:27:31.449006+00:00",
+  "source_runs": [
+    {
+      "run_dir": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_pilot32/shard-0",
+      "status": {
+        "state": "complete",
+        "pid": 131032,
+        "planned": 105,
+        "completed": 105,
+        "attempted_this_process": 105,
+        "failed_this_process": 0,
+        "elapsed_seconds_this_process": 10082.725897438824,
+        "estimated_remaining_seconds": 0.0,
+        "current_key": null,
+        "updated_at": "2026-09-22T10:33:56.217832+00:00"
+      }
+    },
+    {
+      "run_dir": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_pilot32/shard-1",
+      "status": {
+        "state": "complete",
+        "pid": 83607,
+        "planned": 84,
+        "completed": 84,
+        "attempted_this_process": 84,
+        "failed_this_process": 0,
+        "elapsed_seconds_this_process": 7935.500147975981,
+        "estimated_remaining_seconds": 0.0,
+        "current_key": null,
+        "updated_at": "2026-09-22T09:36:06.635135+00:00"
+      }
+    },
+    {
+      "run_dir": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_pilot32/shard-2",
+      "status": {
+        "state": "complete",
+        "pid": 83616,
+        "planned": 102,
+        "completed": 102,
+        "attempted_this_process": 102,
+        "failed_this_process": 0,
+        "elapsed_seconds_this_process": 12949.907023124397,
+        "estimated_remaining_seconds": 0.0,
+        "current_key": null,
+        "updated_at": "2026-09-22T10:59:42.484632+00:00"
+      }
+    },
+    {
+      "run_dir": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_pilot32/shard-3",
+      "status": {
+        "state": "complete_with_failures",
+        "pid": 538932,
+        "planned": 105,
+        "completed": 104,
+        "attempted_this_process": 1,
+        "failed_this_process": 1,
+        "elapsed_seconds_this_process": 51.48104125261307,
+        "estimated_remaining_seconds": 0.0,
+        "current_key": null,
+        "updated_at": "2026-09-22T11:05:55.907037+00:00"
+      }
+    }
+  ],
+  "generation_records": 397,
+  "generation_attempt_records": 397,
+  "successful_generation_records": 395,
+  "failed_generation_records": 2,
+  "failed_generation_attempt_records": 2,
+  "unique_attempted_keys": 396,
+  "retry_attempt_records": 1,
+  "expected_generation_records": 396,
+  "missing_generation_records": 1,
+  "missing_successful_generation_records": 1,
+  "all_source_runs_complete": true,
+  "unique_successful_keys": 395,
+  "evaluated_records": 395,
+  "output_dir": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_pilot32",
+  "ground_truth_used_only_in_evaluation": true
+}
