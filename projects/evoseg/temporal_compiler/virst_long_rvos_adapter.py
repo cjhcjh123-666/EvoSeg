@@ -102,7 +102,40 @@ def prepare(
     return mapping
 
 
-def evaluate_entry(entry: dict, output_root: Path) -> dict:
+def frame_audit_key(video_id: str, output_expression: str) -> str:
+    return f"{video_id}/{output_expression}"
+
+
+def load_frame_audit(path: Path) -> dict[str, dict]:
+    records = {}
+    with path.open() as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            for output_expression in record["output_expression_ids"]:
+                key = frame_audit_key(record["video_id"], output_expression)
+                normalized = {**record, "output_expression": output_expression}
+                normalized["superseded_frame_audit_attempts"] = (
+                    records[key].get("superseded_frame_audit_attempts", 0) + 1
+                    if key in records
+                    else 0
+                )
+                records[key] = normalized
+    return records
+
+
+def evaluate_entry(
+    entry: dict, output_root: Path, frame_audit: dict | None = None
+) -> dict:
+    if frame_audit is not None:
+        indices = frame_audit["model_input_frame_indices"]
+        if frame_audit.get("gt_available_to_model") is not False:
+            raise AssertionError(f"invalid GT audit for {entry['key']}")
+        if frame_audit["vlm_frame_count"] != len(indices) or frame_audit[
+            "sam_frame_count"
+        ] != len(indices):
+            raise AssertionError(f"invalid realized frame-count audit for {entry['key']}")
     prediction_dir = output_root / entry["output_video"] / entry["output_expression"]
     j_values = []
     f_values = []
@@ -146,7 +179,28 @@ def evaluate_entry(entry: dict, output_root: Path) -> dict:
             "key", "dataset", "video_id", "object_id", "expression_id",
             "description_type", "expression",
         )},
-        "frame_budget": "native_flex_up_to_64",
+        "frame_budget": (
+            f"native_vlm_{frame_audit['vlm_frame_count']}_sam_"
+            f"{frame_audit['sam_frame_count']}_outer_flex_up_to_64"
+            if frame_audit is not None
+            else "native_frame_audit_unavailable"
+        ),
+        "model_input_frame_indices": (
+            frame_audit["model_input_frame_indices"]
+            if frame_audit is not None
+            else None
+        ),
+        "actual_vlm_frame_count": (
+            frame_audit["vlm_frame_count"] if frame_audit is not None else None
+        ),
+        "actual_sam_frame_count": (
+            frame_audit["sam_frame_count"] if frame_audit is not None else None
+        ),
+        "superseded_frame_audit_attempts": (
+            frame_audit.get("superseded_frame_audit_attempts", 0)
+            if frame_audit is not None
+            else None
+        ),
         "manifest_vlm_frame_indices_n16": entry["manifest_vlm_frame_indices_n16"],
         "evaluation_frame_indices": entry["evaluation_frame_indices"],
         "gt_available_to_model": False,
@@ -178,7 +232,28 @@ def run_prepare(args) -> None:
 
 def run_evaluate(args) -> None:
     mapping = json.loads(Path(args.mapping_json).read_text())
-    rows = [evaluate_entry(entry, Path(args.output_root)) for entry in mapping]
+    frame_audit = load_frame_audit(Path(args.frame_audit_jsonl))
+    expected_audit_keys = {
+        frame_audit_key(entry["output_video"], entry["output_expression"])
+        for entry in mapping
+    }
+    missing_audit_keys = sorted(expected_audit_keys - set(frame_audit))
+    extra_audit_keys = sorted(set(frame_audit) - expected_audit_keys)
+    if missing_audit_keys or extra_audit_keys:
+        raise RuntimeError(
+            f"VIRST frame-audit/mapping mismatch: missing={missing_audit_keys[:5]}, "
+            f"extra={extra_audit_keys[:5]}"
+        )
+    rows = [
+        evaluate_entry(
+            entry,
+            Path(args.output_root),
+            frame_audit[
+                frame_audit_key(entry["output_video"], entry["output_expression"])
+            ],
+        )
+        for entry in mapping
+    ]
     Path(args.output_predictions).write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
     )
@@ -197,6 +272,7 @@ def parse_args():
     evaluate_parser.add_argument("--mapping-json", required=True)
     evaluate_parser.add_argument("--output-root", required=True)
     evaluate_parser.add_argument("--output-predictions", required=True)
+    evaluate_parser.add_argument("--frame-audit-jsonl", required=True)
     return parser.parse_args()
 
 

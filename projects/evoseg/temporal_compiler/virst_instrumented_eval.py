@@ -47,8 +47,9 @@ def build_frame_audit_record(index: int, item: dict) -> dict:
 
     return {
         "dataset_index": int(index),
+        "video_id": Path(item["video_paths"][0]).name,
         "video_path": item["video_paths"][0],
-        "expression_ids": [str(value) for value in item["exp_ids"]],
+        "output_expression_ids": [str(value) for value in item["exp_ids"]],
         "outer_sampled_frame_paths": item["image_path"].split(","),
         "model_input_frame_indices": first_frame_ids,
         "vlm_frame_count": vlm_frame_count,
@@ -73,9 +74,12 @@ def append_jsonl_atomic(path: Path, record: dict) -> None:
 
 def main() -> None:
     audit_path_value = os.environ.get("VIRST_FRAME_AUDIT_PATH")
+    completed_output_root_value = os.environ.get("VIRST_COMPLETED_OUTPUT_ROOT")
     official_eval_value = os.environ.get("VIRST_OFFICIAL_EVAL_PATH", "eval.py")
     if not audit_path_value:
         raise RuntimeError("VIRST_FRAME_AUDIT_PATH must be set")
+    if not completed_output_root_value:
+        raise RuntimeError("VIRST_COMPLETED_OUTPUT_ROOT must be set")
 
     from data.rvos_dataset import RVOSDataset
 
@@ -83,9 +87,14 @@ def main() -> None:
 
     def audited_get_item(dataset, index):
         item = original_get_item(dataset, index)
-        append_jsonl_atomic(
-            Path(audit_path_value), build_frame_audit_record(index, item)
-        )
+        record = build_frame_audit_record(index, item)
+        completed_root = Path(completed_output_root_value)
+        completed = [
+            completed_root / record["video_id"] / output_expression
+            for output_expression in record["output_expression_ids"]
+        ]
+        if not all(path.exists() for path in completed):
+            append_jsonl_atomic(Path(audit_path_value), record)
         return item
 
     RVOSDataset._get_item = audited_get_item

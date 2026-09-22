@@ -16,6 +16,8 @@ from projects.evoseg.temporal_compiler.instructseg_long_rvos_adapter import (
 )
 from projects.evoseg.temporal_compiler.virst_long_rvos_adapter import (
     evaluate_entry as evaluate_virst_entry,
+    frame_audit_key,
+    load_frame_audit,
     prepare as prepare_virst,
     select_objects as select_virst_objects,
 )
@@ -337,7 +339,7 @@ def test_cross_model_shards_partition_pilot_objects_without_overlap():
         assert all(len(shard) == 16 for shard in shards)
 
 
-def test_virst_frame_audit_records_realized_vlm_and_sam_indices():
+def test_virst_frame_audit_records_realized_vlm_and_sam_indices(tmp_path):
     class TensorStub:
         def __init__(self, shape, nonzero=0):
             self.shape = shape
@@ -368,6 +370,22 @@ def test_virst_frame_audit_records_realized_vlm_and_sam_indices():
     assert record["model_input_frame_indices"] == [0, 4, 9]
     assert record["vlm_frame_count"] == record["sam_frame_count"] == 3
     assert record["gt_available_to_model"] is False
+    assert record["video_id"] == "v"
+    assert record["output_expression_ids"] == ["e"]
+    audit_path = tmp_path / "frame_audit.jsonl"
+    payload = __import__("json").dumps(record) + "\n"
+    audit_path.write_text(payload + payload)
+    loaded = load_frame_audit(audit_path)
+    assert loaded[frame_audit_key("v", "e")]["model_input_frame_indices"] == [
+        0,
+        4,
+        9,
+    ]
+    inconsistent = {**record, "model_input_frame_indices": [1, 4, 9]}
+    audit_path.write_text(payload + __import__("json").dumps(inconsistent) + "\n")
+    retried = load_frame_audit(audit_path)[frame_audit_key("v", "e")]
+    assert retried["model_input_frame_indices"] == [1, 4, 9]
+    assert retried["superseded_frame_audit_attempts"] == 1
 
 
 def test_virst_adapter_uses_gt_free_test_schema_and_symlink(tmp_path):
