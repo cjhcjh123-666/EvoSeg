@@ -172,6 +172,100 @@ def cluster_bootstrap_spearman(
     }
 
 
+def make_figures(
+    output_dir: Path,
+    calibration_summary: list[dict],
+    relation_rows: list[dict],
+) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as error:
+        return [f"matplotlib unavailable: {error}"]
+    figure_dir = output_dir / "figures"
+    figure_dir.mkdir(parents=True, exist_ok=True)
+    warnings = []
+
+    comparisons = [
+        ("same_expression_n8_vs_n32", "same expr\nN8→N32"),
+        ("same_object_static_vs_dynamic_n16", "same object\nStatic↔Dynamic"),
+        ("same_video_different_object_n16", "same video\ndifferent object"),
+    ]
+    fig, axes = plt.subplots(1, 2, figsize=(9, 4), sharey=False)
+    for axis, space in zip(axes, SPACES):
+        values = []
+        labels = []
+        for comparison, label in comparisons:
+            selected = [
+                row
+                for row in calibration_summary
+                if row["comparison"] == comparison
+                and row["space"] == space
+                and row["metric"] == "normalized_l2"
+            ]
+            if comparison == "same_expression_n8_vs_n32":
+                # Type-balanced display; the CSV retains each type separately.
+                value = float(np.mean([row["mean"] for row in selected]))
+            else:
+                value = selected[0]["mean"] if selected else math.nan
+            values.append(value)
+            labels.append(label)
+        axis.bar(range(len(values)), values, color=["#4C78A8", "#F58518", "#54A24B"])
+        axis.set_xticks(range(len(values)), labels, rotation=12, ha="right")
+        axis.set_ylabel("normalized L2")
+        axis.set_title(space)
+    fig.suptitle("Representation movement scale calibration")
+    fig.tight_layout()
+    fig.savefig(figure_dir / "representation_scale_calibration.png", dpi=180)
+    plt.close(fig)
+
+    colors = {"static": "#4C78A8", "dynamic": "#E45756", "hybrid": "#54A24B"}
+    fig, ax = plt.subplots(figsize=(6, 4.5))
+    for description_type in DESCRIPTION_TYPES:
+        selected = [
+            row for row in relation_rows if row["description_type"] == description_type
+        ]
+        ax.scatter(
+            [row["z_seg_normalized_l2"] for row in selected],
+            [100 * row["delta_jf_n32_minus_n8"] for row in selected],
+            s=13,
+            alpha=0.5,
+            label=description_type,
+            color=colors[description_type],
+        )
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.set_xlabel("z_seg normalized L2 (N8 vs N32)")
+    ax.set_ylabel("J&F N32−N8 (percentage points)")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(figure_dir / "representation_vs_jf.png", dpi=180)
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(6, 4.5))
+    for description_type in DESCRIPTION_TYPES:
+        selected = [
+            row for row in relation_rows if row["description_type"] == description_type
+        ]
+        ax.scatter(
+            [row["prediction_iou_n8_n32"] for row in selected],
+            [100 * row["delta_jf_n32_minus_n8"] for row in selected],
+            s=13,
+            alpha=0.5,
+            label=description_type,
+            color=colors[description_type],
+        )
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.set_xlabel("Prediction IoU (N8 vs N32)")
+    ax.set_ylabel("J&F N32−N8 (percentage points)")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(figure_dir / "mask_stability_vs_jf.png", dpi=180)
+    plt.close(fig)
+    return warnings
+
+
 def analyze(args) -> None:
     run_dir = Path(args.run_dir).resolve()
     previous_dir = Path(args.previous_run_dir).resolve()
@@ -466,6 +560,7 @@ def analyze(args) -> None:
     write_csv(output_dir / "representation_vs_jf.csv", relation_rows)
     write_csv(output_dir / "representation_jf_correlations.csv", correlation_rows)
     write_csv(output_dir / "prediction_mask_change_summary.csv", mask_summary)
+    figure_warnings = make_figures(output_dir, calibration_summary, relation_rows)
     audit = {
         "representation_records": len(records),
         "unique_representation_keys": len(by_key),
@@ -486,6 +581,7 @@ def analyze(args) -> None:
         "calibration_c_unit": "source video; official expressions type-balanced within object",
         "bootstrap_seed": args.seed,
         "bootstrap_iterations": args.bootstrap_iterations,
+        "figure_warnings": figure_warnings,
     }
     (output_dir / "representation_analysis_audit.json").write_text(
         json.dumps(audit, indent=2) + "\n"
