@@ -8,6 +8,7 @@ truth masks are loaded, and the SAM2 grounding encoder is never called.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import inspect
 import json
@@ -40,10 +41,14 @@ def atomic_json(path: Path, value) -> None:
 
 def append_jsonl(path: Path, value) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as handle:
-        handle.write(json.dumps(value, ensure_ascii=False) + "\n")
-        handle.flush()
-        os.fsync(handle.fileno())
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    with lock_path.open("a") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        with path.open("a") as handle:
+            handle.write(json.dumps(value, ensure_ascii=False) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 
 def sha256(path: Path) -> str:
@@ -280,7 +285,16 @@ def run(args) -> int:
     previous = load_jsonl_by_key(previous_path)
     records_path = run_dir / "representation_records.jsonl"
     done = completed_keys(records_path)
-    status_path = run_dir / "STATUS.json"
+    if not 0 <= args.shard_rank < args.num_shards:
+        raise ValueError(
+            f"shard_rank must be in [0, {args.num_shards}), got {args.shard_rank}"
+        )
+    status_path = (
+        run_dir / "STATUS.json"
+        if args.num_shards == 1
+        else run_dir
+        / f"STATUS.worker-{args.shard_rank:02d}-of-{args.num_shards:02d}.json"
+    )
     merge_status(
         status_path,
         state="loading_model",
@@ -344,17 +358,34 @@ def run(args) -> int:
             "max_new_tokens": args.max_new_tokens,
             "vlm_min_pixels": model.min_pixels,
             "vlm_max_pixels": model.max_pixels,
+            "num_shards": args.num_shards,
+            "shard_rank": args.shard_rank,
         },
     }
-    atomic_json(run_dir / "run_config.json", config)
+    config_path = (
+        run_dir / "run_config.json"
+        if args.num_shards == 1
+        else run_dir
+        / f"run_config.worker-{args.shard_rank:02d}-of-{args.num_shards:02d}.json"
+    )
+    atomic_json(config_path, config)
 
     objects = select_objects(manifest["objects"], args.max_videos, args.max_objects)
-    planned = sum(len(item["expressions"]) * len(args.frame_budgets) for item in objects)
-    pending = sum(
-        stable_key(item, expression, budget) not in done
+    all_jobs = [
+        (item, expression, budget)
         for item in objects
         for expression in item["expressions"]
         for budget in args.frame_budgets
+    ]
+    jobs = [
+        job
+        for job_index, job in enumerate(all_jobs)
+        if job_index % args.num_shards == args.shard_rank
+    ]
+    planned = len(jobs)
+    pending = sum(
+        stable_key(item, expression, budget) not in done
+        for item, expression, budget in jobs
     )
     started = time.monotonic()
     attempted = 0
@@ -368,133 +399,131 @@ def run(args) -> int:
         failed_this_process=0,
         updated_at=utc_now(),
     )
-    for item in objects:
-        for expression in item["expressions"]:
-            for budget in args.frame_budgets:
-                key = stable_key(item, expression, budget)
-                if key in done:
-                    continue
-                base = {
-                    "key": key,
-                    "dataset": item["dataset"],
-                    "video_id": item["video_id"],
-                    "object_id": item["object_id"],
-                    "expression_id": expression["expression_id"],
-                    "description_type": expression["type"],
-                    "expression": expression["text"],
-                    "frame_budget": budget,
-                    "vlm_frame_indices": item["vlm_frame_indices"][str(budget)],
-                    "vlm_frame_names": item["vlm_frame_names"][str(budget)],
-                    "segmentation_invoked": False,
-                    "ground_truth_loaded": False,
-                    "started_at": utc_now(),
-                }
-                try:
-                    if key not in previous:
-                        raise KeyError(f"key absent from completed prior run: {key}")
-                    prior = previous[key]
-                    expected = {
-                        "video_id": item["video_id"],
-                        "object_id": item["object_id"],
-                        "expression_id": expression["expression_id"],
-                        "description_type": expression["type"],
-                        "expression": expression["text"],
-                        "frame_budget": budget,
-                        "vlm_frame_indices": item["vlm_frame_indices"][str(budget)],
-                    }
-                    mismatches = {
-                        field: (prior.get(field), value)
-                        for field, value in expected.items()
-                        if prior.get(field) != value
-                    }
-                    if mismatches:
-                        raise AssertionError(f"prior-run input mismatch: {mismatches}")
-                    frame_paths = [
-                        Path(manifest["dataset"]["image_root"])
-                        / item["video_id"]
-                        / f"{name}.jpg"
-                        for name in item["vlm_frame_names"][str(budget)]
-                    ]
-                    frames = load_rgb(frame_paths)
-                    if len(frames) != min(budget, item["frame_count"]):
-                        raise AssertionError((len(frames), budget, item["frame_count"]))
-                    output = extractor.extract(
-                        frames,
-                        f"Please segment {expression['text']} in this video.",
-                    )
-                    if output["token_info"]["seg_token_count"] != 1:
-                        raise AssertionError(
-                            "main analysis requires exactly one [SEG] token, got "
-                            f"{output['token_info']['seg_token_count']}"
-                        )
-                    if output["text_output"] != prior["prediction"]:
-                        raise AssertionError(
-                            f"generated text changed: {output['text_output']!r} != "
-                            f"{prior['prediction']!r}"
-                        )
-                    if output["token_info"]["visual_tokens"] != prior["token_info"][
-                        "visual_tokens"
-                    ]:
-                        raise AssertionError(
-                            "visual token count changed: "
-                            f"{output['token_info']['visual_tokens']} != "
-                            f"{prior['token_info']['visual_tokens']}"
-                        )
-                    vector_name = key.replace("/", "__") + ".npz"
-                    vector_path = vector_dir / vector_name
-                    np.savez_compressed(
-                        vector_path,
-                        h_seg=output.pop("h_seg"),
-                        z_seg=output.pop("z_seg"),
-                    )
-                    base.update(
-                        {
-                            "status": "success",
-                            "completed_at": utc_now(),
-                            "vector_path": str(vector_path.relative_to(run_dir)),
-                            "vector_sha256": sha256(vector_path),
-                            **output,
-                        }
-                    )
-                    done.add(key)
-                except torch.cuda.OutOfMemoryError as error:
-                    torch.cuda.empty_cache()
-                    failed += 1
-                    base.update(
-                        {
-                            "status": "failed_oom",
-                            "completed_at": utc_now(),
-                            "error": str(error),
-                            "traceback": traceback.format_exc(),
-                        }
-                    )
-                except Exception as error:
-                    failed += 1
-                    base.update(
-                        {
-                            "status": "failed",
-                            "completed_at": utc_now(),
-                            "error": str(error),
-                            "traceback": traceback.format_exc(),
-                        }
-                    )
-                append_jsonl(records_path, base)
-                attempted += 1
-                elapsed = time.monotonic() - started
-                remaining = max(pending - attempted, 0)
-                merge_status(
-                    status_path,
-                    state="running",
-                    updated_at=utc_now(),
-                    completed=len(done),
-                    attempted_this_process=attempted,
-                    failed_this_process=failed,
-                    elapsed_seconds_this_process=elapsed,
-                    estimated_remaining_seconds=(
-                        elapsed / attempted * remaining if attempted else None
-                    ),
-                    current_key=key,
+    for item, expression, budget in jobs:
+        key = stable_key(item, expression, budget)
+        if key in done:
+            continue
+        base = {
+            "key": key,
+            "dataset": item["dataset"],
+            "video_id": item["video_id"],
+            "object_id": item["object_id"],
+            "expression_id": expression["expression_id"],
+            "description_type": expression["type"],
+            "expression": expression["text"],
+            "frame_budget": budget,
+            "vlm_frame_indices": item["vlm_frame_indices"][str(budget)],
+            "vlm_frame_names": item["vlm_frame_names"][str(budget)],
+            "segmentation_invoked": False,
+            "ground_truth_loaded": False,
+            "started_at": utc_now(),
+        }
+        try:
+            if key not in previous:
+                raise KeyError(f"key absent from completed prior run: {key}")
+            prior = previous[key]
+            expected = {
+                "video_id": item["video_id"],
+                "object_id": item["object_id"],
+                "expression_id": expression["expression_id"],
+                "description_type": expression["type"],
+                "expression": expression["text"],
+                "frame_budget": budget,
+                "vlm_frame_indices": item["vlm_frame_indices"][str(budget)],
+            }
+            mismatches = {
+                field: (prior.get(field), value)
+                for field, value in expected.items()
+                if prior.get(field) != value
+            }
+            if mismatches:
+                raise AssertionError(f"prior-run input mismatch: {mismatches}")
+            frame_paths = [
+                Path(manifest["dataset"]["image_root"])
+                / item["video_id"]
+                / f"{name}.jpg"
+                for name in item["vlm_frame_names"][str(budget)]
+            ]
+            frames = load_rgb(frame_paths)
+            if len(frames) != min(budget, item["frame_count"]):
+                raise AssertionError((len(frames), budget, item["frame_count"]))
+            output = extractor.extract(
+                frames,
+                f"Please segment {expression['text']} in this video.",
+            )
+            if output["token_info"]["seg_token_count"] != 1:
+                raise AssertionError(
+                    "main analysis requires exactly one [SEG] token, got "
+                    f"{output['token_info']['seg_token_count']}"
                 )
+            if output["text_output"] != prior["prediction"]:
+                raise AssertionError(
+                    f"generated text changed: {output['text_output']!r} != "
+                    f"{prior['prediction']!r}"
+                )
+            if output["token_info"]["visual_tokens"] != prior["token_info"][
+                "visual_tokens"
+            ]:
+                raise AssertionError(
+                    "visual token count changed: "
+                    f"{output['token_info']['visual_tokens']} != "
+                    f"{prior['token_info']['visual_tokens']}"
+                )
+            vector_name = key.replace("/", "__") + ".npz"
+            vector_path = vector_dir / vector_name
+            np.savez_compressed(
+                vector_path,
+                h_seg=output.pop("h_seg"),
+                z_seg=output.pop("z_seg"),
+            )
+            base.update(
+                {
+                    "status": "success",
+                    "completed_at": utc_now(),
+                    "vector_path": str(vector_path.relative_to(run_dir)),
+                    "vector_sha256": sha256(vector_path),
+                    **output,
+                }
+            )
+            done.add(key)
+        except torch.cuda.OutOfMemoryError as error:
+            torch.cuda.empty_cache()
+            failed += 1
+            base.update(
+                {
+                    "status": "failed_oom",
+                    "completed_at": utc_now(),
+                    "error": str(error),
+                    "traceback": traceback.format_exc(),
+                }
+            )
+        except Exception as error:
+            failed += 1
+            base.update(
+                {
+                    "status": "failed",
+                    "completed_at": utc_now(),
+                    "error": str(error),
+                    "traceback": traceback.format_exc(),
+                }
+            )
+        append_jsonl(records_path, base)
+        attempted += 1
+        elapsed = time.monotonic() - started
+        remaining = max(pending - attempted, 0)
+        merge_status(
+            status_path,
+            state="running",
+            updated_at=utc_now(),
+            completed=len(done),
+            attempted_this_process=attempted,
+            failed_this_process=failed,
+            elapsed_seconds_this_process=elapsed,
+            estimated_remaining_seconds=(
+                elapsed / attempted * remaining if attempted else None
+            ),
+            current_key=key,
+        )
     merge_status(
         status_path,
         state="phase_complete" if failed == 0 else "phase_complete_with_failures",
@@ -524,6 +553,8 @@ def parse_args():
     parser.add_argument("--max-objects", type=int)
     parser.add_argument("--max-new-tokens", type=int, default=2048)
     parser.add_argument("--phase", choices=["smoke", "protocol64", "full"], default="full")
+    parser.add_argument("--num-shards", type=int, default=1)
+    parser.add_argument("--shard-rank", type=int, default=0)
     return parser.parse_args()
 
 
