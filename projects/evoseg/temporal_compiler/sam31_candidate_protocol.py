@@ -677,29 +677,19 @@ def write_csv(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
-def run_evaluation(args) -> int:
-    run_dir = Path(args.run_dir).resolve()
-    manifest = json.loads(Path(args.manifest).read_text())
-    object_lookup = {
-        (item["dataset"], item["video_id"], item["object_id"]): item
-        for item in manifest["objects"]
-    }
-    records = [
-        record
-        for record in load_records(run_dir / "candidate_records.jsonl")
-        if record.get("status") == "success"
-    ]
-    rows = [
-        evaluate_record(
-            record,
-            run_dir,
-            object_lookup[(record["dataset"], record["video_id"], record["object_id"])],
-        )
-        for record in records
-    ]
-    write_csv(run_dir / "sam31_candidate_metrics.csv", rows)
+def aggregate_candidate_rows(rows: list[dict]) -> list[dict]:
     summary = []
-    for prompt_method in ("raw_expression", "concept"):
+    prompt_methods = sorted({row["prompt_method"] for row in rows})
+    score_fields = (
+        "oracle_J",
+        "oracle_F",
+        "oracle_J_and_F",
+        "recall_at_0_3",
+        "recall_at_0_5",
+        "recall_at_0_7",
+        "candidate_count",
+    )
+    for prompt_method in prompt_methods:
         for description_type in ("static", "dynamic", "hybrid"):
             selected = [
                 row
@@ -707,48 +697,127 @@ def run_evaluation(args) -> int:
                 if row["prompt_method"] == prompt_method
                 and row["description_type"] == description_type
             ]
-            summary.append(
-                {
-                    "prompt_method": prompt_method,
-                    "description_type": description_type,
-                    "expressions": len(selected),
-                    "objects": len(
-                        {(row["video_id"], row["object_id"]) for row in selected}
-                    ),
-                    "mean_oracle_J": float(np.mean([row["oracle_J"] for row in selected]))
-                    if selected
-                    else None,
-                    "mean_oracle_F": float(np.mean([row["oracle_F"] for row in selected]))
-                    if selected
-                    else None,
-                    "mean_oracle_J_and_F": float(
-                        np.mean([row["oracle_J_and_F"] for row in selected])
-                    )
-                    if selected
-                    else None,
-                    "recall_at_0_3": float(
-                        np.mean([row["recall_at_0_3"] for row in selected])
-                    )
-                    if selected
-                    else None,
-                    "recall_at_0_5": float(
-                        np.mean([row["recall_at_0_5"] for row in selected])
-                    )
-                    if selected
-                    else None,
-                    "recall_at_0_7": float(
-                        np.mean([row["recall_at_0_7"] for row in selected])
-                    )
-                    if selected
-                    else None,
-                    "mean_candidate_count": float(
-                        np.mean([row["candidate_count"] for row in selected])
-                    )
-                    if selected
-                    else None,
-                }
-            )
-    write_csv(run_dir / "sam31_candidate_summary.csv", summary)
+            by_object = defaultdict(list)
+            for row in selected:
+                by_object[(row["dataset"], row["video_id"], row["object_id"])].append(
+                    row
+                )
+            for aggregation in ("expression_weighted", "object_weighted"):
+                if aggregation == "expression_weighted":
+                    values = selected
+                else:
+                    values = [
+                        {
+                            field: float(np.mean([row[field] for row in object_rows]))
+                            for field in score_fields
+                        }
+                        for object_rows in by_object.values()
+                    ]
+                counts = [value["candidate_count"] for value in values]
+                summary.append(
+                    {
+                        "prompt_method": prompt_method,
+                        "description_type": description_type,
+                        "aggregation": aggregation,
+                        "expressions": len(selected),
+                        "objects": len(by_object),
+                        "mean_oracle_J": float(np.mean([v["oracle_J"] for v in values]))
+                        if values
+                        else None,
+                        "mean_oracle_F": float(np.mean([v["oracle_F"] for v in values]))
+                        if values
+                        else None,
+                        "mean_oracle_J_and_F": float(
+                            np.mean([v["oracle_J_and_F"] for v in values])
+                        )
+                        if values
+                        else None,
+                        "recall_at_0_3": float(
+                            np.mean([v["recall_at_0_3"] for v in values])
+                        )
+                        if values
+                        else None,
+                        "recall_at_0_5": float(
+                            np.mean([v["recall_at_0_5"] for v in values])
+                        )
+                        if values
+                        else None,
+                        "recall_at_0_7": float(
+                            np.mean([v["recall_at_0_7"] for v in values])
+                        )
+                        if values
+                        else None,
+                        "mean_candidate_count": float(np.mean(counts)) if counts else None,
+                        "median_candidate_count": float(np.median(counts))
+                        if counts
+                        else None,
+                        "p95_candidate_count": float(np.percentile(counts, 95))
+                        if counts
+                        else None,
+                        "min_candidate_count": float(np.min(counts)) if counts else None,
+                        "max_candidate_count": float(np.max(counts)) if counts else None,
+                    }
+                )
+    return summary
+
+
+def run_evaluation(args) -> int:
+    source_run_dirs = [Path(args.run_dir).resolve()] + [
+        Path(path).resolve() for path in args.additional_run_dir
+    ]
+    output_dir = (
+        Path(args.output_dir).resolve() if args.output_dir else source_run_dirs[0]
+    )
+    manifest = json.loads(Path(args.manifest).read_text())
+    object_lookup = {
+        (item["dataset"], item["video_id"], item["object_id"]): item
+        for item in manifest["objects"]
+    }
+    all_records = []
+    source_status = []
+    for source_run_dir in source_run_dirs:
+        status_path = source_run_dir / "STATUS.json"
+        source_status.append(
+            {
+                "run_dir": str(source_run_dir),
+                "status": json.loads(status_path.read_text())
+                if status_path.is_file()
+                else None,
+            }
+        )
+        for record in load_records(source_run_dir / "candidate_records.jsonl"):
+            record = dict(record)
+            record["_source_run_dir"] = str(source_run_dir)
+            all_records.append(record)
+    records = [record for record in all_records if record.get("status") == "success"]
+    keys = [record["key"] for record in records]
+    if len(keys) != len(set(keys)):
+        raise RuntimeError("duplicate successful candidate keys across input shards")
+    rows = [
+        evaluate_record(
+            record,
+            Path(record["_source_run_dir"]),
+            object_lookup[(record["dataset"], record["video_id"], record["object_id"])],
+        )
+        for record in records
+    ]
+    summary = aggregate_candidate_rows(rows)
+    write_csv(output_dir / "sam31_candidate_metrics.csv", rows)
+    write_csv(output_dir / "sam31_candidate_summary.csv", summary)
+    atomic_json(
+        output_dir / "evaluation_status.json",
+        {
+            "created_at": utc_now(),
+            "source_runs": source_status,
+            "generation_records": len(all_records),
+            "successful_generation_records": len(records),
+            "failed_generation_records": len(all_records) - len(records),
+            "unique_successful_keys": len(set(keys)),
+            "evaluated_records": len(rows),
+            "output_dir": str(output_dir),
+            "ground_truth_used_only_in_evaluation": True,
+        },
+    )
     return 0
 
 
@@ -775,6 +844,8 @@ def parse_args():
     evaluation = subparsers.add_parser("evaluate")
     evaluation.add_argument("--manifest", required=True)
     evaluation.add_argument("--run-dir", required=True)
+    evaluation.add_argument("--additional-run-dir", action="append", default=[])
+    evaluation.add_argument("--output-dir")
     return parser.parse_args()
 
 
