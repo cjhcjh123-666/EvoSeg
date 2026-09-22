@@ -35,6 +35,9 @@ from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     select_pilot_objects,
     summarize_generation_attempts,
 )
+from projects.evoseg.temporal_compiler.run_cross_model_all274_shard import (
+    validate_pilot_overlap,
+)
 from projects.evoseg.temporal_compiler.extract_qwen_concepts import (
     clean_concept,
     expression_key as qwen_expression_key,
@@ -104,6 +107,26 @@ def test_candidate_attempt_summary_counts_retries_without_negative_missing():
     assert summary["unique_attempted_keys"] == 2
     assert summary["retry_attempt_records"] == 1
     assert summary["missing_successful_generation_records"] == 0
+
+
+def test_full_cross_model_gate_requires_identical_complete_pilot_objects():
+    models = ["Sa2VA-Qwen3-VL-4B", "InstructSeg", "VIRST"]
+    value = {
+        "expected_paired_objects": 64,
+        "successful_models": models,
+        "complete_paired_objects_by_model": {model: 64 for model in models},
+        "missing_paired_objects_by_model": {model: [] for model in models},
+        "shared_complete_paired_objects": 64,
+        "all_models_have_identical_complete_object_set": True,
+    }
+    validate_pilot_overlap(value)
+    value["complete_paired_objects_by_model"]["VIRST"] = 63
+    try:
+        validate_pilot_overlap(value)
+    except RuntimeError as error:
+        assert "VIRST" in str(error)
+    else:
+        raise AssertionError("incomplete pilot was allowed to launch all274")
 
 
 def test_candidate_rle_round_trip():
