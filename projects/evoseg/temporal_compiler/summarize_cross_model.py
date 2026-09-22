@@ -20,6 +20,10 @@ def read_jsonl(path: Path) -> list[dict]:
         for line in handle:
             if line.strip():
                 record = json.loads(line)
+                if record["key"] in by_key:
+                    raise RuntimeError(
+                        f"duplicate prediction key in {path}: {record['key']}"
+                    )
                 by_key[record["key"]] = record
     return list(by_key.values())
 
@@ -46,7 +50,30 @@ def manifest_identities(manifest: dict) -> set[tuple[str, str, str, str]]:
     }
 
 
-def cluster_bootstrap(rows: list[dict], iterations: int, seed: int) -> tuple[float, float, float]:
+def manifest_expressions_by_object(
+    manifest: dict,
+) -> dict[tuple[str, str, str], dict[str, set]]:
+    expected = defaultdict(lambda: defaultdict(set))
+    for item in manifest["objects"]:
+        object_key = (item["dataset"], item["video_id"], str(item["object_id"]))
+        for expression in item["expressions"]:
+            expected[object_key][expression["type"]].add(
+                (
+                    item["dataset"],
+                    item["video_id"],
+                    str(item["object_id"]),
+                    str(expression["expression_id"]),
+                )
+            )
+    return {
+        object_key: {kind: set(identities) for kind, identities in by_type.items()}
+        for object_key, by_type in expected.items()
+    }
+
+
+def cluster_bootstrap(
+    rows: list[dict], iterations: int, seed: int
+) -> tuple[float, float, float]:
     by_video = defaultdict(list)
     for row in rows:
         by_video[row["video_id"]].append(row["dynamic_minus_static_J_and_F"])
@@ -63,7 +90,13 @@ def cluster_bootstrap(rows: list[dict], iterations: int, seed: int) -> tuple[flo
     return point, float(low), float(high)
 
 
-def summarize_model(spec: dict, expected: set, iterations: int, seed: int):
+def summarize_model(
+    spec: dict,
+    expected: set,
+    expected_by_object: dict,
+    iterations: int,
+    seed: int,
+):
     records = read_jsonl(Path(spec["predictions"]))
     if spec.get("frame_budget") is not None:
         records = [
@@ -72,37 +105,78 @@ def summarize_model(spec: dict, expected: set, iterations: int, seed: int):
             if int(record.get("frame_budget", spec["frame_budget"]))
             == int(spec["frame_budget"])
         ]
-    successful = [record for record in records if record.get("status") in SUCCESS]
+    successful_all = [record for record in records if record.get("status") in SUCCESS]
+    successful = [
+        record
+        for record in successful_all
+        if expression_identity(record) in expected
+    ]
+    all_succeeded_identities = {
+        expression_identity(record) for record in successful_all
+    }
     succeeded_identities = {expression_identity(record) for record in successful}
     failed = [record for record in records if record.get("status") not in SUCCESS]
-    grouped = defaultdict(list)
+    by_identity = {}
     for record in successful:
-        grouped[
-            (
-                record["video_id"],
-                str(record["object_id"]),
-                record["description_type"],
+        identity = expression_identity(record)
+        if identity in by_identity:
+            raise RuntimeError(
+                f"duplicate successful expression identity after condition filter for "
+                f"{spec['name']}: {'/'.join(identity)}"
             )
-        ].append(record)
-    object_means = {
-        key: {
-            metric: float(np.mean([record[metric] for record in values]))
+        by_identity[identity] = record
+    pair_rows = []
+    incomplete_objects = []
+    eligible_objects = [
+        object_key
+        for object_key, by_type in expected_by_object.items()
+        if by_type.get("static") and by_type.get("dynamic")
+    ]
+    for dataset, video_id, object_id in sorted(eligible_objects):
+        by_type = expected_by_object[(dataset, video_id, object_id)]
+        expected_static = by_type["static"]
+        expected_dynamic = by_type["dynamic"]
+        missing_static = sorted(expected_static - succeeded_identities)
+        missing_dynamic = sorted(expected_dynamic - succeeded_identities)
+        if missing_static or missing_dynamic:
+            incomplete_objects.append(
+                {
+                    "dataset": dataset,
+                    "video_id": video_id,
+                    "object_id": object_id,
+                    "missing_static_expression_ids": [
+                        value[3] for value in missing_static
+                    ],
+                    "missing_dynamic_expression_ids": [
+                        value[3] for value in missing_dynamic
+                    ],
+                }
+            )
+            continue
+        static_records = [by_identity[identity] for identity in sorted(expected_static)]
+        dynamic_records = [by_identity[identity] for identity in sorted(expected_dynamic)]
+        static = {
+            metric: float(np.mean([record[metric] for record in static_records]))
             for metric in ("J", "F", "J_and_F")
         }
-        for key, values in grouped.items()
-    }
-    pair_rows = []
-    objects = sorted({(video, obj) for video, obj, _ in object_means})
-    for video_id, object_id in objects:
-        static = object_means.get((video_id, object_id, "static"))
-        dynamic = object_means.get((video_id, object_id, "dynamic"))
-        if static is None or dynamic is None:
-            continue
+        dynamic = {
+            metric: float(np.mean([record[metric] for record in dynamic_records]))
+            for metric in ("J", "F", "J_and_F")
+        }
         pair_rows.append(
             {
                 "model": spec["name"],
+                "dataset": dataset,
                 "video_id": video_id,
                 "object_id": object_id,
+                "static_expression_count": len(static_records),
+                "dynamic_expression_count": len(dynamic_records),
+                "static_expression_ids": ";".join(
+                    identity[3] for identity in sorted(expected_static)
+                ),
+                "dynamic_expression_ids": ";".join(
+                    identity[3] for identity in sorted(expected_dynamic)
+                ),
                 **{f"static_{metric}": static[metric] for metric in static},
                 **{f"dynamic_{metric}": dynamic[metric] for metric in dynamic},
                 "dynamic_minus_static_J_and_F": dynamic["J_and_F"]
@@ -117,6 +191,8 @@ def summarize_model(spec: dict, expected: set, iterations: int, seed: int):
         "model": spec["name"],
         "status": "success",
         "paired_objects": len(pair_rows),
+        "eligible_paired_objects": len(eligible_objects),
+        "excluded_incomplete_paired_objects": len(incomplete_objects),
         "source_videos": len({row["video_id"] for row in pair_rows}),
         "static_J": float(np.mean([row["static_J"] for row in pair_rows])),
         "static_F": float(np.mean([row["static_F"] for row in pair_rows])),
@@ -154,9 +230,12 @@ def summarize_model(spec: dict, expected: set, iterations: int, seed: int):
             "/".join(value) for value in sorted(expected - succeeded_identities)
         ],
         "extra_expression_identities": [
-            "/".join(value) for value in sorted(succeeded_identities - expected)
+            "/".join(value) for value in sorted(all_succeeded_identities - expected)
         ],
         "failed_keys": [record["key"] for record in failed],
+        "eligible_paired_objects": len(eligible_objects),
+        "complete_paired_objects": len(pair_rows),
+        "incomplete_paired_objects": incomplete_objects,
     }
     return summary, pair_rows, audit
 
@@ -178,6 +257,7 @@ def main(args) -> None:
     config = json.loads(Path(args.config).read_text())
     manifest = json.loads(Path(config["manifest"]).read_text())
     expected = manifest_identities(manifest)
+    expected_by_object = manifest_expressions_by_object(manifest)
     summaries = []
     pairs = []
     audits = []
@@ -193,10 +273,16 @@ def main(args) -> None:
                     "explicit_temporal_module": spec.get("explicit_temporal_module"),
                 }
             )
-            audits.append({"model": spec["name"], "status": "blocked", "blocker": spec["blocker"]})
+            audits.append(
+                {
+                    "model": spec["name"],
+                    "status": "blocked",
+                    "blocker": spec["blocker"],
+                }
+            )
             continue
         summary, model_pairs, audit = summarize_model(
-            spec, expected, args.bootstrap_iterations, args.seed
+            spec, expected, expected_by_object, args.bootstrap_iterations, args.seed
         )
         summaries.append(summary)
         pairs.extend(model_pairs)

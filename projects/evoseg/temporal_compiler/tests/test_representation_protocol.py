@@ -28,7 +28,12 @@ from projects.evoseg.temporal_compiler.extract_qwen_concepts import (
     clean_concept,
     expression_key as qwen_expression_key,
 )
-from projects.evoseg.temporal_compiler.summarize_cross_model import cluster_bootstrap
+from projects.evoseg.temporal_compiler.summarize_cross_model import (
+    cluster_bootstrap,
+    manifest_expressions_by_object,
+    manifest_identities,
+    summarize_model,
+)
 
 import numpy as np
 
@@ -113,6 +118,76 @@ def test_cluster_bootstrap_preserves_constant_gap():
     assert np.isclose(point, -0.1)
     assert np.isclose(low, -0.1)
     assert np.isclose(high, -0.1)
+
+
+def test_cross_model_summary_excludes_object_with_missing_official_expression(
+    tmp_path,
+):
+    manifest = {
+        "objects": [
+            {
+                "dataset": "d",
+                "video_id": "v",
+                "object_id": "1",
+                "expressions": [
+                    {"expression_id": "s0", "type": "static"},
+                    {"expression_id": "s1", "type": "static"},
+                    {"expression_id": "d0", "type": "dynamic"},
+                ],
+            },
+            {
+                "dataset": "d",
+                "video_id": "w",
+                "object_id": "2",
+                "expressions": [
+                    {"expression_id": "s0", "type": "static"},
+                    {"expression_id": "d0", "type": "dynamic"},
+                ],
+            },
+        ]
+    }
+    predictions = tmp_path / "predictions.jsonl"
+    rows = [
+        ("v", "1", "s0", "static", 0.8),
+        # v/1/s1 is deliberately missing: this object must not enter the statistic.
+        ("v", "1", "d0", "dynamic", 0.2),
+        ("w", "2", "s0", "static", 0.7),
+        ("w", "2", "d0", "dynamic", 0.6),
+    ]
+    predictions.write_text(
+        "".join(
+            __import__("json").dumps(
+                {
+                    "key": f"d/{video}/{obj}/{expression}/native",
+                    "dataset": "d",
+                    "video_id": video,
+                    "object_id": obj,
+                    "expression_id": expression,
+                    "description_type": kind,
+                    "status": "success",
+                    "J": score,
+                    "F": score,
+                    "J_and_F": score,
+                }
+            )
+            + "\n"
+            for video, obj, expression, kind, score in rows
+        )
+    )
+    summary, pairs, audit = summarize_model(
+        {"name": "m", "predictions": str(predictions)},
+        manifest_identities(manifest),
+        manifest_expressions_by_object(manifest),
+        iterations=20,
+        seed=42,
+    )
+    assert summary["eligible_paired_objects"] == 2
+    assert summary["paired_objects"] == 1
+    assert summary["excluded_incomplete_paired_objects"] == 1
+    assert [(row["video_id"], row["object_id"]) for row in pairs] == [("w", "2")]
+    assert audit["incomplete_paired_objects"][0][
+        "missing_static_expression_ids"
+    ] == ["s1"]
 
 
 def test_merge_representation_shards_is_unique_and_ordered(tmp_path):
