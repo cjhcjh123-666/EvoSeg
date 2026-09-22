@@ -135,12 +135,13 @@ def evaluate_entry(
     entry: dict, output_root: Path, frame_audit: dict | None = None
 ) -> dict:
     if frame_audit is not None:
-        indices = frame_audit["model_input_frame_indices"]
+        vlm_indices = frame_audit["vlm_frame_indices"]
+        sam_indices = frame_audit["sam_frame_indices"]
         if frame_audit.get("gt_available_to_model") is not False:
             raise AssertionError(f"invalid GT audit for {entry['key']}")
-        if frame_audit["vlm_frame_count"] != len(indices) or frame_audit[
+        if frame_audit["vlm_frame_count"] != len(vlm_indices) or frame_audit[
             "sam_frame_count"
-        ] != len(indices):
+        ] != len(sam_indices):
             raise AssertionError(f"invalid realized frame-count audit for {entry['key']}")
     prediction_dir = output_root / entry["output_video"] / entry["output_expression"]
     j_values = []
@@ -192,9 +193,15 @@ def evaluate_entry(
             else "native_frame_audit_unavailable"
         ),
         "model_input_frame_indices": (
-            frame_audit["model_input_frame_indices"]
+            frame_audit["vlm_frame_indices"]
             if frame_audit is not None
             else None
+        ),
+        "vlm_frame_indices": (
+            frame_audit["vlm_frame_indices"] if frame_audit is not None else None
+        ),
+        "segmentation_frame_indices": (
+            frame_audit["sam_frame_indices"] if frame_audit is not None else None
         ),
         "actual_vlm_frame_count": (
             frame_audit["vlm_frame_count"] if frame_audit is not None else None

@@ -362,16 +362,22 @@ def test_virst_frame_audit_records_realized_vlm_and_sam_indices(tmp_path):
         7,
         {
             "frame_ids": [[0, 4, 9]],
-            "images_clip": TensorStub((3, 3, 448, 448)),
+            "images_clip": TensorStub((4, 3, 448, 448)),
             "images_sam": TensorStub((3, 3, 1024, 1024)),
             "masks": [TensorStub((1, 3, 1024, 1024))],
             "video_paths": ["/data/v"],
             "exp_ids": ["e"],
-            "image_path": "/data/v/000.jpg,/data/v/004.jpg,/data/v/009.jpg",
+            "image_path": (
+                "/data/v/000.jpg,/data/v/002.jpg,/data/v/004.jpg,/data/v/009.jpg"
+            ),
+            "_evoseg_vlm_original_frame_indices": [0, 2, 4, 9],
         },
     )
-    assert record["model_input_frame_indices"] == [0, 4, 9]
-    assert record["vlm_frame_count"] == record["sam_frame_count"] == 3
+    assert record["model_input_frame_indices"] == [0, 2, 4, 9]
+    assert record["vlm_frame_indices"] == [0, 2, 4, 9]
+    assert record["sam_frame_indices"] == [0, 4, 9]
+    assert record["vlm_frame_count"] == 4
+    assert record["sam_frame_count"] == 3
     assert record["gt_available_to_model"] is False
     assert record["video_id"] == "v"
     assert record["output_expression_ids"] == ["e"]
@@ -380,14 +386,16 @@ def test_virst_frame_audit_records_realized_vlm_and_sam_indices(tmp_path):
     audit_path.write_text(payload + payload)
     loaded = load_frame_audit(audit_path)
     assert loaded[frame_audit_key("v", "e")]["model_input_frame_indices"] == [
-        0,
-        4,
-        9,
+        0, 2, 4, 9
     ]
-    inconsistent = {**record, "model_input_frame_indices": [1, 4, 9]}
+    inconsistent = {
+        **record,
+        "model_input_frame_indices": [1, 2, 4, 9],
+        "vlm_frame_indices": [1, 2, 4, 9],
+    }
     audit_path.write_text(payload + __import__("json").dumps(inconsistent) + "\n")
     retried = load_frame_audit(audit_path)[frame_audit_key("v", "e")]
-    assert retried["model_input_frame_indices"] == [1, 4, 9]
+    assert retried["model_input_frame_indices"] == [1, 2, 4, 9]
     assert retried["superseded_frame_audit_attempts"] == 1
 
 
