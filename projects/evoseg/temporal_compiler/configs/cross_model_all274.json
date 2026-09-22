@@ -1,0 +1,47 @@
+{
+  "manifest": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_seg/20260921_2345_sa2va4b_temporal_process/manifest.json",
+  "max_objects": null,
+  "models": [
+    {
+      "name": "Sa2VA-Qwen3-VL-4B",
+      "predictions": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_seg/20260921_2345_sa2va4b_temporal_process/predictions.jsonl",
+      "frame_budget": 16,
+      "input_frames": "exactly the manifest N=16 VLM indices; fixed SAM2 input/prompt/evaluation frames",
+      "resolution": "VLM 401408--1605632 pixels per frame; SAM2 1024 square",
+      "checkpoint": "/9950backfile/chenjiahui/evo_artifacts/models/Sa2VA-Qwen3-VL-4B",
+      "checkpoint_source": "original Sa2VA-Qwen3-VL-4B; no fallback; index SHA256 6b8e6a52494ba5db4069693c31688f1895e02db36deca6de4c58c1143322ff87",
+      "training_data": "official Sa2VA release lists ReVOS, MeViS, DAVIS17, Chat-UniVi, SA-V/Ref-SAV, RefCOCO/+/g, GLaMM, Osprey-724K, and LLaVA data",
+      "explicit_temporal_module": false
+    },
+    {
+      "name": "InstructSeg",
+      "predictions": [
+        "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_instructseg_long_rvos_all274_sharded/shard-0/predictions.jsonl",
+        "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_instructseg_long_rvos_all274_sharded/shard-1/predictions.jsonl",
+        "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_instructseg_long_rvos_all274_sharded/shard-2/predictions.jsonl",
+        "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_instructseg_long_rvos_all274_sharded/shard-3/predictions.jsonl"
+      ],
+      "input_frames": "native deterministic current frame plus four temporally ordered neighboring reference frames for every output frame",
+      "resolution": "SigLIP and Mask2Former 384 inputs; masks restored to original video size",
+      "checkpoint": "/9950backfile/chenjiahui/evo_artifacts/models/InstructSeg-official",
+      "checkpoint_source": "official weic22/InstructSeg revision d5375970b819922b3f9a17c22ea8453f05d6f7b2; official code commit 01343144fc0797fa4114b28100325e3babe809e2",
+      "training_data": "official training documentation lists COCO, RefCOCO/+/g, ReasonSeg, Ref-DAVIS, Ref-YouTube-VOS, ReVOS, and LLaVA-1.5 mix-665K",
+      "explicit_temporal_module": true
+    },
+    {
+      "name": "VIRST",
+      "predictions": [
+        "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_virst_long_rvos_all274_sharded/shard-0/predictions.jsonl",
+        "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_virst_long_rvos_all274_sharded/shard-1/predictions.jsonl",
+        "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_virst_long_rvos_all274_sharded/shard-2/predictions.jsonl",
+        "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_virst_long_rvos_all274_sharded/shard-3/predictions.jsonl"
+      ],
+      "input_frames": "native flex protocol: up to 64 locked VLM frames, 32 locked SAM2 prompt frames, then full-video propagation",
+      "resolution": "VLM anyres_nopad; segmentation images 1024",
+      "checkpoint": "/9950backfile/chenjiahui/evo_artifacts/external/VIRST/checkpoints/virst_checkpoint.pt",
+      "checkpoint_source": "official Google Drive checkpoint; official code commit 00aecefdcbb1b5f87f9913a58d2289ce0ab82f66",
+      "training_data": "paper Table 7: Ref-DAVIS17, Ref-YouTube-VOS, MeViS, ReVOS plus its stated image segmentation and VideoLLaVA-Instruct mixture",
+      "explicit_temporal_module": true
+    }
+  ]
+}
