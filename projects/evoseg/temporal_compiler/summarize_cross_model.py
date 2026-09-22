@@ -71,6 +71,50 @@ def manifest_expressions_by_object(
     }
 
 
+def select_manifest_objects(manifest: dict, max_objects: int | None) -> dict:
+    if max_objects is None:
+        return manifest
+    if max_objects < 1:
+        raise ValueError("max_objects must be positive")
+    return {**manifest, "objects": manifest["objects"][:max_objects]}
+
+
+def build_pair_overlap_audit(
+    pairs: list[dict], model_names: list[str], expected_by_object: dict
+) -> dict:
+    expected_objects = {
+        object_key
+        for object_key, by_type in expected_by_object.items()
+        if by_type.get("static") and by_type.get("dynamic")
+    }
+    by_model = defaultdict(set)
+    for row in pairs:
+        by_model[row["model"]].add(
+            (row["dataset"], row["video_id"], str(row["object_id"]))
+        )
+    complete_sets = [by_model[name] for name in model_names]
+    shared = set.intersection(*complete_sets) if complete_sets else set()
+
+    def serialize(values):
+        return ["/".join(value) for value in sorted(values)]
+
+    return {
+        "expected_paired_objects": len(expected_objects),
+        "successful_models": model_names,
+        "complete_paired_objects_by_model": {
+            name: len(by_model[name]) for name in model_names
+        },
+        "missing_paired_objects_by_model": {
+            name: serialize(expected_objects - by_model[name]) for name in model_names
+        },
+        "shared_complete_paired_objects": len(shared),
+        "shared_complete_object_keys": serialize(shared),
+        "all_models_have_identical_complete_object_set": all(
+            by_model[name] == shared for name in model_names
+        ),
+    }
+
+
 def cluster_bootstrap(
     rows: list[dict], iterations: int, seed: int
 ) -> tuple[float, float, float]:
@@ -255,7 +299,8 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 def main(args) -> None:
     config = json.loads(Path(args.config).read_text())
-    manifest = json.loads(Path(config["manifest"]).read_text())
+    full_manifest = json.loads(Path(config["manifest"]).read_text())
+    manifest = select_manifest_objects(full_manifest, config.get("max_objects"))
     expected = manifest_identities(manifest)
     expected_by_object = manifest_expressions_by_object(manifest)
     summaries = []
@@ -292,6 +337,34 @@ def main(args) -> None:
     write_csv(output_dir / "cross_model_object_pairs.csv", pairs)
     atomic = output_dir / "cross_model_audit.json"
     atomic.write_text(json.dumps(audits, indent=2, ensure_ascii=False) + "\n")
+    successful_model_names = [
+        summary["model"] for summary in summaries if summary["status"] == "success"
+    ]
+    overlap = build_pair_overlap_audit(
+        pairs, successful_model_names, expected_by_object
+    )
+    (output_dir / "cross_model_pair_overlap.json").write_text(
+        json.dumps(overlap, indent=2, ensure_ascii=False) + "\n"
+    )
+    protocol = {
+        "manifest": config["manifest"],
+        "selection": (
+            f"first {config['max_objects']} objects in the prediction-independent "
+            "seed-42 manifest order"
+            if config.get("max_objects") is not None
+            else "all objects in the prediction-independent seed-42 manifest"
+        ),
+        "max_objects": config.get("max_objects"),
+        "full_manifest_objects": len(full_manifest["objects"]),
+        "selected_objects": len(manifest["objects"]),
+        "expected_expression_identities": len(expected),
+        "bootstrap_unit": "source_video",
+        "bootstrap_iterations": args.bootstrap_iterations,
+        "seed": args.seed,
+    }
+    (output_dir / "cross_model_protocol.json").write_text(
+        json.dumps(protocol, indent=2, ensure_ascii=False) + "\n"
+    )
 
 
 def parse_args():

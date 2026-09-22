@@ -32,10 +32,12 @@ from projects.evoseg.temporal_compiler.extract_qwen_concepts import (
     expression_key as qwen_expression_key,
 )
 from projects.evoseg.temporal_compiler.summarize_cross_model import (
+    build_pair_overlap_audit,
     cluster_bootstrap,
     manifest_expressions_by_object,
     manifest_identities,
     summarize_model,
+    select_manifest_objects,
 )
 
 import numpy as np
@@ -191,6 +193,35 @@ def test_cross_model_summary_excludes_object_with_missing_official_expression(
     assert audit["incomplete_paired_objects"][0][
         "missing_static_expression_ids"
     ] == ["s1"]
+
+
+def test_cross_model_pilot_selection_and_pair_overlap_are_explicit():
+    manifest = {
+        "objects": [
+            {
+                "dataset": "d",
+                "video_id": f"v{index}",
+                "object_id": str(index),
+                "expressions": [
+                    {"expression_id": "s", "type": "static"},
+                    {"expression_id": "d", "type": "dynamic"},
+                ],
+            }
+            for index in range(3)
+        ]
+    }
+    selected = select_manifest_objects(manifest, 2)
+    expected = manifest_expressions_by_object(selected)
+    pairs = [
+        {"model": "a", "dataset": "d", "video_id": "v0", "object_id": "0"},
+        {"model": "a", "dataset": "d", "video_id": "v1", "object_id": "1"},
+        {"model": "b", "dataset": "d", "video_id": "v0", "object_id": "0"},
+    ]
+    audit = build_pair_overlap_audit(pairs, ["a", "b"], expected)
+    assert len(selected["objects"]) == 2
+    assert audit["complete_paired_objects_by_model"] == {"a": 2, "b": 1}
+    assert audit["shared_complete_paired_objects"] == 1
+    assert audit["all_models_have_identical_complete_object_set"] is False
 
 
 def test_merge_representation_shards_is_unique_and_ordered(tmp_path):
