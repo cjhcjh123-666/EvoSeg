@@ -23,6 +23,10 @@ from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     encode_rle,
     select_pilot_objects,
 )
+from projects.evoseg.temporal_compiler.extract_qwen_concepts import (
+    clean_concept,
+    expression_key as qwen_expression_key,
+)
 from projects.evoseg.temporal_compiler.summarize_cross_model import cluster_bootstrap
 
 import numpy as np
@@ -70,6 +74,13 @@ def test_candidate_rle_round_trip():
     mask = np.zeros((5, 7), dtype=bool)
     mask[1:4, 2:6] = True
     assert np.array_equal(mask, decode_rle(encode_rle(mask)))
+
+
+def test_qwen_concept_output_cleaning_and_identity():
+    item = {"dataset": "d", "video_id": "v", "object_id": "o"}
+    expression = {"expression_id": "e"}
+    assert qwen_expression_key(item, expression) == "d/v/o/e"
+    assert clean_concept('  Concept: "striped tiger."\nExplanation') == "striped tiger"
 
 
 def test_cluster_bootstrap_preserves_constant_gap():

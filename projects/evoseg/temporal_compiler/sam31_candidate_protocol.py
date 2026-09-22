@@ -214,6 +214,27 @@ def completed_keys(path: Path) -> set[str]:
     }
 
 
+def expression_key(item: dict, expression: dict) -> str:
+    return "/".join(
+        [
+            item["dataset"], item["video_id"], str(item["object_id"]),
+            str(expression["expression_id"]),
+        ]
+    )
+
+
+def load_qwen_concepts(path_value: str | None) -> tuple[dict[str, dict], Path | None]:
+    if not path_value:
+        return {}, None
+    path = Path(path_value).resolve()
+    records = load_records(path)
+    successful = [record for record in records if record.get("status") == "success"]
+    concepts = {record["key"]: record for record in successful}
+    if len(concepts) != len(successful):
+        raise RuntimeError(f"duplicate successful Qwen concept key in {path}")
+    return concepts, path
+
+
 def run_generation(args) -> int:
     # Import from the exact official checkout only at runtime.  The recorded
     # source path and commit make accidental use of a vendored fork visible.
@@ -246,6 +267,18 @@ def run_generation(args) -> int:
     records_path = run_dir / "candidate_records.jsonl"
     done = completed_keys(records_path)
     parser = SpacyConceptParser(args.spacy_model)
+    qwen_concepts, qwen_concepts_path = load_qwen_concepts(args.qwen_concepts)
+    if qwen_concepts_path is not None:
+        missing = [
+            expression_key(item, expression)
+            for item in objects
+            for expression in item["expressions"]
+            if expression_key(item, expression) not in qwen_concepts
+        ]
+        if missing:
+            raise RuntimeError(
+                f"Qwen concept map misses {len(missing)} selected expressions; first={missing[0]}"
+            )
 
     torch.cuda.set_device(args.device)
     load_started = time.perf_counter()
@@ -284,7 +317,8 @@ def run_generation(args) -> int:
         "protocol": {
             "manifest": str(manifest_path),
             "manifest_sha256": sha256(manifest_path),
-            "prompt_methods": ["raw_expression", "concept"],
+            "prompt_methods": ["raw_expression", "concept"]
+            + (["qwen_concept"] if qwen_concepts_path is not None else []),
             "prompt_frame_index": 0,
             "candidate_generation_reads_gt": False,
             "max_num_objects": args.max_num_objects,
@@ -295,6 +329,10 @@ def run_generation(args) -> int:
             "selection": "first objects in prediction-independent seed-42 manifest order, then object-level modulo shard",
             "shard_index": args.shard_index,
             "num_shards": args.num_shards,
+            "qwen_concepts": str(qwen_concepts_path) if qwen_concepts_path else None,
+            "qwen_concepts_sha256": sha256(qwen_concepts_path)
+            if qwen_concepts_path
+            else None,
         },
         "concept_parser": {
             "implementation": "spacy_subject_noun_chunk_v1",
@@ -304,7 +342,8 @@ def run_generation(args) -> int:
     }
     atomic_json(run_dir / "run_config.json", config)
 
-    planned = sum(len(item["expressions"]) * 2 for item in objects)
+    prompt_method_count = 3 if qwen_concepts_path is not None else 2
+    planned = sum(len(item["expressions"]) * prompt_method_count for item in objects)
     attempted = 0
     failed = 0
     started = time.monotonic()
@@ -325,10 +364,18 @@ def run_generation(args) -> int:
             image_shape = (image.height, image.width)
         for expression in item["expressions"]:
             concept = parser(expression["text"])
-            for prompt_method, prompt in (
+            prompts = [
                 ("raw_expression", expression["text"]),
                 ("concept", concept["concept"]),
-            ):
+            ]
+            if qwen_concepts_path is not None:
+                prompts.append(
+                    (
+                        "qwen_concept",
+                        qwen_concepts[expression_key(item, expression)]["concept"],
+                    )
+                )
+            for prompt_method, prompt in prompts:
                 key = candidate_key(item, expression, prompt_method)
                 if key in done:
                     continue
@@ -343,6 +390,9 @@ def run_generation(args) -> int:
                     "prompt_method": prompt_method,
                     "prompt": prompt,
                     "concept_parse": concept if prompt_method == "concept" else None,
+                    "qwen_concept_source_key": expression_key(item, expression)
+                    if prompt_method == "qwen_concept"
+                    else None,
                     "prompt_frame_index": 0,
                     "evaluation_frame_indices": item["evaluation_frame_indices"],
                     "gt_read_during_generation": False,
@@ -622,6 +672,7 @@ def parse_args():
     generation.add_argument("--max-num-objects", type=int, default=16)
     generation.add_argument("--multiplex-count", type=int, default=16)
     generation.add_argument("--spacy-model", default="en_core_web_sm")
+    generation.add_argument("--qwen-concepts")
     generation.add_argument("--use-fa3", action=argparse.BooleanOptionalAction, default=False)
     generation.add_argument("--compile", action=argparse.BooleanOptionalAction, default=False)
     evaluation = subparsers.add_parser("evaluate")
