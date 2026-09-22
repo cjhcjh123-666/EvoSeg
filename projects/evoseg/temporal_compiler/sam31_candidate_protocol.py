@@ -609,18 +609,36 @@ def run_generation(args) -> int:
 
 
 def load_ground_truth(item: dict, shape: tuple[int, int]) -> np.ndarray:
+    present_flags = item.get("evaluation_mask_present")
+    if present_flags is None:
+        raise KeyError(
+            f"manifest object {item['video_id']}/{item['object_id']} lacks "
+            "evaluation_mask_present"
+        )
+    if len(present_flags) != len(item["evaluation_mask_paths"]):
+        raise ValueError(
+            f"evaluation mask presence/path length mismatch for "
+            f"{item['video_id']}/{item['object_id']}"
+        )
     masks = []
-    for path_value in item["evaluation_mask_paths"]:
+    for path_value, expected_present in zip(
+        item["evaluation_mask_paths"], present_flags
+    ):
         path = Path(path_value)
-        if not path.is_file():
+        file_present = path.is_file()
+        if bool(expected_present) != file_present:
             raise FileNotFoundError(
-                f"missing evaluation GT for {item['video_id']}/{item['object_id']}: "
-                f"{path}"
+                f"evaluation GT availability differs from manifest for "
+                f"{item['video_id']}/{item['object_id']}: expected_present="
+                f"{bool(expected_present)}, file_present={file_present}, path={path}"
             )
-        with Image.open(path) as image:
-            mask = np.asarray(image.convert("L")) > 0
-        if mask.shape != shape:
-            raise ValueError(f"GT shape mismatch: {mask.shape} != {shape}: {path}")
+        if file_present:
+            with Image.open(path) as image:
+                mask = np.asarray(image.convert("L")) > 0
+            if mask.shape != shape:
+                raise ValueError(f"GT shape mismatch: {mask.shape} != {shape}: {path}")
+        else:
+            mask = np.zeros(shape, dtype=bool)
         masks.append(mask)
     return np.stack(masks)
 

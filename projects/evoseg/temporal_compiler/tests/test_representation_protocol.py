@@ -93,6 +93,7 @@ def test_candidate_evaluation_rejects_missing_gt(tmp_path):
         "video_id": "v",
         "object_id": "o",
         "evaluation_mask_paths": [str(tmp_path / "missing.png")],
+        "evaluation_mask_present": [True],
     }
     try:
         load_ground_truth(item, (5, 7))
@@ -100,6 +101,18 @@ def test_candidate_evaluation_rejects_missing_gt(tmp_path):
         assert "missing evaluation GT" in str(error)
     else:
         raise AssertionError("missing GT was silently evaluated as an empty mask")
+
+
+def test_candidate_evaluation_preserves_manifest_declared_empty_gt(tmp_path):
+    item = {
+        "video_id": "v",
+        "object_id": "o",
+        "evaluation_mask_paths": [str(tmp_path / "intentionally_absent.png")],
+        "evaluation_mask_present": [False],
+    }
+    masks = load_ground_truth(item, (5, 7))
+    assert masks.shape == (1, 5, 7)
+    assert not masks.any()
 
 
 def test_final_sam31_checkpoint_audit_checks_keys_and_values(tmp_path):
