@@ -56,6 +56,14 @@ def test_candidate_protocol_identity_and_selection():
     assert candidate_key(item, expression, "concept") == "d/v/o/e/concept"
     values = [{"object_id": str(index)} for index in range(40)]
     assert select_pilot_objects(values, 32) == values[:32]
+    shards = [
+        select_pilot_objects(values, 32, shard_index=index, num_shards=4)
+        for index in range(4)
+    ]
+    assert all(len(shard) == 8 for shard in shards)
+    assert {item["object_id"] for shard in shards for item in shard} == {
+        str(index) for index in range(32)
+    }
 
 
 def test_candidate_rle_round_trip():

@@ -77,9 +77,19 @@ def candidate_key(item: dict, expression: dict, prompt_method: str) -> str:
     )
 
 
-def select_pilot_objects(objects: list[dict], limit: int | None) -> list[dict]:
+def select_pilot_objects(
+    objects: list[dict],
+    limit: int | None,
+    shard_index: int = 0,
+    num_shards: int = 1,
+) -> list[dict]:
     # The upstream manifest is already prediction-independent, seed-42 order.
-    return objects if limit is None else objects[:limit]
+    if num_shards < 1 or not 0 <= shard_index < num_shards:
+        raise ValueError(
+            f"invalid shard {shard_index} of {num_shards}; expected 0 <= index < count"
+        )
+    selected = objects if limit is None else objects[:limit]
+    return [item for index, item in enumerate(selected) if index % num_shards == shard_index]
 
 
 class SpacyConceptParser:
@@ -218,9 +228,20 @@ def run_generation(args) -> int:
     checkpoint = Path(args.checkpoint).resolve()
     if not checkpoint.is_file():
         raise FileNotFoundError(f"official SAM3.1 checkpoint missing: {checkpoint}")
+    checkpoint_sha256 = sha256(checkpoint)
+    if checkpoint_sha256 != args.expected_checkpoint_sha256:
+        raise RuntimeError(
+            "SAM3.1 checkpoint SHA256 mismatch: "
+            f"expected {args.expected_checkpoint_sha256}, got {checkpoint_sha256}"
+        )
     manifest_path = Path(args.manifest).resolve()
     manifest = json.loads(manifest_path.read_text())
-    objects = select_pilot_objects(manifest["objects"], args.max_objects)
+    objects = select_pilot_objects(
+        manifest["objects"],
+        args.max_objects,
+        shard_index=args.shard_index,
+        num_shards=args.num_shards,
+    )
     run_dir = Path(args.run_dir).resolve()
     records_path = run_dir / "candidate_records.jsonl"
     done = completed_keys(records_path)
@@ -246,7 +267,9 @@ def run_generation(args) -> int:
         "runtime_builder_source": str(module_path),
         "runtime_builder_source_sha256": sha256(module_path),
         "checkpoint": str(checkpoint),
-        "checkpoint_sha256": sha256(checkpoint),
+        "checkpoint_sha256": checkpoint_sha256,
+        "checkpoint_expected_sha256": args.expected_checkpoint_sha256,
+        "checkpoint_source": args.checkpoint_source,
         "checkpoint_bytes": checkpoint.stat().st_size,
         "model_load_seconds_synchronized": time.perf_counter() - load_started,
         "environment": {
@@ -269,7 +292,9 @@ def run_generation(args) -> int:
             "use_fa3": args.use_fa3,
             "compile": args.compile,
             "selected_objects": len(objects),
-            "selection": "first objects in prediction-independent seed-42 manifest order",
+            "selection": "first objects in prediction-independent seed-42 manifest order, then object-level modulo shard",
+            "shard_index": args.shard_index,
+            "num_shards": args.num_shards,
         },
         "concept_parser": {
             "implementation": "spacy_subject_noun_chunk_v1",
@@ -587,9 +612,13 @@ def parse_args():
     generation.add_argument("--manifest", required=True)
     generation.add_argument("--run-dir", required=True)
     generation.add_argument("--checkpoint", required=True)
+    generation.add_argument("--expected-checkpoint-sha256", required=True)
+    generation.add_argument("--checkpoint-source", required=True)
     generation.add_argument("--sam3-repo", required=True)
     generation.add_argument("--device", type=int, required=True)
     generation.add_argument("--max-objects", type=int)
+    generation.add_argument("--shard-index", type=int, default=0)
+    generation.add_argument("--num-shards", type=int, default=1)
     generation.add_argument("--max-num-objects", type=int, default=16)
     generation.add_argument("--multiplex-count", type=int, default=16)
     generation.add_argument("--spacy-model", default="en_core_web_sm")
