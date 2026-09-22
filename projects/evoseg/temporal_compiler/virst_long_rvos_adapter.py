@@ -214,6 +214,19 @@ def evaluate_entry(
             if frame_audit is not None
             else None
         ),
+        "sampling_seed": (
+            frame_audit.get("sampling_seed") if frame_audit is not None else None
+        ),
+        "sampling_seed_rule": (
+            frame_audit.get("sampling_seed_rule")
+            if frame_audit is not None
+            else None
+        ),
+        "same_video_expression_sampling_locked": (
+            frame_audit.get("same_video_expression_sampling_locked")
+            if frame_audit is not None
+            else None
+        ),
         "manifest_vlm_frame_indices_n16": entry["manifest_vlm_frame_indices_n16"],
         "evaluation_frame_indices": entry["evaluation_frame_indices"],
         "gt_available_to_model": False,

@@ -7,10 +7,19 @@ official ``eval.py`` through ``runpy``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import random
 import runpy
 from pathlib import Path
+
+import numpy as np
+
+
+def sampling_seed_for_video(video_id: str, base_seed: int = 42) -> int:
+    payload = f"evoseg-virst-sampling-v1/{base_seed}/{video_id}".encode()
+    return int.from_bytes(hashlib.sha256(payload).digest()[:4], "big")
 
 
 def build_frame_audit_record(index: int, item: dict) -> dict:
@@ -61,6 +70,9 @@ def build_frame_audit_record(index: int, item: dict) -> dict:
         "sam_frame_indices": sam_frame_indices,
         "vlm_frame_count": vlm_frame_count,
         "sam_frame_count": sam_frame_count,
+        "sampling_seed": int(item["_evoseg_sampling_seed"]),
+        "sampling_seed_rule": "sha256(evoseg-virst-sampling-v1/42/video_id)[:32bit]",
+        "same_video_expression_sampling_locked": True,
         "gt_placeholder_nonzero": gt_placeholder_nonzero,
         "gt_available_to_model": False,
         "frame_index_semantics": "indices_into_full_video_frame_list",
@@ -92,6 +104,7 @@ def main() -> None:
 
     original_get_item = RVOSDataset._get_item
     original_process_video_vlm = RVOSDataset.process_video_vlm
+    sampling_signature_by_video: dict[str, tuple[tuple[int, ...], tuple[int, ...]]] = {}
 
     def audited_process_video_vlm(dataset, video_file, data_anno, data_args):
         result = original_process_video_vlm(dataset, video_file, data_anno, data_args)
@@ -102,7 +115,18 @@ def main() -> None:
         return result
 
     def audited_get_item(dataset, index):
-        item = original_get_item(dataset, index)
+        video_id = str(dataset.d2_dataset_dicts[index]["video_name"])
+        sampling_seed = sampling_seed_for_video(video_id)
+        python_random_state = random.getstate()
+        numpy_random_state = np.random.get_state()
+        random.seed(sampling_seed)
+        np.random.seed(sampling_seed)
+        try:
+            item = original_get_item(dataset, index)
+        finally:
+            random.setstate(python_random_state)
+            np.random.set_state(numpy_random_state)
+        item["_evoseg_sampling_seed"] = sampling_seed
         outer_paths = [Path(value) for value in dataset._evoseg_outer_sample_paths]
         if [str(value) for value in outer_paths] != item["image_path"].split(","):
             raise AssertionError("VIRST outer frame paths changed during sample creation")
@@ -125,7 +149,19 @@ def main() -> None:
         except (IndexError, KeyError) as error:
             raise AssertionError("could not map VIRST VLM frames to full-video indices") from error
         record = build_frame_audit_record(index, item)
+        signature = (
+            tuple(record["vlm_frame_indices"]),
+            tuple(record["sam_frame_indices"]),
+        )
+        video_seen_before = video_id in sampling_signature_by_video
+        previous_signature = sampling_signature_by_video.setdefault(video_id, signature)
+        if previous_signature != signature:
+            raise AssertionError(
+                f"same-video VIRST sampling differs across expressions: {video_id}"
+            )
+        record["same_video_sampling_signature_asserted"] = video_seen_before
         item.pop("_evoseg_vlm_original_frame_indices")
+        item.pop("_evoseg_sampling_seed")
         completed_root = Path(completed_output_root_value)
         completed = [
             completed_root / record["video_id"] / output_expression

@@ -23,6 +23,7 @@ from projects.evoseg.temporal_compiler.virst_long_rvos_adapter import (
 )
 from projects.evoseg.temporal_compiler.virst_instrumented_eval import (
     build_frame_audit_record,
+    sampling_seed_for_video,
 )
 from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     audit_loaded_checkpoint,
@@ -371,6 +372,7 @@ def test_virst_frame_audit_records_realized_vlm_and_sam_indices(tmp_path):
                 "/data/v/000.jpg,/data/v/002.jpg,/data/v/004.jpg,/data/v/009.jpg"
             ),
             "_evoseg_vlm_original_frame_indices": [0, 2, 4, 9],
+            "_evoseg_sampling_seed": sampling_seed_for_video("v"),
         },
     )
     assert record["model_input_frame_indices"] == [0, 2, 4, 9]
@@ -378,6 +380,8 @@ def test_virst_frame_audit_records_realized_vlm_and_sam_indices(tmp_path):
     assert record["sam_frame_indices"] == [0, 4, 9]
     assert record["vlm_frame_count"] == 4
     assert record["sam_frame_count"] == 3
+    assert record["same_video_expression_sampling_locked"] is True
+    assert record["sampling_seed"] == sampling_seed_for_video("v")
     assert record["gt_available_to_model"] is False
     assert record["video_id"] == "v"
     assert record["output_expression_ids"] == ["e"]
@@ -397,6 +401,11 @@ def test_virst_frame_audit_records_realized_vlm_and_sam_indices(tmp_path):
     retried = load_frame_audit(audit_path)[frame_audit_key("v", "e")]
     assert retried["model_input_frame_indices"] == [1, 2, 4, 9]
     assert retried["superseded_frame_audit_attempts"] == 1
+
+
+def test_virst_sampling_seed_is_stable_by_video():
+    assert sampling_seed_for_video("video-a") == sampling_seed_for_video("video-a")
+    assert sampling_seed_for_video("video-a") != sampling_seed_for_video("video-b")
 
 
 def test_virst_adapter_uses_gt_free_test_schema_and_symlink(tmp_path):
