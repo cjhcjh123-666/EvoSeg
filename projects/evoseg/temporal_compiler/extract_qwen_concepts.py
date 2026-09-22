@@ -18,10 +18,12 @@ from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 
 SYSTEM_PROMPT = (
-    "Extract only the basic object noun or noun phrase referred to by the expression. "
-    "Return only that noun phrase, with no explanation. Do not return a pronoun. "
-    "Omit actions, temporal clauses, and spatial relations; retain an attribute only "
-    "when it is needed to distinguish the object."
+    "A Long-RVOS expression describes exactly one target object. Extract the single "
+    "first-mentioned or topical entity that the whole expression is about, not another "
+    "object it interacts with. Return exactly one basic object noun or noun phrase, with "
+    "no explanation and no comma-separated list. Never return a pronoun. Omit actions, "
+    "temporal clauses, and spatial relations; retain an attribute only when it is needed "
+    "to distinguish the target."
 )
 
 
@@ -68,7 +70,10 @@ def atomic_json(path: Path, value: dict) -> None:
 
 
 def clean_concept(value: str) -> str:
-    value = value.strip().splitlines()[0].strip()
+    lines = value.strip().splitlines()
+    if not lines:
+        return ""
+    value = lines[0].strip()
     for prefix in ("Concept:", "Object:", "Noun phrase:"):
         if value.lower().startswith(prefix.lower()):
             value = value[len(prefix):].strip()
@@ -93,6 +98,7 @@ def run(args) -> int:
     torch.cuda.set_device(args.device)
     load_started = time.perf_counter()
     processor = AutoProcessor.from_pretrained(checkpoint, local_files_only=True)
+    processor.tokenizer.padding_side = "left"
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         checkpoint,
         torch_dtype=torch.bfloat16,
@@ -166,27 +172,50 @@ def run(args) -> int:
             if len(outputs) != len(batch):
                 raise AssertionError("Qwen output batch length mismatch")
             for (item, expression), raw_output in zip(batch, outputs):
-                concept = clean_concept(raw_output)
-                if not concept:
-                    raise ValueError(f"empty Qwen concept for {expression['text']!r}")
-                append_jsonl(
-                    output,
-                    {
-                        "key": expression_key(item, expression),
-                        "dataset": item["dataset"],
-                        "video_id": item["video_id"],
-                        "object_id": item["object_id"],
-                        "expression_id": expression["expression_id"],
-                        "description_type": expression["type"],
-                        "expression": expression["text"],
-                        "concept": concept,
-                        "raw_output": raw_output,
-                        "status": "success",
-                        "ground_truth_loaded": False,
-                        "completed_at": utc_now(),
-                    },
-                )
-                existing.add(expression_key(item, expression))
+                key = expression_key(item, expression)
+                try:
+                    concept = clean_concept(raw_output)
+                    if not concept:
+                        raise ValueError(
+                            f"empty Qwen concept for {expression['text']!r}"
+                        )
+                    append_jsonl(
+                        output,
+                        {
+                            "key": key,
+                            "dataset": item["dataset"],
+                            "video_id": item["video_id"],
+                            "object_id": item["object_id"],
+                            "expression_id": expression["expression_id"],
+                            "description_type": expression["type"],
+                            "expression": expression["text"],
+                            "concept": concept,
+                            "raw_output": raw_output,
+                            "status": "success",
+                            "ground_truth_loaded": False,
+                            "completed_at": utc_now(),
+                        },
+                    )
+                    existing.add(key)
+                except Exception as error:
+                    failed += 1
+                    append_jsonl(
+                        output,
+                        {
+                            "key": key,
+                            "dataset": item["dataset"],
+                            "video_id": item["video_id"],
+                            "object_id": item["object_id"],
+                            "expression_id": expression["expression_id"],
+                            "description_type": expression["type"],
+                            "expression": expression["text"],
+                            "raw_output": raw_output,
+                            "status": "failed",
+                            "error": repr(error),
+                            "ground_truth_loaded": False,
+                            "completed_at": utc_now(),
+                        },
+                    )
         except Exception as error:
             failed += len(batch)
             for item, expression in batch:
