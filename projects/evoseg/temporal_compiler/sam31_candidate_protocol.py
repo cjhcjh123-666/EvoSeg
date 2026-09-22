@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 import traceback
+import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,45 @@ from projects.evoseg.temporal_seg.official_metrics import db_eval_boundary, db_e
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def start_multiplex_session(predictor, resource_path: str) -> tuple[dict, dict]:
+    """Start an official SAM3.1 session across the 3.0/3.1 API mismatch.
+
+    The current official ``Sam3BasePredictor.start_session`` always forwards
+    ``offload_state_to_cpu``. The official 3.1 Multiplex model removed that
+    argument from ``init_state``. Keep the compatibility shim in this adapter
+    (not in the vendored Meta checkout), and omit only arguments absent from
+    the loaded model's inspected signature.
+    """
+    init_signature = inspect.signature(predictor.model.init_state)
+    supported = set(init_signature.parameters)
+    requested = {
+        "resource_path": resource_path,
+        "offload_video_to_cpu": False,
+        "offload_state_to_cpu": False,
+    }
+    if hasattr(predictor, "async_loading_frames"):
+        requested["async_loading_frames"] = predictor.async_loading_frames
+    if hasattr(predictor, "video_loader_type"):
+        requested["video_loader_type"] = predictor.video_loader_type
+    forwarded = {key: value for key, value in requested.items() if key in supported}
+    omitted = sorted(set(requested) - set(forwarded))
+
+    inference_state = predictor.model.init_state(**forwarded)
+    session_id = str(uuid.uuid4())
+    predictor._all_inference_states[session_id] = {
+        "state": inference_state,
+        "session_id": session_id,
+        "start_time": time.time(),
+        "last_use_time": time.time(),
+    }
+    return {"session_id": session_id}, {
+        "model_init_state_signature": str(init_signature),
+        "forwarded_arguments": sorted(forwarded),
+        "omitted_unsupported_arguments": omitted,
+        "official_base_predictor_mismatch": "offload_state_to_cpu" in omitted,
+    }
 
 
 def atomic_json(path: Path, value) -> None:
@@ -459,8 +499,8 @@ def run_generation(args) -> int:
                     torch.cuda.synchronize()
                     torch.cuda.reset_peak_memory_stats()
                     query_started = time.perf_counter()
-                    response = predictor.handle_request(
-                        {"type": "start_session", "resource_path": str(video_path)}
+                    response, session_api_compat = start_multiplex_session(
+                        predictor, str(video_path)
                     )
                     session_id = response["session_id"]
                     initial = predictor.handle_request(
@@ -498,6 +538,7 @@ def run_generation(args) -> int:
                             "latency_seconds_synchronized": time.perf_counter()
                             - query_started,
                             "peak_memory_bytes": int(torch.cuda.max_memory_allocated()),
+                            "session_api_compat": session_api_compat,
                             **candidate_info,
                         }
                     )
