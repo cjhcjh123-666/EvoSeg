@@ -3,6 +3,7 @@ from projects.evoseg.temporal_compiler.extract_sa2va_representations import (
     stable_key,
 )
 from projects.evoseg.temporal_compiler.analyze_sa2va_representations import distances
+from projects.evoseg.temporal_compiler.merge_representation_shards import merge_records
 from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     candidate_key,
     decode_rle,
@@ -59,3 +60,14 @@ def test_cluster_bootstrap_preserves_constant_gap():
     assert np.isclose(point, -0.1)
     assert np.isclose(low, -0.1)
     assert np.isclose(high, -0.1)
+
+
+def test_merge_representation_shards_is_unique_and_ordered(tmp_path):
+    base = tmp_path / "representation_records.jsonl"
+    shard = tmp_path / "representation_records.worker-00-of-02.jsonl"
+    base.write_text('{"key":"a","status":"success","vector_sha256":"1"}\n')
+    shard.write_text('{"key":"b","status":"success","vector_sha256":"2"}\n')
+    rows, audit = merge_records([base, shard])
+    assert [row["key"] for row in rows] == ["a", "b"]
+    assert audit["success_rows"] == 2
+    assert audit["duplicate_rows"] == 0
