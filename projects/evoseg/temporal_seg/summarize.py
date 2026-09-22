@@ -267,30 +267,85 @@ def make_case_figure(run_dir, records, manifest):
     return str(output)
 
 
-def length_strata(records):
-    records = [
-        r for r in records if r.get("status") in SUCCESS and int(r["frame_budget"]) == 16
+def length_strata(means, a_rows):
+    """Length diagnostics that preserve the object-level statistical unit."""
+    object_rows = [
+        {
+            "video_id": video,
+            "object_id": obj,
+            "type": typ,
+            "length_words": value["length_words"],
+            "J_and_F": value["J_and_F"],
+        }
+        for (video, obj, typ, budget), value in means.items()
+        if budget == 16
     ]
-    if len(records) < 6:
-        return []
-    lengths = np.array([r["description_length_words"] for r in records])
-    q1, q2 = np.quantile(lengths, [1 / 3, 2 / 3])
-    output = []
-    for label, predicate in (
+    if len(object_rows) < 6:
+        return {"definition": "insufficient object-level N=16 samples", "object_type": [], "paired_a": []}
+
+    q1, q2 = np.quantile(
+        [row["length_words"] for row in object_rows], [1 / 3, 2 / 3]
+    )
+    predicates = (
         ("short", lambda x: x <= q1),
         ("medium", lambda x: q1 < x <= q2),
         ("long", lambda x: x > q2),
-    ):
+    )
+    object_output = []
+    for label, predicate in predicates:
         for typ in ("static", "dynamic", "hybrid"):
-            values = [
-                r["J_and_F"]
-                for r in records
-                if r["description_type"] == typ and predicate(r["description_length_words"])
+            rows = [
+                row
+                for row in object_rows
+                if row["type"] == typ and predicate(row["length_words"])
             ]
-            output.append(
-                {"stratum": label, "type": typ, "n_expressions": len(values), "J_and_F": mean_or_none(values)}
+            object_output.append(
+                {
+                    "stratum": label,
+                    "type": typ,
+                    "n_objects": len(rows),
+                    "J_and_F": mean_or_none([row["J_and_F"] for row in rows]),
+                    "interpret_cautiously": len(rows) < 10,
+                }
             )
-    return output
+
+    paired_output = []
+    if len(a_rows) >= 3:
+        pair_lengths = [
+            (row["mean_length_words_from"] + row["mean_length_words_to"]) / 2
+            for row in a_rows
+        ]
+        pair_q1, pair_q2 = np.quantile(pair_lengths, [1 / 3, 2 / 3])
+        pair_predicates = (
+            ("short", lambda x: x <= pair_q1),
+            ("medium", lambda x: pair_q1 < x <= pair_q2),
+            ("long", lambda x: x > pair_q2),
+        )
+        for label, predicate in pair_predicates:
+            rows = [
+                row
+                for row, length in zip(a_rows, pair_lengths)
+                if predicate(length)
+            ]
+            point, low, high = bootstrap_by_video(rows, "paired_delta")
+            paired_output.append(
+                {
+                    "stratum": label,
+                    "n_object_pairs": len(rows),
+                    "dynamic_minus_static": point,
+                    "bootstrap_ci_low": low,
+                    "bootstrap_ci_high": high,
+                    "interpret_cautiously": len(rows) < 10,
+                }
+            )
+    return {
+        "definition": (
+            "global tertiles of object/type mean expression length at N=16; "
+            "paired A strata use tertiles of the pair's mean Static/Dynamic length"
+        ),
+        "object_type": object_output,
+        "paired_a": paired_output,
+    }
 
 
 def summarize(run_dir: Path):
@@ -357,9 +412,12 @@ def summarize(run_dir: Path):
             latency_by_budget[budget].append(record["latency_seconds_synchronized"])
 
     def cost_line(budget):
+        tokens = token_by_budget[budget]
+        memory = memory_by_budget[budget]
         return (
-            f"N={budget}: tokens={mean_or_none(token_by_budget[budget])}, "
-            f"峰值显存={mean_or_none(memory_by_budget[budget])} GiB, "
+            f"N={budget}: visual tokens 均值={mean_or_none(tokens)}, "
+            f"范围=[{min(tokens) if tokens else None}, {max(tokens) if tokens else None}], "
+            f"实测最大峰值显存={max(memory) if memory else None} GiB, "
             f"热运行同步延迟={mean_or_none(latency_by_budget[budget])} s"
         )
 
@@ -381,6 +439,56 @@ def summarize(run_dir: Path):
             f"{fmt(by_budget[32])} | {fmt(point)} [{fmt(low)}, {fmt(high)}] |"
         )
     accuracy_table = "\n".join(accuracy_lines)
+    quality_path = run_dir / "logs" / "smoke_quality.json"
+    quality = json.loads(quality_path.read_text()) if quality_path.exists() else {}
+    interface_verified = bool(quality.get("passed")) and not failed
+    enough_pairs = len(a_rows) >= 24 and len(
+        [r for r in b_rows if r["description_type"] == "dynamic"]
+    ) >= 24
+    a_excludes_zero = (
+        a_low is not None
+        and a_high is not None
+        and (a_low > 0 or a_high < 0)
+    )
+    dynamic_crosses_zero = (
+        dynamic_b[1] is None
+        or dynamic_b[2] is None
+        or dynamic_b[1] <= 0 <= dynamic_b[2]
+    )
+    if not interface_verified:
+        priority = "分割接口/实现问题"
+        priority_reason = "smoke 接口质量门尚未通过，不能先解释模型机制"
+    elif not enough_pairs:
+        priority = "数据覆盖问题"
+        priority_reason = "完整对象内配对量仍不足以支持稳定判断"
+    else:
+        priority = "时序表示"
+        priority_reason = (
+            "接口与数据检查已通过，但增加动态描述可见帧的区间仍跨零；"
+            "下一步应先测 `[SEG]` 表示是否随跨帧证据变化"
+        )
+
+    supported = []
+    if interface_verified:
+        supported.append("VLM 帧预算与固定分割帧已经分离，smoke 质量门通过")
+    if a_excludes_zero:
+        direction = "高于" if a_point > 0 else "低于"
+        supported.append(
+            f"当前模型下 Dynamic 的对象内 J&F 显著{direction} Static"
+        )
+    if not dynamic_crosses_zero:
+        direction = "提高" if dynamic_b[0] > 0 else "降低"
+        supported.append(f"N=32 相对 N=8 对动态描述的 J&F 稳定{direction}")
+    unsupported = []
+    if dynamic_crosses_zero:
+        unsupported.append("更多可见帧会改善动态指代（当前 95% 区间跨零）")
+    unsupported.extend(
+        [
+            "差异由时序理解能力单独导致",
+            "不同帧数条件具有固定的总计算预算",
+        ]
+    )
+    strata = length_strata(means, a_rows)
     report = f"""# EvoSeg 跨帧过程诊断：首轮报告
 
 ## ① 实际跑了什么、覆盖多少视频和对象
@@ -405,26 +513,37 @@ N=16 时，先在对象内分别平均同类型多表达，再计算 Dynamic−S
 
 ## ④ 哪些解释得到支持，哪些尚不能判断
 
-只有完整对象内配对进入上述主统计。若区间仍宽或样本不足，则静态/动态描述差异和更多可见帧的收益均尚不能稳定判断；失败与重试保留在逐表达记录中。长度分层见下方机器可读摘要，稀疏分层不作强结论。
+只有完整对象内配对进入上述主统计。得到支持：{'；'.join(supported) if supported else '当前尚无机制性解释得到支持'}。尚不能判断：{'；'.join(unsupported)}。这些结果只说明当前模型下的描述条件差异，不能直接写成“模型完全不理解时序”。失败与重试保留在逐表达记录中。
+
+长度分层使用对象作为统计单位，避免多表达对象获得额外权重；`interpret_cautiously=true` 的稀疏分层不作强结论：
 
 ```json
-{json.dumps(length_strata(records), ensure_ascii=False)}
+{json.dumps(strata, ensure_ascii=False)}
 ```
 
 ## ⑤ 下一步优先项
 
-优先依据实测定位：若 visual token 随 N 增长但动态 J&F 不变，先验证时序表示；若输出帧、提示帧或传播范围断言失败，先修分割接口；若完整配对量不足或文件缺失，先解决数据问题。当前绘图/汇总警告：{errors or '无'}。
+下一步优先验证 **{priority}**：{priority_reason}。当前绘图/汇总警告：{errors or '无'}。
 """
     (run_dir / "MORNING_REPORT.md").write_text(report)
 
-    next_steps = """# Next experiments
+    next_steps = f"""# Next experiments
 
-本文件由当前实测状态生成，不预设模型会因更多帧而改善。
+本文件由当前实测结果生成，不预设模型会因更多帧而改善。
 
-1. 若 32−8 的动态描述置信区间跨零，先检查 `[SEG]` 表示是否随时间证据变化，再决定是否设计时序表示模块。
-2. 若 token 或分割帧断言不满足，停止解释模型能力，优先修正 VLM/SAM2 接口。
-3. 若配对样本不足，继续完成官方验证数据与失败样本重试，不用非官方改写描述补数。
-4. 只有上述诊断排除数据和接口问题后，再选择最小的表示学习实验；不启动四组大型训练。
+## 当前决定
+
+优先验证 **{priority}**。原因：{priority_reason}。
+
+- 当前完整 A 配对：{len(a_rows)}；Dynamic−Static={fmt(a_point)} 个百分点，95% CI=[{fmt(a_low)}, {fmt(a_high)}]。
+- 当前完整动态 B 配对：{len([r for r in b_rows if r['description_type'] == 'dynamic'])}；N=32−N=8={fmt(dynamic_b[0])} 个百分点，95% CI=[{fmt(dynamic_b[1])}, {fmt(dynamic_b[2])}]。
+- smoke 接口质量门：{'通过' if quality.get('passed') else '未通过或尚未完成'}；失败结果：{len(failed)}。
+
+## 最小下一步
+
+1. 在不改变 SAM2 输入与传播的前提下，保存同对象 N=8/16/32 的 `[SEG]` 隐向量，测余弦距离及其与对象内 J&F 变化的关系。
+2. 只沿用官方 Static/Dynamic/Hybrid 类型和原始表达长度分层复核表示变化；不新增查询、标签或人工事件分类，不据结果挑样本。
+3. 若 `[SEG]` 表示几乎不随新增帧变化，再设计最小的时序表示消融；本轮不启动四组大型训练。
 """
     (run_dir / "NEXT_EXPERIMENTS.md").write_text(next_steps)
 

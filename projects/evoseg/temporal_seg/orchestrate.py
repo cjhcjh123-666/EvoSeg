@@ -53,6 +53,23 @@ def summarize(worktree, run_dir):
     )
 
 
+def snapshot(worktree, run_dir, deadline):
+    cutoff = datetime.fromtimestamp(deadline, timezone.utc).isoformat()
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "projects.evoseg.temporal_seg.snapshot",
+            "--run-dir",
+            str(run_dir),
+            "--cutoff",
+            cutoff,
+        ],
+        cwd=worktree,
+        check=False,
+    ).returncode
+
+
 def monitor(process, worktree, run_dir, deadline, interval=900):
     next_report = 0.0
     snapshot_written = False
@@ -63,10 +80,13 @@ def monitor(process, worktree, run_dir, deadline, interval=900):
             next_report = current + interval
         if current >= deadline and not snapshot_written:
             summarize(worktree, run_dir)
+            snapshot_rc = snapshot(worktree, run_dir, deadline)
             update_status(
                 run_dir / "STATUS.json",
                 first_round_snapshot_at=now(),
                 first_round_hours=8,
+                first_round_snapshot_path="snapshots/first_round_8h",
+                first_round_snapshot_return_code=snapshot_rc,
                 child_continues_after_snapshot=True,
             )
             snapshot_written = True
