@@ -88,6 +88,7 @@ def prepare(
                     "evaluation_frame_indices": item["evaluation_frame_indices"],
                     "evaluation_frame_names": item["evaluation_frame_names"],
                     "evaluation_mask_paths": item["evaluation_mask_paths"],
+                    "evaluation_mask_present": item["evaluation_mask_present"],
                     "manifest_vlm_frame_indices_n16": item["vlm_frame_indices"]["16"],
                     "gt_available_to_model": False,
                 }
@@ -106,8 +107,15 @@ def evaluate_entry(entry: dict, output_root: Path) -> dict:
     j_values = []
     f_values = []
     missing = []
-    for frame_name, gt_path_value in zip(
-        entry["evaluation_frame_names"], entry["evaluation_mask_paths"]
+    present_flags = entry.get("evaluation_mask_present")
+    if present_flags is None or len(present_flags) != len(
+        entry["evaluation_mask_paths"]
+    ):
+        raise ValueError(f"missing or invalid GT-presence audit for {entry['key']}")
+    for frame_name, gt_path_value, expected_present in zip(
+        entry["evaluation_frame_names"],
+        entry["evaluation_mask_paths"],
+        present_flags,
     ):
         prediction_path = prediction_dir / f"{frame_name}.png"
         if not prediction_path.is_file():
@@ -115,8 +123,17 @@ def evaluate_entry(entry: dict, output_root: Path) -> dict:
             continue
         with Image.open(prediction_path) as image:
             prediction = np.asarray(image.convert("L")) > 0
-        with Image.open(gt_path_value) as image:
-            ground_truth = np.asarray(image.convert("L")) > 0
+        gt_path = Path(gt_path_value)
+        if gt_path.is_file() != bool(expected_present):
+            raise FileNotFoundError(
+                f"GT availability differs from manifest for {entry['key']}: "
+                f"expected_present={bool(expected_present)}, path={gt_path}"
+            )
+        if expected_present:
+            with Image.open(gt_path) as image:
+                ground_truth = np.asarray(image.convert("L")) > 0
+        else:
+            ground_truth = np.zeros(prediction.shape, dtype=bool)
         if prediction.shape != ground_truth.shape:
             raise ValueError(
                 f"mask shape mismatch for {entry['key']}: "

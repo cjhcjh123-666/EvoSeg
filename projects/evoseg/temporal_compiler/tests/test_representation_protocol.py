@@ -9,11 +9,13 @@ from projects.evoseg.temporal_compiler.merge_representation_shards import (
     select_merge_inputs,
 )
 from projects.evoseg.temporal_compiler.instructseg_long_rvos_adapter import (
+    evaluate_entry as evaluate_instructseg_entry,
     expression_key as instructseg_expression_key,
     prepare as prepare_instructseg,
     select_objects as select_instructseg_objects,
 )
 from projects.evoseg.temporal_compiler.virst_long_rvos_adapter import (
+    evaluate_entry as evaluate_virst_entry,
     prepare as prepare_virst,
     select_objects as select_virst_objects,
 )
@@ -313,6 +315,7 @@ def test_instructseg_adapter_preserves_official_expression_and_all_frames(tmp_pa
         "frame_names": ["000", "001"],
         "evaluation_frame_indices": [1], "evaluation_frame_names": ["001"],
         "evaluation_mask_paths": ["/gt/001.png"],
+        "evaluation_mask_present": [True],
         "expressions": [{"expression_id": "9", "type": "dynamic", "text": "the dog turns"}],
     }
     payload, mapping = prepare_instructseg(
@@ -375,6 +378,7 @@ def test_virst_adapter_uses_gt_free_test_schema_and_symlink(tmp_path):
         "frame_names": ["000", "001"],
         "evaluation_frame_indices": [1], "evaluation_frame_names": ["001"],
         "evaluation_mask_paths": ["/gt/001.png"],
+        "evaluation_mask_present": [True],
         "vlm_frame_indices": {"16": [0, 1]},
         "expressions": [{"expression_id": "9", "type": "dynamic", "text": "the dog turns"}],
     }
@@ -391,3 +395,32 @@ def test_virst_adapter_uses_gt_free_test_schema_and_symlink(tmp_path):
     assert expression == {"exp": "the dog turns"}
     assert (dataset_root / "mevis/valid/JPEGImages/v").is_symlink()
     assert mapping[0]["gt_available_to_model"] is False
+
+
+def test_cross_model_adapters_honor_manifest_declared_empty_gt(tmp_path):
+    from PIL import Image
+
+    entry = {
+        "key": "long_rvos/v/2/9/native",
+        "dataset": "long_rvos",
+        "video_id": "v",
+        "object_id": "2",
+        "expression_id": "9",
+        "description_type": "dynamic",
+        "expression": "the dog turns",
+        "output_video": "v__2__9",
+        "output_expression": "0",
+        "model_input_frame_indices": [0],
+        "evaluation_frame_indices": [0],
+        "evaluation_frame_names": ["000"],
+        "evaluation_mask_paths": [str(tmp_path / "intentionally_absent.png")],
+        "evaluation_mask_present": [False],
+        "native_reference_frame_num": 4,
+        "manifest_vlm_frame_indices_n16": [0],
+    }
+    prediction_root = tmp_path / "predictions"
+    prediction_dir = prediction_root / "v__2__9" / "0"
+    prediction_dir.mkdir(parents=True)
+    Image.new("L", (7, 5), 0).save(prediction_dir / "000.png")
+    assert evaluate_instructseg_entry(entry, prediction_root)["status"] == "success"
+    assert evaluate_virst_entry(entry, prediction_root)["status"] == "success"
