@@ -11,6 +11,7 @@ from projects.evoseg.temporal_compiler.merge_representation_shards import (
 from projects.evoseg.temporal_compiler.instructseg_long_rvos_adapter import (
     evaluate_entry as evaluate_instructseg_entry,
     expression_key as instructseg_expression_key,
+    native_visual_indices_by_target,
     prepare as prepare_instructseg,
     select_objects as select_instructseg_objects,
 )
@@ -363,6 +364,18 @@ def test_instructseg_adapter_preserves_official_expression_and_all_frames(tmp_pa
     assert payload["videos"][0]["file_names"] == ["v/000.jpg", "v/001.jpg"]
     assert mapping[0]["gt_available_to_model"] is False
     assert instructseg_expression_key(item, item["expressions"][0]) == "long_rvos/v/2/9/native"
+
+
+def test_instructseg_records_exact_deterministic_native_reference_frames():
+    assert native_visual_indices_by_target(7) == [
+        [0, 1, 2, 3, 4],
+        [1, 0, 2, 3, 4],
+        [2, 0, 1, 3, 4],
+        [3, 1, 2, 4, 5],
+        [4, 2, 3, 5, 6],
+        [5, 2, 3, 4, 6],
+        [6, 2, 3, 4, 5],
+    ]
 
 
 def test_cross_model_shards_partition_pilot_objects_without_overlap():

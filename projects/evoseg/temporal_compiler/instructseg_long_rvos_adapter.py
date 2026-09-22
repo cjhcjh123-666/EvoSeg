@@ -38,6 +38,60 @@ def select_objects(
     return [item for index, item in enumerate(selected) if index % num_shards == shard_index]
 
 
+def native_reference_indices(
+    current_index: int, video_length: int, reference_frame_num: int = 4
+) -> list[int]:
+    """Mirror official eval_rvos.py::get_reference_idx_inorder exactly."""
+    if not 0 <= current_index < video_length:
+        raise ValueError(
+            f"current frame {current_index} is outside video length {video_length}"
+        )
+    if reference_frame_num == 0:
+        return []
+    if video_length <= reference_frame_num:
+        raise ValueError(
+            "official InstructSeg current-plus-reference inference requires "
+            f"video_length > reference_frame_num ({video_length} <= "
+            f"{reference_frame_num})"
+        )
+    half = reference_frame_num // 2
+    if current_index < half:
+        references = list(range(current_index)) + list(
+            range(current_index + 1, reference_frame_num + 1)
+        )
+    elif current_index >= video_length - half:
+        references = list(
+            range(video_length - reference_frame_num - 1, current_index)
+        ) + list(range(current_index + 1, video_length))
+    else:
+        references = list(range(current_index - half, current_index)) + list(
+            range(current_index + 1, current_index + half + 1)
+        )
+    if (
+        len(references) != reference_frame_num
+        or current_index in references
+        or len(set(references)) != len(references)
+        or min(references) < 0
+        or max(references) >= video_length
+    ):
+        raise AssertionError(
+            "derived InstructSeg reference frames do not match the official "
+            f"invariants: current={current_index}, length={video_length}, "
+            f"references={references}"
+        )
+    return references
+
+
+def native_visual_indices_by_target(
+    video_length: int, reference_frame_num: int = 4
+) -> list[list[int]]:
+    return [
+        [current_index]
+        + native_reference_indices(current_index, video_length, reference_frame_num)
+        for current_index in range(video_length)
+    ]
+
+
 def prepare(
     manifest: dict,
     max_objects: int | None,
@@ -52,6 +106,16 @@ def prepare(
     mapping = []
     numeric_id = 0
     for item in objects:
+        video_length = len(item["frame_names"])
+        try:
+            visual_indices_by_target = native_visual_indices_by_target(video_length)
+            native_frame_audit_status = "success"
+        except ValueError:
+            # Keep preparation usable for schema/unit fixtures shorter than the
+            # official four-reference protocol. Real runs record and require
+            # the successful branch below.
+            visual_indices_by_target = None
+            native_frame_audit_status = "unsupported_video_not_longer_than_references"
         first_image = image_root / item["video_id"] / f"{item['frame_names'][0]}.jpg"
         with Image.open(first_image) as image:
             width, height = image.size
@@ -70,7 +134,7 @@ def prepare(
                     ],
                     "height": height,
                     "width": width,
-                    "length": len(item["frame_names"]),
+                    "length": video_length,
                     "expressions": [expression["text"]],
                 }
             )
@@ -85,8 +149,15 @@ def prepare(
                     "expression": expression["text"],
                     "output_video": output_video,
                     "output_expression": output_expression,
-                    "model_input_frame_indices": list(range(len(item["frame_names"]))),
+                    "model_input_frame_indices": list(range(video_length)),
                     "model_input_frame_names": item["frame_names"],
+                    "native_visual_frame_indices_by_target": visual_indices_by_target,
+                    "native_frame_audit_status": native_frame_audit_status,
+                    "native_visual_frames_per_target": 5,
+                    "native_reference_sampling": (
+                        "official deterministic get_reference_idx_inorder: current "
+                        "+ four temporally ordered neighboring frames"
+                    ),
                     "evaluation_frame_indices": item["evaluation_frame_indices"],
                     "evaluation_frame_names": item["evaluation_frame_names"],
                     "evaluation_mask_paths": item["evaluation_mask_paths"],
@@ -138,6 +209,21 @@ def evaluate_entry(entry: dict, annotation_root: Path) -> dict:
             )
         j_values.append(float(db_eval_iou(ground_truth, prediction)))
         f_values.append(float(db_eval_boundary(ground_truth, prediction)))
+    visual_indices_by_target = entry.get("native_visual_frame_indices_by_target")
+    if visual_indices_by_target is None:
+        try:
+            visual_indices_by_target = native_visual_indices_by_target(
+                len(entry["model_input_frame_indices"]),
+                entry["native_reference_frame_num"],
+            )
+            native_frame_audit_status = "success"
+        except ValueError:
+            visual_indices_by_target = None
+            native_frame_audit_status = (
+                "unsupported_video_not_longer_than_references"
+            )
+    else:
+        native_frame_audit_status = entry.get("native_frame_audit_status", "success")
     base = {
         **{key: entry[key] for key in (
             "key", "dataset", "video_id", "object_id", "expression_id",
@@ -145,6 +231,14 @@ def evaluate_entry(entry: dict, annotation_root: Path) -> dict:
         )},
         "frame_budget": "native_current_plus_4_references",
         "model_input_frame_indices": entry["model_input_frame_indices"],
+        "native_visual_frame_indices_by_target": visual_indices_by_target,
+        "native_frame_audit_status": native_frame_audit_status,
+        "native_visual_frames_per_target": 1 + entry["native_reference_frame_num"],
+        "native_reference_sampling": entry.get(
+            "native_reference_sampling",
+            "official deterministic get_reference_idx_inorder: current + four "
+            "temporally ordered neighboring frames",
+        ),
         "evaluation_frame_indices": entry["evaluation_frame_indices"],
         "native_reference_frame_num": entry["native_reference_frame_num"],
         "gt_available_to_model": False,
