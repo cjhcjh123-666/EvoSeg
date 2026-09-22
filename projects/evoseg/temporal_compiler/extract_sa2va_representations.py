@@ -8,7 +8,6 @@ truth masks are loaded, and the SAM2 grounding encoder is never called.
 from __future__ import annotations
 
 import argparse
-import fcntl
 import hashlib
 import inspect
 import json
@@ -41,14 +40,10 @@ def atomic_json(path: Path, value) -> None:
 
 def append_jsonl(path: Path, value) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = path.with_suffix(path.suffix + ".lock")
-    with lock_path.open("a") as lock_handle:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-        with path.open("a") as handle:
-            handle.write(json.dumps(value, ensure_ascii=False) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+    with path.open("a") as handle:
+        handle.write(json.dumps(value, ensure_ascii=False) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def sha256(path: Path) -> str:
@@ -283,12 +278,22 @@ def run(args) -> int:
     model_path = Path(args.model).resolve()
     manifest = json.loads(manifest_path.read_text())
     previous = load_jsonl_by_key(previous_path)
-    records_path = run_dir / "representation_records.jsonl"
-    done = completed_keys(records_path)
     if not 0 <= args.shard_rank < args.num_shards:
         raise ValueError(
             f"shard_rank must be in [0, {args.num_shards}), got {args.shard_rank}"
         )
+    base_records_path = run_dir / "representation_records.jsonl"
+    records_path = (
+        base_records_path
+        if args.num_shards == 1
+        else run_dir
+        / f"representation_records.worker-{args.shard_rank:02d}-of-{args.num_shards:02d}.jsonl"
+    )
+    # A sharded continuation inherits the successes produced by the preceding
+    # single-worker run, then records only its own deterministic partition.
+    done = completed_keys(base_records_path)
+    if records_path != base_records_path:
+        done.update(completed_keys(records_path))
     status_path = (
         run_dir / "STATUS.json"
         if args.num_shards == 1
