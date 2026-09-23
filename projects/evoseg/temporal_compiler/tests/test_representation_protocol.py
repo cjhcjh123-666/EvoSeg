@@ -31,6 +31,7 @@ from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     candidate_key,
     decode_rle,
     encode_rle,
+    expected_candidate_keys_for_source,
     load_ground_truth,
     select_pilot_objects,
     summarize_generation_attempts,
@@ -105,10 +106,40 @@ def test_candidate_attempt_summary_counts_retries_without_negative_missing():
     summary = summarize_generation_attempts(records, expected_successful_records=2)
     assert summary["generation_attempt_records"] == 3
     assert summary["successful_generation_records"] == 2
+    assert summary["unique_successful_generation_keys"] == 2
     assert summary["failed_generation_attempt_records"] == 1
     assert summary["unique_attempted_keys"] == 2
     assert summary["retry_attempt_records"] == 1
     assert summary["missing_successful_generation_records"] == 0
+
+
+def test_candidate_expected_keys_are_exact_and_shard_disjoint():
+    manifest = {
+        "objects": [
+            {
+                "dataset": "d",
+                "video_id": f"v{index}",
+                "object_id": "1",
+                "expressions": [{"expression_id": "a"}, {"expression_id": "b"}],
+            }
+            for index in range(5)
+        ]
+    }
+    sets = []
+    for shard_index in range(2):
+        run_config = {
+            "protocol": {
+                "max_objects": 5,
+                "shard_index": shard_index,
+                "num_shards": 2,
+                "prompt_methods": ["raw_expression", "concept", "qwen_concept"],
+            }
+        }
+        sets.append(expected_candidate_keys_for_source(manifest, run_config))
+    assert len(sets[0]) == 18
+    assert len(sets[1]) == 12
+    assert sets[0].isdisjoint(sets[1])
+    assert len(sets[0] | sets[1]) == 30
 
 
 def test_full_cross_model_gate_requires_identical_complete_pilot_objects():

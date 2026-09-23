@@ -429,6 +429,7 @@ def run_generation(args) -> int:
             "use_fa3": args.use_fa3,
             "compile": args.compile,
             "selected_objects": len(objects),
+            "max_objects": args.max_objects,
             "selection": "first objects in prediction-independent seed-42 manifest order, then object-level modulo shard",
             "shard_index": args.shard_index,
             "num_shards": args.num_shards,
@@ -800,8 +801,9 @@ def summarize_generation_attempts(
     failed = [record for record in records if record.get("status") != "success"]
     attempted_keys = [record["key"] for record in records]
     unique_attempted_keys = set(attempted_keys)
+    unique_successful_keys = {record["key"] for record in successful}
     missing_successful = (
-        max(expected_successful_records - len(successful), 0)
+        max(expected_successful_records - len(unique_successful_keys), 0)
         if expected_successful_records is not None
         else None
     )
@@ -811,6 +813,7 @@ def summarize_generation_attempts(
         "generation_records": len(records),
         "generation_attempt_records": len(records),
         "successful_generation_records": len(successful),
+        "unique_successful_generation_keys": len(unique_successful_keys),
         "failed_generation_records": len(failed),
         "failed_generation_attempt_records": len(failed),
         "unique_attempted_keys": len(unique_attempted_keys),
@@ -818,6 +821,29 @@ def summarize_generation_attempts(
         "expected_generation_records": expected_successful_records,
         "missing_generation_records": missing_successful,
         "missing_successful_generation_records": missing_successful,
+    }
+
+
+def expected_candidate_keys_for_source(manifest: dict, run_config: dict) -> set[str]:
+    """Reconstruct a generation shard's exact prediction-independent key set."""
+
+    protocol = run_config["protocol"]
+    if "max_objects" not in protocol:
+        raise KeyError("candidate run_config protocol lacks max_objects")
+    objects = select_pilot_objects(
+        manifest["objects"],
+        protocol["max_objects"],
+        shard_index=int(protocol["shard_index"]),
+        num_shards=int(protocol["num_shards"]),
+    )
+    prompt_methods = list(protocol["prompt_methods"])
+    if not prompt_methods or len(prompt_methods) != len(set(prompt_methods)):
+        raise RuntimeError("candidate run_config has empty or duplicate prompt methods")
+    return {
+        candidate_key(item, expression, prompt_method)
+        for item in objects
+        for expression in item["expressions"]
+        for prompt_method in prompt_methods
     }
 
 
@@ -835,20 +861,49 @@ def run_evaluation(args) -> int:
     }
     all_records = []
     source_status = []
+    expected_keys_by_source = []
     for source_run_dir in source_run_dirs:
         status_path = source_run_dir / "STATUS.json"
+        run_config_path = source_run_dir / "run_config.json"
+        run_config = (
+            json.loads(run_config_path.read_text())
+            if run_config_path.is_file()
+            else None
+        )
+        expected_keys = (
+            expected_candidate_keys_for_source(manifest, run_config)
+            if run_config is not None
+            and "max_objects" in run_config.get("protocol", {})
+            else None
+        )
+        expected_keys_by_source.append(expected_keys)
         source_status.append(
             {
                 "run_dir": str(source_run_dir),
+                "run_config": str(run_config_path) if run_config_path.is_file() else None,
+                "exact_expected_key_count": (
+                    len(expected_keys) if expected_keys is not None else None
+                ),
                 "status": json.loads(status_path.read_text())
                 if status_path.is_file()
                 else None,
             }
         )
+        source_records = []
         for record in load_records(source_run_dir / "candidate_records.jsonl"):
             record = dict(record)
             record["_source_run_dir"] = str(source_run_dir)
+            source_records.append(record)
             all_records.append(record)
+        if expected_keys is not None:
+            extra_attempted = sorted(
+                {record["key"] for record in source_records} - expected_keys
+            )
+            if extra_attempted:
+                raise RuntimeError(
+                    f"candidate shard contains unexpected keys: {source_run_dir}: "
+                    + ", ".join(extra_attempted[:10])
+                )
     records = [record for record in all_records if record.get("status") == "success"]
     keys = [record["key"] for record in records]
     if len(keys) != len(set(keys)):
@@ -959,15 +1014,62 @@ def run_evaluation(args) -> int:
     expected_generation_records = (
         sum(planned_values) if len(planned_values) == len(source_run_dirs) else None
     )
+    exact_expected_keys = None
+    if all(value is not None for value in expected_keys_by_source):
+        expected_key_total = sum(len(value) for value in expected_keys_by_source)
+        exact_expected_keys = set().union(*expected_keys_by_source)
+        if len(exact_expected_keys) != expected_key_total:
+            raise RuntimeError("candidate source shards have overlapping expected key sets")
+        if (
+            expected_generation_records is not None
+            and expected_generation_records != len(exact_expected_keys)
+        ):
+            raise RuntimeError(
+                "candidate STATUS planned totals differ from exact expected keys: "
+                f"{expected_generation_records} != {len(exact_expected_keys)}"
+            )
+        expected_generation_records = len(exact_expected_keys)
     attempt_summary = summarize_generation_attempts(
         all_records, expected_generation_records
     )
+    attempted_keys = {record["key"] for record in all_records}
+    successful_keys = {
+        record["key"]
+        for record in all_records
+        if record.get("status") == "success"
+    }
+    failed_attempt_keys = {
+        record["key"]
+        for record in all_records
+        if record.get("status") != "success"
+    }
+    exact_key_audit = None
+    if exact_expected_keys is not None:
+        exact_key_audit = {
+            "status": "pass",
+            "expected_keys": len(exact_expected_keys),
+            "attempted_keys": len(attempted_keys),
+            "successful_keys": len(successful_keys),
+            "never_attempted_keys": sorted(exact_expected_keys - attempted_keys),
+            "missing_successful_keys": sorted(exact_expected_keys - successful_keys),
+            "failed_without_successful_retry_keys": sorted(
+                failed_attempt_keys - successful_keys
+            ),
+            "failed_then_successful_retry_keys": sorted(
+                failed_attempt_keys & successful_keys
+            ),
+            "unexpected_attempted_keys": sorted(attempted_keys - exact_expected_keys),
+            "source_expected_key_counts": [
+                len(value) for value in expected_keys_by_source
+            ],
+        }
     atomic_json(
         output_dir / "evaluation_status.json",
         {
             "created_at": utc_now(),
             "source_runs": source_status,
             **attempt_summary,
+            "exact_expected_key_audit": exact_key_audit,
             "all_source_runs_complete": len(source_states) == len(source_run_dirs)
             and all(
                 state in {"complete", "complete_with_failures"}
