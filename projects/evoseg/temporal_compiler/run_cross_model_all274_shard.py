@@ -63,6 +63,24 @@ def directory_count(path: Path) -> int:
     return sum(1 for child in path.glob("*/*") if child.is_dir())
 
 
+def instructseg_live_progress(annotation_root: Path) -> dict:
+    """Return a conservative live counter without calling active outputs complete.
+
+    InstructSeg creates ``Annotations/<expression>/0`` before writing every frame.
+    Consequently, counting these directories is useful for liveness but overcounts
+    completed expressions by the expression currently being written.  Final
+    completion is established from ``predictions.jsonl`` after the official runner
+    exits and the adapter verifies every manifest evaluation frame.
+    """
+
+    return {
+        "started_expression_directories": directory_count(annotation_root),
+        "started_directory_semantics": (
+            "created output directories; may include one active partial expression"
+        ),
+    }
+
+
 def run(args) -> int:
     pilot_overlap_path = Path(args.pilot_overlap).resolve()
     overlap = json.loads(pilot_overlap_path.read_text())
@@ -120,9 +138,7 @@ def run(args) -> int:
             "instructseg": {
                 "pid": instruct_process.pid,
                 "returncode": instruct_process.poll(),
-                "completed_expression_directories": directory_count(
-                    instruct_run_dir / "output/Annotations"
-                ),
+                **instructseg_live_progress(instruct_run_dir / "output/Annotations"),
                 "prediction_records": line_count(
                     instruct_run_dir / "predictions.jsonl"
                 ),

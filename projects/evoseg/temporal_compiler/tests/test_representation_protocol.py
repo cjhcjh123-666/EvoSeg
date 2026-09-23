@@ -36,6 +36,7 @@ from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     summarize_generation_attempts,
 )
 from projects.evoseg.temporal_compiler.run_cross_model_all274_shard import (
+    instructseg_live_progress,
     validate_pilot_overlap,
 )
 from projects.evoseg.temporal_compiler.extract_qwen_concepts import (
@@ -127,6 +128,16 @@ def test_full_cross_model_gate_requires_identical_complete_pilot_objects():
         assert "VIRST" in str(error)
     else:
         raise AssertionError("incomplete pilot was allowed to launch all274")
+
+
+def test_instructseg_live_progress_does_not_call_started_directory_complete(tmp_path):
+    annotations = tmp_path / "Annotations"
+    (annotations / "expression-a" / "0").mkdir(parents=True)
+    (annotations / "expression-b" / "0").mkdir(parents=True)
+    progress = instructseg_live_progress(annotations)
+    assert progress["started_expression_directories"] == 2
+    assert "completed_expression_directories" not in progress
+    assert "active partial" in progress["started_directory_semantics"]
 
 
 def test_candidate_rle_round_trip():
