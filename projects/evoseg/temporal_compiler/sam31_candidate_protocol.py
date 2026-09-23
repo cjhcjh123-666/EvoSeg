@@ -1134,13 +1134,17 @@ def run_evaluation(args) -> int:
     exact_key_audit = None
     completeness = None
     if exact_expected_keys is not None:
+        missing_successful_keys = exact_expected_keys - successful_keys
         exact_key_audit = {
-            "status": "pass",
+            "integrity_status": "pass",
+            "coverage_status": (
+                "complete" if not missing_successful_keys else "incomplete"
+            ),
             "expected_keys": len(exact_expected_keys),
             "attempted_keys": len(attempted_keys),
             "successful_keys": len(successful_keys),
             "never_attempted_keys": sorted(exact_expected_keys - attempted_keys),
-            "missing_successful_keys": sorted(exact_expected_keys - successful_keys),
+            "missing_successful_keys": sorted(missing_successful_keys),
             "failed_without_successful_retry_keys": sorted(
                 failed_attempt_keys - successful_keys
             ),
