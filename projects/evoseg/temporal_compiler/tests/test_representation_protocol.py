@@ -28,6 +28,8 @@ from projects.evoseg.temporal_compiler.virst_instrumented_eval import (
 )
 from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     audit_loaded_checkpoint,
+    aggregate_complete_object_candidate_rows,
+    build_candidate_completeness,
     candidate_key,
     decode_rle,
     encode_rle,
@@ -140,6 +142,73 @@ def test_candidate_expected_keys_are_exact_and_shard_disjoint():
     assert len(sets[1]) == 12
     assert sets[0].isdisjoint(sets[1])
     assert len(sets[0] | sets[1]) == 30
+
+
+def test_candidate_complete_object_summary_excludes_partial_expression_cells():
+    manifest = {
+        "objects": [
+            {
+                "dataset": "d",
+                "video_id": "v",
+                "object_id": "1",
+                "expressions": [
+                    {"expression_id": "a", "type": "dynamic"},
+                    {"expression_id": "b", "type": "dynamic"},
+                ],
+            },
+            {
+                "dataset": "d",
+                "video_id": "w",
+                "object_id": "2",
+                "expressions": [{"expression_id": "c", "type": "dynamic"}],
+            },
+        ]
+    }
+    expected = {"d/v/1/a/concept", "d/v/1/b/concept", "d/w/2/c/concept"}
+    successful = {"d/v/1/a/concept", "d/w/2/c/concept"}
+    completeness = build_candidate_completeness(manifest, expected, successful)
+    by_object = {row["object_id"]: row for row in completeness}
+    assert by_object["1"]["partial"] == 1
+    assert by_object["1"]["complete"] == 0
+    assert by_object["2"]["complete"] == 1
+    metric_rows = [
+        {
+            "key": "d/v/1/a/concept",
+            "prompt_method": "concept",
+            "description_type": "dynamic",
+            "dataset": "d",
+            "video_id": "v",
+            "object_id": "1",
+            "oracle_J": 1.0,
+            "oracle_F": 1.0,
+            "oracle_J_and_F": 1.0,
+            "recall_at_0_3": 1,
+            "recall_at_0_5": 1,
+            "recall_at_0_7": 1,
+            "candidate_count": 1,
+        },
+        {
+            "key": "d/w/2/c/concept",
+            "prompt_method": "concept",
+            "description_type": "dynamic",
+            "dataset": "d",
+            "video_id": "w",
+            "object_id": "2",
+            "oracle_J": 0.4,
+            "oracle_F": 0.6,
+            "oracle_J_and_F": 0.5,
+            "recall_at_0_3": 1,
+            "recall_at_0_5": 1,
+            "recall_at_0_7": 0,
+            "candidate_count": 2,
+        },
+    ]
+    summaries = aggregate_complete_object_candidate_rows(metric_rows, completeness)
+    dynamic = next(
+        row for row in summaries if row["description_type"] == "dynamic"
+    )
+    assert dynamic["objects"] == 1
+    assert dynamic["mean_oracle_J_and_F"] == 0.5
 
 
 def test_full_cross_model_gate_requires_identical_complete_pilot_objects():

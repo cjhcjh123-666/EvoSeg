@@ -710,9 +710,15 @@ def write_csv(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
-def aggregate_candidate_rows(rows: list[dict]) -> list[dict]:
+def aggregate_candidate_rows(
+    rows: list[dict], prompt_methods_override: list[str] | None = None
+) -> list[dict]:
     summary = []
-    prompt_methods = sorted({row["prompt_method"] for row in rows})
+    prompt_methods = (
+        sorted(prompt_methods_override)
+        if prompt_methods_override is not None
+        else sorted({row["prompt_method"] for row in rows})
+    )
     score_fields = (
         "oracle_J",
         "oracle_F",
@@ -792,6 +798,88 @@ def aggregate_candidate_rows(rows: list[dict]) -> list[dict]:
                     }
                 )
     return summary
+
+
+def build_candidate_completeness(
+    manifest: dict, expected_keys: set[str], successful_keys: set[str]
+) -> list[dict]:
+    """Audit expression completeness for every prompt/type/object cell."""
+
+    prompt_methods = sorted({key.rsplit("/", 1)[-1] for key in expected_keys})
+    expected_by_cell = defaultdict(list)
+    for item in manifest["objects"]:
+        object_key = (item["dataset"], item["video_id"], str(item["object_id"]))
+        for expression in item["expressions"]:
+            for prompt_method in prompt_methods:
+                key = candidate_key(item, expression, prompt_method)
+                if key in expected_keys:
+                    expected_by_cell[
+                        (prompt_method, expression["type"], *object_key)
+                    ].append((str(expression["expression_id"]), key))
+    rows = []
+    for (prompt_method, description_type, dataset, video_id, object_id), values in sorted(
+        expected_by_cell.items()
+    ):
+        succeeded = [value for value in values if value[1] in successful_keys]
+        missing = [value for value in values if value[1] not in successful_keys]
+        rows.append(
+            {
+                "prompt_method": prompt_method,
+                "description_type": description_type,
+                "dataset": dataset,
+                "video_id": video_id,
+                "object_id": object_id,
+                "expected_expressions": len(values),
+                "successful_expressions": len(succeeded),
+                "missing_expressions": len(missing),
+                "complete": int(not missing),
+                "partial": int(bool(succeeded) and bool(missing)),
+                "zero_success": int(not succeeded),
+                "missing_expression_ids": ";".join(value[0] for value in missing),
+                "missing_keys": ";".join(value[1] for value in missing),
+            }
+        )
+    return rows
+
+
+def aggregate_complete_object_candidate_rows(
+    rows: list[dict], completeness: list[dict]
+) -> list[dict]:
+    """Compute coverage only where all official expressions in a cell succeeded."""
+
+    complete_cells = {
+        (
+            row["prompt_method"],
+            row["description_type"],
+            row["dataset"],
+            row["video_id"],
+            str(row["object_id"]),
+        )
+        for row in completeness
+        if row["complete"]
+    }
+    selected = [
+        row
+        for row in rows
+        if (
+            row["prompt_method"],
+            row["description_type"],
+            row["dataset"],
+            row["video_id"],
+            str(row["object_id"]),
+        )
+        in complete_cells
+    ]
+    prompt_methods = sorted({row["prompt_method"] for row in completeness})
+    summaries = aggregate_candidate_rows(selected, prompt_methods)
+    output = []
+    for summary in summaries:
+        if summary["aggregation"] != "object_weighted":
+            continue
+        value = dict(summary)
+        value["aggregation"] = "complete_object_weighted"
+        output.append(value)
+    return output
 
 
 def summarize_generation_attempts(
@@ -1044,6 +1132,7 @@ def run_evaluation(args) -> int:
         if record.get("status") != "success"
     }
     exact_key_audit = None
+    completeness = None
     if exact_expected_keys is not None:
         exact_key_audit = {
             "status": "pass",
@@ -1063,6 +1152,14 @@ def run_evaluation(args) -> int:
                 len(value) for value in expected_keys_by_source
             ],
         }
+        completeness = build_candidate_completeness(
+            manifest, exact_expected_keys, successful_keys
+        )
+        write_csv(output_dir / "sam31_candidate_completeness.csv", completeness)
+        write_csv(
+            output_dir / "sam31_candidate_summary_complete_objects.csv",
+            aggregate_complete_object_candidate_rows(rows, completeness),
+        )
     atomic_json(
         output_dir / "evaluation_status.json",
         {
