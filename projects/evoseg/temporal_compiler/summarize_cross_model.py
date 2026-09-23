@@ -52,6 +52,93 @@ def expression_identity(record: dict) -> tuple[str, str, str, str]:
     )
 
 
+def audit_virst_runtime_protocol(records: list[dict]) -> dict:
+    """Fail closed if VIRST's realized frame protocol differs within a video.
+
+    The all-object run is sharded by expression, so expressions from one source
+    video can execute in different processes and on different GPUs.  The runtime
+    audit therefore has to merge all prediction shards before comparing realized
+    VLM/SAM indices and the deterministic per-video sampling seed.
+    """
+
+    required = {
+        "video_id",
+        "vlm_frame_indices",
+        "segmentation_frame_indices",
+        "actual_vlm_frame_count",
+        "actual_sam_frame_count",
+        "sampling_seed",
+        "gt_available_to_model",
+    }
+    missing = [
+        record.get("key", "<missing-key>")
+        for record in records
+        if not required.issubset(record)
+    ]
+    if missing:
+        raise RuntimeError(
+            "VIRST records lack required runtime protocol fields: "
+            + ", ".join(missing[:10])
+        )
+
+    signatures_by_video = defaultdict(set)
+    violations = []
+    for record in records:
+        vlm_indices = [int(value) for value in record["vlm_frame_indices"]]
+        sam_indices = [
+            int(value) for value in record["segmentation_frame_indices"]
+        ]
+        if record["gt_available_to_model"] is not False:
+            violations.append(f"{record['key']}: GT available to model")
+        if len(vlm_indices) != int(record["actual_vlm_frame_count"]):
+            violations.append(f"{record['key']}: VLM frame count mismatch")
+        if len(sam_indices) != int(record["actual_sam_frame_count"]):
+            violations.append(f"{record['key']}: SAM frame count mismatch")
+        if vlm_indices != sorted(vlm_indices):
+            violations.append(f"{record['key']}: VLM frames not time ordered")
+        if sam_indices != sorted(sam_indices):
+            violations.append(f"{record['key']}: SAM frames not time ordered")
+        if not set(sam_indices).issubset(vlm_indices):
+            violations.append(f"{record['key']}: SAM frames not a VLM subset")
+        signatures_by_video[record["video_id"]].add(
+            (
+                tuple(vlm_indices),
+                tuple(sam_indices),
+                int(record["sampling_seed"]),
+            )
+        )
+    mismatched_videos = sorted(
+        video_id
+        for video_id, signatures in signatures_by_video.items()
+        if len(signatures) != 1
+    )
+    if violations or mismatched_videos:
+        details = violations[:10]
+        if mismatched_videos:
+            details.append(
+                "same-video signatures differ: " + ", ".join(mismatched_videos[:10])
+            )
+        raise RuntimeError("VIRST runtime protocol audit failed: " + "; ".join(details))
+    return {
+        "status": "pass",
+        "audited_successful_records": len(records),
+        "audited_source_videos": len(signatures_by_video),
+        "same_video_sampling_signature_mismatches": 0,
+        "gt_available_to_model_records": 0,
+        "actual_vlm_frame_counts": sorted(
+            {int(record["actual_vlm_frame_count"]) for record in records}
+        ),
+        "actual_sam_frame_counts": sorted(
+            {int(record["actual_sam_frame_count"]) for record in records}
+        ),
+        "sampling_signature_fields": [
+            "vlm_frame_indices",
+            "segmentation_frame_indices",
+            "sampling_seed",
+        ],
+    }
+
+
 def manifest_identities(manifest: dict) -> set[tuple[str, str, str, str]]:
     return {
         (
@@ -355,6 +442,8 @@ def summarize_model(
         "complete_paired_objects": len(pair_rows),
         "incomplete_paired_objects": incomplete_objects,
     }
+    if spec.get("runtime_protocol_audit") == "virst_locked_frames":
+        audit["runtime_protocol"] = audit_virst_runtime_protocol(successful)
     return summary, pair_rows, audit
 
 

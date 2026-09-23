@@ -44,6 +44,7 @@ from projects.evoseg.temporal_compiler.extract_qwen_concepts import (
     expression_key as qwen_expression_key,
 )
 from projects.evoseg.temporal_compiler.summarize_cross_model import (
+    audit_virst_runtime_protocol,
     build_pair_overlap_audit,
     cluster_bootstrap,
     manifest_expressions_by_object,
@@ -138,6 +139,36 @@ def test_instructseg_live_progress_does_not_call_started_directory_complete(tmp_
     assert progress["started_expression_directories"] == 2
     assert "completed_expression_directories" not in progress
     assert "active partial" in progress["started_directory_semantics"]
+
+
+def test_virst_runtime_protocol_audit_is_global_across_prediction_shards():
+    base = {
+        "actual_vlm_frame_count": 4,
+        "actual_sam_frame_count": 2,
+        "vlm_frame_indices": [0, 3, 6, 9],
+        "segmentation_frame_indices": [0, 6],
+        "sampling_seed": 123,
+        "gt_available_to_model": False,
+    }
+    records = [
+        {**base, "key": "d/v/1/a/native", "video_id": "v"},
+        {**base, "key": "d/v/2/b/native", "video_id": "v"},
+    ]
+    audit = audit_virst_runtime_protocol(records)
+    assert audit["audited_successful_records"] == 2
+    assert audit["audited_source_videos"] == 1
+    assert audit["same_video_sampling_signature_mismatches"] == 0
+
+    records[1] = {
+        **records[1],
+        "vlm_frame_indices": [0, 2, 6, 9],
+    }
+    try:
+        audit_virst_runtime_protocol(records)
+    except RuntimeError as error:
+        assert "same-video signatures differ" in str(error)
+    else:
+        raise AssertionError("cross-shard same-video sampling mismatch was accepted")
 
 
 def test_candidate_rle_round_trip():

@@ -41,7 +41,8 @@
       "checkpoint": "/9950backfile/chenjiahui/evo_artifacts/external/VIRST/checkpoints/virst_checkpoint.pt",
       "checkpoint_source": "official Google Drive checkpoint; official code commit 00aecefdcbb1b5f87f9913a58d2289ce0ab82f66",
       "training_data": "paper Table 7: Ref-DAVIS17, Ref-YouTube-VOS, MeViS, ReVOS plus its stated image segmentation and VideoLLaVA-Instruct mixture",
-      "explicit_temporal_module": true
+      "explicit_temporal_module": true,
+      "runtime_protocol_audit": "virst_locked_frames"
     }
   ]
 }
