@@ -419,6 +419,14 @@ def run(args) -> int:
     candidate_root = Path(args.candidate_root).resolve()
     manifest_path = Path(args.manifest).resolve()
     manifest = json.loads(manifest_path.read_text())
+    requested_conditions = args.condition or [value.name for value in CONDITIONS]
+    condition_index = {value.name: value for value in CONDITIONS}
+    unknown_conditions = sorted(set(requested_conditions) - set(condition_index))
+    if unknown_conditions:
+        raise ValueError(f"unknown conditions: {unknown_conditions}")
+    if len(requested_conditions) != len(set(requested_conditions)):
+        raise ValueError("duplicate --condition values")
+    selected_conditions = [condition_index[name] for name in requested_conditions]
     items = manifest["objects"][: args.max_objects] if args.max_objects else manifest["objects"]
     if args.num_shards < 1 or not 0 <= args.shard_index < args.num_shards:
         raise ValueError("invalid object shard")
@@ -479,7 +487,7 @@ def run(args) -> int:
             "checkpoint": str(checkpoint),
             "checkpoint_sha256": args.expected_checkpoint_sha256,
             "weight_audit": weight_audit,
-            "conditions": [value.__dict__ for value in CONDITIONS],
+            "conditions": [value.__dict__ for value in selected_conditions],
             "ground_truth_passed_to_inference": False,
             "candidate_selection_trainable_parameters": 0,
             "candidate_selection": "IoU(frozen Sa2VA anchor grounding, current SAM3.1 candidate mask)",
@@ -497,7 +505,7 @@ def run(args) -> int:
     records_path = run_dir / "dynamic_predictions.jsonl"
     stages_path = run_dir / "dynamic_stages.jsonl"
     done = completed(records_path)
-    planned = len(ordered_identities) * len(CONDITIONS)
+    planned = len(ordered_identities) * len(selected_conditions)
     attempted = failed = 0
     started = time.monotonic()
     tracking_cache = {}
@@ -512,7 +520,7 @@ def run(args) -> int:
             (candidate_root / candidate_record["candidate_path"]).read_text()
         )
         with np.load(state_root / state_record["state_path"]) as state_payload:
-            for condition in CONDITIONS:
+            for condition in selected_conditions:
                 key = (identity, condition.name)
                 if key in done:
                     continue
@@ -701,6 +709,12 @@ def parse_args():
     parser.add_argument("--device", type=int, required=True)
     parser.add_argument("--max-objects", type=int)
     parser.add_argument("--max-expressions", type=int)
+    parser.add_argument(
+        "--condition",
+        action="append",
+        choices=[value.name for value in CONDITIONS],
+        help="run only the named condition; repeat for a deterministic scheduling partition",
+    )
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--num-shards", type=int, default=1)
     parser.add_argument("--max-num-objects", type=int, default=16)
