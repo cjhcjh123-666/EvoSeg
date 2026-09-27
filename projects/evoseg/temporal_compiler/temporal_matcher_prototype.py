@@ -352,6 +352,7 @@ def extract_features(args) -> None:
     import torch
     from PIL import Image
 
+    torch.set_num_threads(args.cpu_threads)
     manifest_path = Path(args.manifest).resolve()
     candidate_root = Path(args.candidate_root).resolve()
     representation_root = Path(args.representation_root).resolve()
@@ -516,6 +517,7 @@ def extract_features(args) -> None:
         "ground_truth_read_during_feature_extraction": False,
         "prompt_method": "concept",
         "temporal_steps": args.temporal_steps,
+        "cpu_threads": args.cpu_threads,
         "shard_index": args.shard_index,
         "num_shards": args.num_shards,
         "selected_videos": sorted(selected_videos),
@@ -1030,6 +1032,7 @@ def build_parser() -> argparse.ArgumentParser:
     extract.add_argument("--device", default="cuda:0")
     extract.add_argument("--temporal-steps", type=int, default=8)
     extract.add_argument("--image-batch-size", type=int, default=8)
+    extract.add_argument("--cpu-threads", type=int, default=1)
     extract.add_argument("--shard-index", type=int, default=0)
     extract.add_argument("--num-shards", type=int, default=1)
     extract.set_defaults(function=extract_features)
