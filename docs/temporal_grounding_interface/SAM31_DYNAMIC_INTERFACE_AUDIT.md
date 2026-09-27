@@ -36,6 +36,13 @@
 4. 从被选 candidate mask 内部确定性取一个正点，通过公开 `add_prompt(points=..., point_labels=[1], obj_id=<固定ID>)` 更新维护中的 SAM 3.1 track。
 5. 所有 stage 保持同一 session 和同一 tracker `obj_id`，再调用公开 propagation。
 
+运行时生命周期还有两个必须显式处理的边界：首个有候选 stage
+出现之前不能调用 propagation（否则 Multiplex 会进入没有 tracker backbone
+state 的 full-VG 路径）；首个有效 point 建立 track 后，每次 correction 都按
+官方公开 API 连续执行当前阶段的 backward propagation 和到视频末端的
+forward propagation。后者为下一阶段提供 pre-update hypothesis。没有候选的
+阶段保持空 mask，不访问或伪造私有 tracker state。
+
 Static control 重复当前 anchor 图像到与 temporal branch 相同的图像/token槽位，不暴露其他帧；Temporal branch 使用从视频开始至当前 anchor 的均匀累计采样。两者使用相同 checkpoint、decoder、候选、update 次数和 SAM 3.1 API。
 
 ## 受控边界
@@ -43,4 +50,11 @@ Static control 重复当前 anchor 图像到与 temporal branch 相同的图像/
 - 不把中途 text/box 调用描述为 continuous update；它会重置 semantic state。
 - 不直接调用内部 mask/point tracker 函数。
 - 候选点只由 candidate mask 计算；GT 只在完整推理结束后做指标与 correction transition 诊断。
-- 若真实 smoke 发现公开 point refinement 无法在同一 session 中按 stage 有界回传，本轮会明确改为 chunk-wise proxy，并在结果中单独标注，绝不静默替换。
+- 真实等价性 smoke 表明，把每次 correction 的 forward propagation 强行截断到
+  下一 stage 会改变 K=4/K=8 的最终 mask 和指标，尽管 candidate selection 相同；
+  因而该优化被撤回，正式结果使用上节所述的完整公开 propagation 生命周期。
+- 仅一次、在最后 stage 初始化再全片反向传播的 Single-global 条件出现
+  275/275 expression 全空输出；一个独立复现样本即使 grounding mask 与所选
+  candidate 的 IoU=0.934，公开 point 初始化的输出面积仍为 0。该条件将在最终
+  gate 中标记为 protocol-invalid，不会利用空 GT 帧对空预测给出的 J/F=1 宣称
+  有效基线或 gap 改善。

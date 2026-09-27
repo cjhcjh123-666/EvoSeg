@@ -9,6 +9,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+from pycocotools import mask as mask_utils
 
 
 CONDITIONS = [
@@ -36,13 +37,57 @@ def write_csv(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
-def collect(input_roots: list[Path], filename: str) -> list[dict]:
+def collect(
+    input_roots: list[Path], filename: str, *, annotate_root: bool = False
+) -> list[dict]:
     rows = []
     for root in input_roots:
         path = root / filename
         if path.is_file():
-            rows.extend(read_jsonl(path))
+            values = read_jsonl(path)
+            if annotate_root:
+                for value in values:
+                    value["_source_root"] = str(root)
+            rows.extend(values)
     return rows
+
+
+def mask_activity_summary(success: list[dict]) -> list[dict]:
+    """Audit saved predictions rather than inferring activity from DAVIS scores.
+
+    Empty GT frames legitimately score one for an empty prediction, so J/F alone
+    cannot detect a degenerate all-empty condition.
+    """
+
+    grouped = defaultdict(list)
+    for row in success:
+        mask_path = Path(row["_source_root"]) / row["prediction_masks_path"]
+        payload = json.loads(mask_path.read_text())
+        frame_areas = []
+        for value in payload:
+            rle = dict(value["rle"])
+            if isinstance(rle["counts"], str):
+                rle["counts"] = rle["counts"].encode("ascii")
+            frame_areas.append(float(mask_utils.area(rle)))
+        grouped[(row["condition"], row["description_type"])].append(frame_areas)
+    result = []
+    for (condition, description_type), expressions in sorted(grouped.items()):
+        all_areas = [area for expression in expressions for area in expression]
+        result.append(
+            {
+                "condition": condition,
+                "description_type": description_type,
+                "expressions": len(expressions),
+                "all_empty_expressions": sum(max(value, default=0.0) == 0 for value in expressions),
+                "all_empty_expression_fraction": float(
+                    np.mean([max(value, default=0.0) == 0 for value in expressions])
+                ),
+                "nonempty_evaluation_frame_fraction": float(
+                    np.mean([value > 0 for value in all_areas])
+                ),
+            }
+        )
+    return result
 
 
 def cluster_bootstrap(
@@ -361,7 +406,9 @@ def run(args) -> None:
     roots = [Path(value).resolve() for value in args.input_root]
     docs = Path(args.docs_dir).resolve()
     docs.mkdir(parents=True, exist_ok=True)
-    prediction_attempts = collect(roots, "dynamic_predictions.jsonl")
+    prediction_attempts = collect(
+        roots, "dynamic_predictions.jsonl", annotate_root=True
+    )
     terminal = {}
     for row in prediction_attempts:
         terminal[(row["identity"], row["condition"])] = row
@@ -390,6 +437,7 @@ def run(args) -> None:
     object_means = object_type_means(analysis_success)
     summary = condition_summary(object_means)
     runtimes = runtime_summary(analysis_success)
+    mask_activity = mask_activity_summary(analysis_success)
     dynamic_static, temporal_static = paired_rows(object_means)
     transitions, transition_details = transition_summary(analysis_stages)
 
@@ -447,11 +495,16 @@ def run(args) -> None:
             {"comparison": "temporal_minus_static_dynamic", "K": k, **cluster_bootstrap(selected, "difference")}
         )
 
-    write_csv(docs / "per_expression_results.csv", predictions)
+    public_predictions = [
+        {key: value for key, value in row.items() if key != "_source_root"}
+        for row in predictions
+    ]
+    write_csv(docs / "per_expression_results.csv", public_predictions)
     write_csv(docs / "per_stage_selection.csv", stages)
     write_csv(docs / "paired_dynamic_results.csv", dynamic_static + temporal_static)
     write_csv(docs / "condition_summary.csv", summary)
     write_csv(docs / "runtime_summary.csv", runtimes)
+    write_csv(docs / "mask_activity_summary.csv", mask_activity)
     write_csv(docs / "bootstrap_summary.csv", comparison_summaries)
     write_csv(docs / "correction_transition.csv", transitions)
     write_csv(docs / "correction_transition_details.csv", transition_details)
@@ -525,13 +578,26 @@ def run(args) -> None:
         and correction_linked_mean_gain is not None
         and correction_linked_mean_gain > 0
     )
-    go = bool(gate_a and gate_b and gate_c and not failures)
+    single_activity = [
+        row for row in mask_activity if row["condition"] == "single_global"
+    ]
+    single_global_protocol_valid = bool(single_activity) and any(
+        row["all_empty_expression_fraction"] < 1.0 for row in single_activity
+    )
+    go = bool(
+        gate_a
+        and gate_b
+        and gate_c
+        and single_global_protocol_valid
+        and not failures
+    )
     decision = {
         "decision": "GO" if go else "NO-GO",
         "primary_comparison": "temporal_update_k4 minus static_update_k4 on Dynamic object means",
         "gate_A_temporal_advantage_and_direction_stability": gate_a,
         "gate_B_dynamic_static_gap_shrinks_by_at_least_1pp": gate_b,
         "gate_C_more_real_referent_corrections": gate_c,
+        "single_global_protocol_valid": single_global_protocol_valid,
         "primary_effect": primary,
         "positive_K_directions": int(sum(signs)),
         "single_global_dynamic_static_gap": single_gap,
@@ -600,6 +666,7 @@ K4 Dynamic 中，Temporal 与 Static 产生不同 candidate sequence 的 express
 - A（K4 Temporal > Static 且三档至少两档方向为正）：{gate_a}
 - B（相对 Single-global，gap 至少缩小 1pp）：{gate_b}
 - C（Dynamic correction rate 高于 Static control，且被纠正样本的 Temporal-Static J&F 为正）：{gate_c}；被纠正 {len(correction_linked_gains)} 条，平均关联增益 {percentage(correction_linked_mean_gain)} pp
+- Single-global 输出活动性检查：{single_global_protocol_valid}（逐条件明细见 `mask_activity_summary.csv`；全空 mask 不会因 GT 缺席帧的 J/F=1 被误判为有效输出）
 - **{decision['decision']}**
 
 这只是当前冻结 Sa2VA + 官方 SAM3.1 point refinement、零训练参数 scorer 的结论；不外推为所有动态接口均有效或无效。
