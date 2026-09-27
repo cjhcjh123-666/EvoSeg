@@ -347,6 +347,48 @@ def run(args) -> None:
     dynamic_static, temporal_static = paired_rows(object_means)
     transitions, transition_details = transition_summary(analysis_stages)
 
+    stage_index = {
+        (row["identity"], row["condition"], int(row["stage_order"])): row
+        for row in analysis_stages
+    }
+    result_index = {
+        (row["identity"], row["condition"]): row for row in analysis_success
+    }
+    interface_diagnostics = []
+    for identity in sorted(complete_identities):
+        description_type = result_index[(identity, "single_global")]["description_type"]
+        video_id = result_index[(identity, "single_global")]["video_id"]
+        for k in (2, 4, 8):
+            static_condition = f"static_update_k{k}"
+            temporal_condition = f"temporal_update_k{k}"
+            static_selected = [
+                stage_index[(identity, static_condition, order)]["selected_candidate_index"]
+                for order in range(k)
+            ]
+            temporal_selected = [
+                stage_index[(identity, temporal_condition, order)]["selected_candidate_index"]
+                for order in range(k)
+            ]
+            differing = sum(
+                left != right for left, right in zip(static_selected, temporal_selected)
+            )
+            interface_diagnostics.append(
+                {
+                    "identity": identity,
+                    "video_id": video_id,
+                    "description_type": description_type,
+                    "K": k,
+                    "static_selected_candidates": json.dumps(static_selected),
+                    "temporal_selected_candidates": json.dumps(temporal_selected),
+                    "differing_stage_count": differing,
+                    "any_selection_difference": bool(differing),
+                    "temporal_minus_static_J_and_F": result_index[
+                        (identity, temporal_condition)
+                    ]["J_and_F"]
+                    - result_index[(identity, static_condition)]["J_and_F"],
+                }
+            )
+
     comparison_summaries = []
     for condition in CONDITIONS:
         selected = [row for row in dynamic_static if row["condition"] == condition]
@@ -366,6 +408,7 @@ def run(args) -> None:
     write_csv(docs / "bootstrap_summary.csv", comparison_summaries)
     write_csv(docs / "correction_transition.csv", transitions)
     write_csv(docs / "correction_transition_details.csv", transition_details)
+    write_csv(docs / "interface_diagnostics.csv", interface_diagnostics)
     plot_results(summary, analysis_stages, transitions, docs)
 
     summary_lookup = {(row["condition"], row["description_type"]): row for row in summary}
@@ -414,6 +457,16 @@ def run(args) -> None:
     correction_linked_mean_gain = (
         float(np.mean(correction_linked_gains)) if correction_linked_gains else None
     )
+    dynamic_k4_diagnostics = [
+        row
+        for row in interface_diagnostics
+        if row["description_type"] == "dynamic" and row["K"] == 4
+    ]
+    dynamic_k4_selection_divergence = (
+        float(np.mean([row["any_selection_difference"] for row in dynamic_k4_diagnostics]))
+        if dynamic_k4_diagnostics
+        else None
+    )
     gate_a = primary["mean"] is not None and primary["mean"] > 0 and sum(signs) >= 2
     gate_b = gap_shrink is not None and gap_shrink >= 0.01
     gate_c = (
@@ -437,6 +490,7 @@ def run(args) -> None:
         "temporal_minus_static_correction_rate": correction_advantage,
         "corrected_dynamic_expression_count": len(correction_linked_gains),
         "mean_temporal_minus_static_JF_on_corrected_dynamic_expressions": correction_linked_mean_gain,
+        "dynamic_k4_expression_fraction_with_different_candidate_sequence": dynamic_k4_selection_divergence,
         "successful_rows": len(successes),
         "failed_rows": len(failures),
         "complete_expression_identities": len(complete_identities),
@@ -463,6 +517,8 @@ def run(args) -> None:
 预注册主比较是 K=4 的 Dynamic object mean：Temporal - Static = {percentage(primary['mean'])} pp，source-video cluster bootstrap 95% CI [{percentage(primary['ci_low'])}, {percentage(primary['ci_high'])}] pp。
 
 Single-global Dynamic-Static gap = {percentage(single_gap)} pp；Temporal K4 gap = {percentage(temporal_gap)} pp；绝对 gap 缩小 {percentage(gap_shrink)} pp。
+
+K4 Dynamic 中，Temporal 与 Static 产生不同 candidate sequence 的 expression 比例为 {percentage(dynamic_k4_selection_divergence)}%。该诊断区分“表示变化没有越过离散 grounding 决策边界”和“改变了 referent 但 tracking/掩码未改善”。
 
 ## Decision gate
 
