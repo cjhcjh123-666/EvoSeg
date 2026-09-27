@@ -15,6 +15,7 @@ from projects.evoseg.temporal_grounding_interface.protocol import (
 def test_stage_endpoints_are_nested_and_cover_full_video():
     endpoints = {k: stage_end_positions(235, k) for k in (1, 2, 4, 8)}
     assert endpoints[1][-1] == 234
+    assert endpoints[8] == [29, 58, 88, 117, 146, 176, 205, 234]
     assert set(endpoints[1]) < set(endpoints[2]) < set(endpoints[4]) < set(endpoints[8])
 
 
@@ -50,4 +51,3 @@ def test_exact_condition_matrix():
         "temporal_update_k4",
         "temporal_update_k8",
     ]
-

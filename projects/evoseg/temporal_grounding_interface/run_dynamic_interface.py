@@ -356,6 +356,13 @@ def run(args) -> int:
     manifest_path = Path(args.manifest).resolve()
     manifest = json.loads(manifest_path.read_text())
     items = manifest["objects"][: args.max_objects] if args.max_objects else manifest["objects"]
+    if args.num_shards < 1 or not 0 <= args.shard_index < args.num_shards:
+        raise ValueError("invalid object shard")
+    items = [
+        item
+        for object_index, item in enumerate(items)
+        if object_index % args.num_shards == args.shard_index
+    ]
     item_by_identity = {}
     expression_by_identity = {}
     ordered_identities = []
@@ -410,6 +417,8 @@ def run(args) -> int:
             "candidate_selection": "IoU(frozen Sa2VA anchor grounding, current SAM3.1 candidate mask)",
             "dynamic_update_api": "public Sam3BasePredictor.add_prompt point refinement with fixed obj_id",
             "stage_chunk_policy": "correct at observed stage endpoint, backward propagate within that stage only",
+            "shard_index": args.shard_index,
+            "num_shards": args.num_shards,
         },
     )
     records_path = run_dir / "dynamic_predictions.jsonl"
@@ -558,6 +567,8 @@ def parse_args():
     parser.add_argument("--device", type=int, required=True)
     parser.add_argument("--max-objects", type=int)
     parser.add_argument("--max-expressions", type=int)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--num-shards", type=int, default=1)
     parser.add_argument("--max-num-objects", type=int, default=16)
     parser.add_argument("--multiplex-count", type=int, default=16)
     parser.add_argument("--use-fa3", action=argparse.BooleanOptionalAction, default=False)
@@ -567,4 +578,3 @@ def parse_args():
 
 if __name__ == "__main__":
     raise SystemExit(run(parse_args()))
-

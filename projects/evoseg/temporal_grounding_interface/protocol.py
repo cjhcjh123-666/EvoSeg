@@ -30,15 +30,21 @@ def uniform_positions(length: int, count: int) -> list[int]:
 
 
 def stage_end_positions(frame_count: int, stages: int) -> list[int]:
-    """Select nested stage endpoints from a canonical eight-stage grid."""
+    """Select nested *segment-end* positions from a canonical eight-stage grid.
+
+    Unlike endpoint-covering frame sampling, a stage boundary must not put the
+    first stage at frame zero: stage 1 contains the first eighth of the video.
+    The ``ceil(k*n/8)-1`` construction gives disjoint, exhaustive temporal
+    segments and makes K=1/2/4 exact subsets of K=8.
+    """
 
     if stages not in SUPPORTED_STAGE_COUNTS:
         raise ValueError(f"unsupported stage count: {stages}")
-    canonical = uniform_positions(frame_count, min(8, frame_count))
+    if frame_count < 8:
+        raise ValueError("the eight-stage protocol requires at least eight frames")
+    canonical = [int(np.ceil(frame_count * k / 8.0)) - 1 for k in range(1, 9)]
     if stages == 1:
         return [canonical[-1]]
-    if len(canonical) <= stages:
-        return canonical
     stride = 8 // stages
     return [canonical[index] for index in range(stride - 1, 8, stride)]
 
@@ -146,4 +152,3 @@ def assert_source_video_disjoint(train_videos: set[str], eval_videos: set[str]) 
     overlap = set(map(str, train_videos)) & set(map(str, eval_videos))
     if overlap:
         raise RuntimeError(f"source-video train/eval leakage: {sorted(overlap)[:5]}")
-
