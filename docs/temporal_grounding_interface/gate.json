@@ -1,0 +1,29 @@
+{
+  "decision": "NO-GO",
+  "primary_comparison": "temporal_update_k4 minus static_update_k4 on Dynamic object means",
+  "gate_A_temporal_advantage_and_direction_stability": true,
+  "gate_B_dynamic_static_gap_shrinks_by_at_least_1pp": false,
+  "gate_C_more_real_referent_corrections": false,
+  "single_global_protocol_valid": false,
+  "primary_effect": {
+    "comparison": "temporal_minus_static_dynamic",
+    "K": 4,
+    "mean": 0.0033760437254460843,
+    "ci_low": -0.014894694910965199,
+    "ci_high": 0.024758147428181415,
+    "videos": 64,
+    "objects": 64
+  },
+  "positive_K_directions": 2,
+  "single_global_dynamic_static_gap": 0.0,
+  "temporal_k4_dynamic_static_gap": 0.005867518419192112,
+  "absolute_gap_shrink": -0.005867518419192112,
+  "temporal_minus_static_correction_rate": 0.0064102564102564985,
+  "corrected_dynamic_expression_count": 35,
+  "mean_temporal_minus_static_JF_on_corrected_dynamic_expressions": -0.010840025148097229,
+  "dynamic_k4_expression_fraction_with_different_candidate_sequence": 0.21649484536082475,
+  "successful_rows": 1925,
+  "failed_rows": 0,
+  "complete_expression_identities": 275,
+  "excluded_incomplete_identities": 0
+}

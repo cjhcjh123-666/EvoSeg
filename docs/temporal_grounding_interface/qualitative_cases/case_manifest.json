@@ -1,0 +1,110 @@
+[
+  {
+    "category": "referent_correction",
+    "identity": "long_rvos/0310d3743b/3/12",
+    "expression": "A snowboard splits left and right before stopping in the snow.",
+    "event_anchor_frame_index": 249,
+    "shown_frame_index": 249,
+    "shown_frame_name": "01245",
+    "static_J_and_F": 0.671875,
+    "temporal_J_and_F": 0.671875,
+    "file": "01_referent_correction_long_rvos__0310d3743b__3__12.png",
+    "selection_rule": "deterministic identity order within prespecified transition category"
+  },
+  {
+    "category": "referent_correction",
+    "identity": "long_rvos/046ee6aa1a/2/3",
+    "expression": "A child is being held by someone, watching the rain outside the house.",
+    "event_anchor_frame_index": 460,
+    "shown_frame_index": 460,
+    "shown_frame_name": "02300",
+    "static_J_and_F": 0.625,
+    "temporal_J_and_F": 0.625,
+    "file": "02_referent_correction_long_rvos__046ee6aa1a__2__3.png",
+    "selection_rule": "deterministic identity order within prespecified transition category"
+  },
+  {
+    "category": "referent_correction",
+    "identity": "long_rvos/046ee6aa1a/2/5",
+    "expression": "A child, held by someone, watches the rain outside.",
+    "event_anchor_frame_index": 460,
+    "shown_frame_index": 460,
+    "shown_frame_name": "02300",
+    "static_J_and_F": 0.625,
+    "temporal_J_and_F": 0.625,
+    "file": "03_referent_correction_long_rvos__046ee6aa1a__2__5.png",
+    "selection_rule": "deterministic identity order within prespecified transition category"
+  },
+  {
+    "category": "no_help",
+    "identity": "long_rvos/0310d3743b/3/9",
+    "expression": "The snowboard of the second person skiing in from a distance.",
+    "event_anchor_frame_index": 332,
+    "shown_frame_index": 332,
+    "shown_frame_name": "01660",
+    "static_J_and_F": 0.671875,
+    "temporal_J_and_F": 0.671875,
+    "file": "04_no_help_long_rvos__0310d3743b__3__9.png",
+    "selection_rule": "deterministic identity order within prespecified transition category"
+  },
+  {
+    "category": "no_help",
+    "identity": "long_rvos/1088228079/1/1",
+    "expression": "The man in white sportswear and black pants grabs the rocks in front of him, continuously attempting to climb upwards.",
+    "event_anchor_frame_index": 234,
+    "shown_frame_index": 234,
+    "shown_frame_name": "01170",
+    "static_J_and_F": 0.19385992650862371,
+    "temporal_J_and_F": 0.19385992650862371,
+    "file": "05_no_help_long_rvos__1088228079__1__1.png",
+    "selection_rule": "deterministic identity order within prespecified transition category"
+  },
+  {
+    "category": "no_help",
+    "identity": "long_rvos/1a5dead3e3/1/1",
+    "expression": "The baby is eating and playing with a string in its hand, occasionally opens his mouth to eat.",
+    "event_anchor_frame_index": 428,
+    "shown_frame_index": 428,
+    "shown_frame_name": "02140",
+    "static_J_and_F": 0.18663580243081856,
+    "temporal_J_and_F": 0.18663580243081856,
+    "file": "06_no_help_long_rvos__1a5dead3e3__1__1.png",
+    "selection_rule": "deterministic identity order within prespecified transition category"
+  },
+  {
+    "category": "identity_damaged",
+    "identity": "long_rvos/0d0ebe00cc/2/5",
+    "expression": "A dog lies in a person's arms and is held by the mouth.",
+    "event_anchor_frame_index": 129,
+    "shown_frame_index": 129,
+    "shown_frame_name": "00645",
+    "static_J_and_F": 0.4638541016295632,
+    "temporal_J_and_F": 0.4638541016295632,
+    "file": "07_identity_damaged_long_rvos__0d0ebe00cc__2__5.png",
+    "selection_rule": "deterministic identity order within prespecified transition category"
+  },
+  {
+    "category": "identity_damaged",
+    "identity": "long_rvos/2a87bea97e/1/1",
+    "expression": "The woman is dancing.",
+    "event_anchor_frame_index": 338,
+    "shown_frame_index": 338,
+    "shown_frame_name": "01690",
+    "static_J_and_F": 0.45377015709427204,
+    "temporal_J_and_F": 0.45377015709427204,
+    "file": "08_identity_damaged_long_rvos__2a87bea97e__1__1.png",
+    "selection_rule": "deterministic identity order within prespecified transition category"
+  },
+  {
+    "category": "identity_damaged",
+    "identity": "long_rvos/2a87bea97e/1/3",
+    "expression": "The woman sits in the car, swinging her hands, shaking her body and head, then turns her head and points at another woman, before looking out the window.",
+    "event_anchor_frame_index": 338,
+    "shown_frame_index": 338,
+    "shown_frame_name": "01690",
+    "static_J_and_F": 0.45377015709427204,
+    "temporal_J_and_F": 0.45377015709427204,
+    "file": "09_identity_damaged_long_rvos__2a87bea97e__1__3.png",
+    "selection_rule": "deterministic identity order within prespecified transition category"
+  }
+]
