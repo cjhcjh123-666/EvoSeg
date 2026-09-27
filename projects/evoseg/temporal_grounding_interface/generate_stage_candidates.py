@@ -188,6 +188,17 @@ def run(args) -> int:
     started = time.monotonic()
     image_root = Path(manifest["dataset"]["image_root"])
     for item in objects:
+        item_identities = {
+            stable_identity(
+                item["dataset"], item["video_id"], item["object_id"], expression["expression_id"]
+            )
+            for expression in item["expressions"]
+        }
+        # A resumed run must not pay the (potentially very large) cost of
+        # constructing an official SAM video session for an object whose
+        # expressions are already durable on disk.
+        if item_identities.issubset(done):
+            continue
         video_path = image_root / item["video_id"]
         session_id = None
         try:
