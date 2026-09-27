@@ -174,8 +174,11 @@ def run(args) -> None:
         with Image.open(image_root / item["video_id"] / f"{frame_name}.jpg") as source:
             image = source.convert("RGB").copy()
         gt_path = Path(item["evaluation_mask_paths"][0]).parent / f"{frame_name}.png"
-        with Image.open(gt_path) as source:
-            gt = np.asarray(source.convert("L")) > 0
+        if gt_path.is_file():
+            with Image.open(gt_path) as source:
+                gt = np.asarray(source.convert("L")) > 0
+        else:
+            gt = np.zeros((image.height, image.width), dtype=bool)
         expression = expression_by_identity[identity]["text"]
         title = (
             f"{category} | {identity} | frame={frame_name} | "
@@ -217,4 +220,3 @@ def parse_args():
 
 if __name__ == "__main__":
     run(parse_args())
-
