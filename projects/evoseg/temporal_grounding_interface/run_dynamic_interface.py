@@ -226,27 +226,15 @@ def infer_condition(
     session_id = session["session_id"]
     maintained_object_id = 1
     final_masks: dict[int, np.ndarray] = {}
+    maintained_masks: dict[int, np.ndarray] = {}
+    track_started = False
     stages = []
     previous_endpoint = -1
     try:
         for selection in plan:
             endpoint = int(selection["anchor_frame_index"])
             chunk_start = previous_endpoint + 1
-            pre_update = None
-            if previous_endpoint >= 0:
-                forward = stream_masks(
-                    predictor,
-                    session_id,
-                    "forward",
-                    previous_endpoint,
-                    endpoint - previous_endpoint + 1,
-                    maintained_object_id,
-                    shape,
-                )
-                pre_update = forward.get(endpoint)
-                for index, mask in forward.items():
-                    if chunk_start <= index <= endpoint:
-                        final_masks[index] = mask
+            pre_update = maintained_masks.get(endpoint) if track_started else None
 
             update_applied = bool(selection["update_applied"])
             point = selection["positive_point_relative_xy"]
@@ -273,11 +261,33 @@ def infer_condition(
                     shape,
                 )
                 backward[endpoint] = post_update
+                # The public multiplex API expects the two directions belonging
+                # to one correction to be propagated consecutively.  Materialize
+                # the forward continuation now and retain it as the pre-update
+                # hypothesis for the next stage.  This avoids invoking full-VG
+                # propagation before the first object point has established a
+                # track, and does not access private SAM state.
+                forward = stream_masks(
+                    predictor,
+                    session_id,
+                    "forward",
+                    endpoint,
+                    item["frame_count"] - endpoint,
+                    maintained_object_id,
+                    shape,
+                )
+                maintained_masks.update(backward)
+                maintained_masks.update(forward)
+                maintained_masks[endpoint] = post_update
+                track_started = True
                 for index, mask in backward.items():
                     if chunk_start <= index <= endpoint:
                         final_masks[index] = mask
             for index in range(chunk_start, endpoint + 1):
-                final_masks.setdefault(index, np.zeros(shape, dtype=bool))
+                if index not in final_masks:
+                    final_masks[index] = maintained_masks.get(
+                        index, np.zeros(shape, dtype=bool)
+                    )
             stages.append(
                 {
                     **selection,
