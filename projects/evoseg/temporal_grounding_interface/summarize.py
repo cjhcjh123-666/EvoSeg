@@ -176,7 +176,7 @@ def paired_rows(object_means: list[dict]) -> tuple[list[dict], list[dict]]:
     return dynamic_static, temporal_static
 
 
-def transition_summary(stage_rows: list[dict]) -> list[dict]:
+def transition_summary(stage_rows: list[dict]) -> tuple[list[dict], list[dict]]:
     grouped = defaultdict(list)
     for row in stage_rows:
         grouped[(row["condition"], row["identity"])].append(row)
@@ -230,7 +230,7 @@ def transition_summary(stage_rows: list[dict]) -> list[dict]:
                     "final_selection_accuracy": float(np.mean([row["final_correct"] for row in selected])),
                 }
             )
-    return summaries
+    return summaries, records
 
 
 def plot_results(
@@ -345,7 +345,7 @@ def run(args) -> None:
     object_means = object_type_means(analysis_success)
     summary = condition_summary(object_means)
     dynamic_static, temporal_static = paired_rows(object_means)
-    transitions = transition_summary(analysis_stages)
+    transitions, transition_details = transition_summary(analysis_stages)
 
     comparison_summaries = []
     for condition in CONDITIONS:
@@ -365,6 +365,7 @@ def run(args) -> None:
     write_csv(docs / "condition_summary.csv", summary)
     write_csv(docs / "bootstrap_summary.csv", comparison_summaries)
     write_csv(docs / "correction_transition.csv", transitions)
+    write_csv(docs / "correction_transition_details.csv", transition_details)
     plot_results(summary, analysis_stages, transitions, docs)
 
     summary_lookup = {(row["condition"], row["description_type"]): row for row in summary}
@@ -393,9 +394,34 @@ def run(args) -> None:
         and static_correction.get("correction_rate_given_initial_wrong") is not None
         else None
     )
+    prediction_index = {
+        (row["identity"], row["condition"]): row for row in analysis_success
+    }
+    corrected_dynamic_identities = [
+        row["identity"]
+        for row in transition_details
+        if row["condition"] == "temporal_update_k4"
+        and row["description_type"] == "dynamic"
+        and row["initial_wrong_later_corrected"]
+    ]
+    correction_linked_gains = [
+        prediction_index[(identity, "temporal_update_k4")]["J_and_F"]
+        - prediction_index[(identity, "static_update_k4")]["J_and_F"]
+        for identity in corrected_dynamic_identities
+        if (identity, "temporal_update_k4") in prediction_index
+        and (identity, "static_update_k4") in prediction_index
+    ]
+    correction_linked_mean_gain = (
+        float(np.mean(correction_linked_gains)) if correction_linked_gains else None
+    )
     gate_a = primary["mean"] is not None and primary["mean"] > 0 and sum(signs) >= 2
     gate_b = gap_shrink is not None and gap_shrink >= 0.01
-    gate_c = correction_advantage is not None and correction_advantage > 0
+    gate_c = (
+        correction_advantage is not None
+        and correction_advantage > 0
+        and correction_linked_mean_gain is not None
+        and correction_linked_mean_gain > 0
+    )
     go = bool(gate_a and gate_b and gate_c and not failures)
     decision = {
         "decision": "GO" if go else "NO-GO",
@@ -409,6 +435,8 @@ def run(args) -> None:
         "temporal_k4_dynamic_static_gap": temporal_gap,
         "absolute_gap_shrink": gap_shrink,
         "temporal_minus_static_correction_rate": correction_advantage,
+        "corrected_dynamic_expression_count": len(correction_linked_gains),
+        "mean_temporal_minus_static_JF_on_corrected_dynamic_expressions": correction_linked_mean_gain,
         "successful_rows": len(successes),
         "failed_rows": len(failures),
         "complete_expression_identities": len(complete_identities),
@@ -440,7 +468,7 @@ Single-global Dynamic-Static gap = {percentage(single_gap)} pp；Temporal K4 gap
 
 - A（K4 Temporal > Static 且三档至少两档方向为正）：{gate_a}
 - B（相对 Single-global，gap 至少缩小 1pp）：{gate_b}
-- C（Dynamic 初始选错后的真实 correction rate 高于 Static control）：{gate_c}
+- C（Dynamic correction rate 高于 Static control，且被纠正样本的 Temporal-Static J&F 为正）：{gate_c}；被纠正 {len(correction_linked_gains)} 条，平均关联增益 {percentage(correction_linked_mean_gain)} pp
 - **{decision['decision']}**
 
 这只是当前冻结 Sa2VA + 官方 SAM3.1 point refinement、零训练参数 scorer 的结论；不外推为所有动态接口均有效或无效。
