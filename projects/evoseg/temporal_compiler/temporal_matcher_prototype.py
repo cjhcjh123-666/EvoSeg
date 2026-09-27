@@ -1019,6 +1019,131 @@ def train_and_evaluate(args) -> None:
     print(json.dumps({"summaries": summaries, "difference": difference}, indent=2))
 
 
+def merge_training_predictions(args) -> None:
+    """Combine independently trained seeds without retraining or selecting a seed."""
+
+    input_paths = [Path(value).resolve() for value in args.input]
+    audit_paths = [Path(value).resolve() for value in args.training_audit]
+    if len(input_paths) != len(audit_paths):
+        raise ValueError("each prediction input requires one training audit")
+    prediction_rows = []
+    seen_seed_identity = set()
+    per_seed_rows = []
+    seeds = set()
+    methods = [
+        "raw_expression",
+        "concept_only",
+        "concept_oracle",
+        "static",
+        "temporal",
+    ]
+    for path in input_paths:
+        with path.open(newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        if not rows:
+            raise ValueError(f"empty per-seed predictions: {path}")
+        file_seeds = {int(row["seed"]) for row in rows}
+        if len(file_seeds) != 1:
+            raise RuntimeError(f"prediction file is not one seed: {path}")
+        seed = next(iter(file_seeds))
+        if seed in seeds:
+            raise RuntimeError(f"duplicate model seed across inputs: {seed}")
+        seeds.add(seed)
+        for row in rows:
+            key = (seed, row["identity"])
+            if key in seen_seed_identity:
+                raise RuntimeError(f"duplicate seed/identity prediction: {key}")
+            seen_seed_identity.add(key)
+            prediction_rows.append(row)
+        for method in methods:
+            for summary in aggregate_rows(rows, method):
+                per_seed_rows.append({"seed": seed, **summary})
+
+    training_audits = [json.loads(path.read_text()) for path in audit_paths]
+    reference = training_audits[0]
+    for audit in training_audits[1:]:
+        for field in [
+            "split",
+            "split_seed",
+            "candidate_hit_threshold",
+            "static_parameter_count",
+            "temporal_parameter_count",
+        ]:
+            if audit[field] != reference[field]:
+                raise RuntimeError(f"training audit mismatch for {field}")
+    if set(reference["split"]["test"]) != {
+        row["video_id"] for row in prediction_rows
+    }:
+        raise RuntimeError("prediction videos differ from audited test split")
+
+    grouped = defaultdict(list)
+    for row in prediction_rows:
+        grouped[row["identity"]].append(row)
+    averaged_rows = []
+    metadata_fields = [
+        "identity",
+        "dataset",
+        "video_id",
+        "object_id",
+        "expression_id",
+        "description_type",
+        "expression",
+        "candidate_generation_success",
+        "candidate_hit",
+    ]
+    for identity, values in sorted(grouped.items()):
+        if len(values) != len(seeds):
+            raise RuntimeError(f"identity is missing a model seed: {identity}")
+        first = values[0]
+        if any(any(value[field] != first[field] for field in metadata_fields) for value in values):
+            raise RuntimeError(f"metadata differs across seeds: {identity}")
+        averaged_rows.append(
+            {field: first[field] for field in metadata_fields}
+            | {
+                f"{method}_J_and_F": float(
+                    np.mean([float(value[f"{method}_J_and_F"]) for value in values])
+                )
+                for method in methods
+            }
+        )
+    summaries = []
+    for method in methods:
+        summaries.extend(aggregate_rows(averaged_rows, method))
+    difference = cluster_bootstrap_difference(
+        averaged_rows, seed=args.seed, iterations=args.bootstrap_iterations
+    )
+    output = Path(args.output_dir).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    write_csv(output / "prototype_per_seed_summary.csv", per_seed_rows)
+    write_csv(output / "prototype_test_predictions.csv", averaged_rows)
+    write_csv(output / "prototype_summary.csv", summaries)
+    atomic_json(
+        output / "prototype_audit.json",
+        {
+            "created_at": utc_now(),
+            "command": " ".join(os.sys.argv),
+            "prediction_inputs": [str(path) for path in input_paths],
+            "prediction_input_sha256": {
+                str(path): sha256(path) for path in input_paths
+            },
+            "training_audits": [str(path) for path in audit_paths],
+            "training_audit_sha256": {str(path): sha256(path) for path in audit_paths},
+            "model_seeds": sorted(seeds),
+            "split": reference["split"],
+            "split_seed": reference["split_seed"],
+            "candidate_hit_threshold": reference["candidate_hit_threshold"],
+            "test_expected_expressions": len(averaged_rows),
+            "static_parameter_count": reference["static_parameter_count"],
+            "temporal_parameter_count": reference["temporal_parameter_count"],
+            "parameter_matched": True,
+            "candidate_miss_not_forced_to_wrong_positive": True,
+            "combines_only_test_predictions_without_seed_selection": True,
+            "temporal_minus_static_dynamic": difference,
+        },
+    )
+    print(json.dumps({"summaries": summaries, "difference": difference}, indent=2))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1059,6 +1184,14 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--learning-rate", type=float, default=3e-4)
     train.add_argument("--bootstrap-iterations", type=int, default=2000)
     train.set_defaults(function=train_and_evaluate)
+
+    merge_training = subparsers.add_parser("merge-training")
+    merge_training.add_argument("--input", action="append", required=True)
+    merge_training.add_argument("--training-audit", action="append", required=True)
+    merge_training.add_argument("--output-dir", required=True)
+    merge_training.add_argument("--seed", type=int, default=42)
+    merge_training.add_argument("--bootstrap-iterations", type=int, default=2000)
+    merge_training.set_defaults(function=merge_training_predictions)
     return parser
 
 

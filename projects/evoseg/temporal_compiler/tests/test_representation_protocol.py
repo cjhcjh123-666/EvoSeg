@@ -61,6 +61,7 @@ from projects.evoseg.temporal_compiler.temporal_matcher_prototype import (
     MatchedTrackScorer,
     cluster_bootstrap_difference as matcher_cluster_bootstrap_difference,
     deterministic_video_split,
+    merge_training_predictions,
     model_parameter_count,
     region_pool,
     top_confidence_jf,
@@ -157,6 +158,72 @@ def test_temporal_matcher_confidence_selection_is_gt_free_and_null_safe():
         {"track_id": 2, "confidence": None, "J_and_F": 0.9},
     ]
     assert top_confidence_jf(metric) == 0.2
+
+
+def test_temporal_matcher_merges_all_seeds_without_selection(tmp_path):
+    import csv
+    import json
+
+    prediction_paths = []
+    audit_paths = []
+    for seed, static, temporal in [(11, 0.2, 0.4), (23, 0.4, 0.6)]:
+        prediction = tmp_path / f"predictions-{seed}.csv"
+        row = {
+            "seed": seed,
+            "identity": "d/v/o/e",
+            "dataset": "d",
+            "video_id": "v",
+            "object_id": "o",
+            "expression_id": "e",
+            "description_type": "dynamic",
+            "expression": "the moving object",
+            "raw_expression_J_and_F": 0.1,
+            "concept_only_J_and_F": 0.2,
+            "concept_oracle_J_and_F": 0.8,
+            "candidate_generation_success": 1,
+            "candidate_hit": 1,
+            "static_J_and_F": static,
+            "temporal_J_and_F": temporal,
+            "static_track_id": 1,
+            "temporal_track_id": 2,
+        }
+        with prediction.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(row))
+            writer.writeheader()
+            writer.writerow(row)
+        audit = tmp_path / f"audit-{seed}.json"
+        audit.write_text(
+            json.dumps(
+                {
+                    "split": {"train": ["a"], "val": ["b"], "test": ["v"]},
+                    "split_seed": 42,
+                    "candidate_hit_threshold": 0.3,
+                    "static_parameter_count": 10,
+                    "temporal_parameter_count": 10,
+                }
+            )
+        )
+        prediction_paths.append(str(prediction))
+        audit_paths.append(str(audit))
+    args = type(
+        "Args",
+        (),
+        {
+            "input": prediction_paths,
+            "training_audit": audit_paths,
+            "output_dir": str(tmp_path / "merged"),
+            "seed": 42,
+            "bootstrap_iterations": 20,
+        },
+    )()
+    merge_training_predictions(args)
+    with (tmp_path / "merged/prototype_test_predictions.csv").open() as handle:
+        merged = next(csv.DictReader(handle))
+    assert np.isclose(float(merged["static_J_and_F"]), 0.3)
+    assert np.isclose(float(merged["temporal_J_and_F"]), 0.5)
+    result = json.loads((tmp_path / "merged/prototype_audit.json").read_text())
+    assert result["model_seeds"] == [11, 23]
+    assert result["combines_only_test_predictions_without_seed_selection"] is True
 
 
 def test_stable_key_keeps_expression_and_budget():
