@@ -34,7 +34,7 @@
 2. 冻结 Sa2VA 从累计可见帧或严格匹配的 anchor-only control 得到 `z_k`，并在 anchor frame 生成 grounding mask。
 3. 以 grounding mask 与候选 mask 的 IoU 选择候选；这是零训练参数、两条件完全相同的 scorer。GT 不参与选择。
 4. 从被选 candidate mask 内部确定性取一个正点，通过公开 `add_prompt(points=..., point_labels=[1], obj_id=<固定ID>)` 更新维护中的 SAM 3.1 track。
-5. 所有 stage 保持同一 session 和同一 tracker `obj_id`。每次成功 point correction 后，连续调用公开 backward/forward propagation：backward 只写入当前已观察 stage，forward 作为下一 stage 更新前的 referent hypothesis；未来 stage 若再次 correction，会覆盖其自身 stage，而不会改写已结算的过去 stage。
+5. 所有 stage 保持同一 session 和同一 tracker `obj_id`，再调用公开 propagation。
 
 Static control 重复当前 anchor 图像到与 temporal branch 相同的图像/token槽位，不暴露其他帧；Temporal branch 使用从视频开始至当前 anchor 的均匀累计采样。两者使用相同 checkpoint、decoder、候选、update 次数和 SAM 3.1 API。
 
@@ -43,6 +43,4 @@ Static control 重复当前 anchor 图像到与 temporal branch 相同的图像/
 - 不把中途 text/box 调用描述为 continuous update；它会重置 semantic state。
 - 不直接调用内部 mask/point tracker 函数。
 - 候选点只由 candidate mask 计算；GT 只在完整推理结束后做指标与 correction transition 诊断。
-- 若某 stage 没有 candidate 且 object track 尚未建立，不调用 propagation，而是为该 stage 保存空 mask；之后第一次有效 point 才通过公开 API 建立固定 `obj_id`。这是必要的生命周期处理，不是用 GT 补候选。
-- 真实回归包含首个 stage 无 candidate 的 expression；修正生命周期后七个条件全部成功。旧实现会在没有 object/text prompt 时误触发 full-VG propagation，并在官方实现中得到 `backbone_out=None`；该失败记录保留在 artifact，不进入正式统计。
-- 正式路径仍是同一官方 session 中的原生 point correction，不是“独立 chunk 重跑 + identity stitching”。实验代码只调用公开 wrapper；对 action-history 的审计仅用于确认正确的调用顺序，没有读写私有 state。
+- 若真实 smoke 发现公开 point refinement 无法在同一 session 中按 stage 有界回传，本轮会明确改为 chunk-wise proxy，并在结果中单独标注，绝不静默替换。

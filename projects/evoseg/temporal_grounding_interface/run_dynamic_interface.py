@@ -231,7 +231,7 @@ def infer_condition(
     stages = []
     previous_endpoint = -1
     try:
-        for plan_index, selection in enumerate(plan):
+        for selection in plan:
             endpoint = int(selection["anchor_frame_index"])
             chunk_start = previous_endpoint + 1
             pre_update = maintained_masks.get(endpoint) if track_started else None
@@ -262,23 +262,17 @@ def infer_condition(
                 )
                 backward[endpoint] = post_update
                 # The public multiplex API expects the two directions belonging
-                # to one correction to be propagated consecutively. Materialize
-                # only the causal continuation that can be consumed before the
-                # next correction; masks after that point would be overwritten
-                # without ever entering an evaluated stage. If intermediate
-                # stages have no candidate, continue far enough to cover them.
-                next_updates = [
-                    int(value["anchor_frame_index"])
-                    for value in plan[plan_index + 1 :]
-                    if value["update_applied"]
-                ]
-                forward_end = next_updates[0] if next_updates else item["frame_count"] - 1
+                # to one correction to be propagated consecutively.  Materialize
+                # the forward continuation now and retain it as the pre-update
+                # hypothesis for the next stage.  This avoids invoking full-VG
+                # propagation before the first object point has established a
+                # track, and does not access private SAM state.
                 forward = stream_masks(
                     predictor,
                     session_id,
                     "forward",
                     endpoint,
-                    forward_end - endpoint + 1,
+                    item["frame_count"] - endpoint,
                     maintained_object_id,
                     shape,
                 )
@@ -490,10 +484,7 @@ def run(args) -> int:
             "candidate_selection_trainable_parameters": 0,
             "candidate_selection": "IoU(frozen Sa2VA anchor grounding, current SAM3.1 candidate mask)",
             "dynamic_update_api": "public Sam3BasePredictor.add_prompt point refinement with fixed obj_id",
-            "stage_chunk_policy": (
-                "correct at observed endpoint; backward within the current stage; "
-                "forward only through the next actual correction (or video end)"
-            ),
+            "stage_chunk_policy": "correct at observed stage endpoint, backward propagate within that stage only",
             "tracking_cache": (
                 "reuse only when video, stage endpoints, update flags, and exact "
                 "relative point coordinates are identical; reported latency is "
