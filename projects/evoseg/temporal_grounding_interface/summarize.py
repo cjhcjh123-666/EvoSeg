@@ -233,7 +233,9 @@ def transition_summary(stage_rows: list[dict]) -> list[dict]:
     return summaries
 
 
-def plot_results(summary: list[dict], output: Path) -> None:
+def plot_results(
+    summary: list[dict], stage_rows: list[dict], transitions: list[dict], output: Path
+) -> None:
     import matplotlib.pyplot as plt
 
     output.mkdir(parents=True, exist_ok=True)
@@ -264,6 +266,49 @@ def plot_results(summary: list[dict], output: Path) -> None:
     axis.set_ylabel("Dynamic - Static J&F (pp)")
     figure.tight_layout()
     figure.savefig(output / "dynamic_static_gap.png", dpi=180)
+    plt.close(figure)
+
+    figure, axis = plt.subplots(figsize=(8, 4))
+    for condition in ("static_update_k8", "temporal_update_k8"):
+        selected = [
+            row
+            for row in stage_rows
+            if row["condition"] == condition and row["description_type"] == "dynamic"
+        ]
+        by_stage = defaultdict(list)
+        for row in selected:
+            by_stage[int(row["stage_order"])].append(float(row["selection_correct"]))
+        axis.plot(
+            sorted(by_stage),
+            [np.mean(by_stage[index]) * 100 for index in sorted(by_stage)],
+            marker="o",
+            label=condition,
+        )
+    axis.set_xlabel("Stage")
+    axis.set_ylabel("Dynamic selection accuracy (%)")
+    axis.legend()
+    figure.tight_layout()
+    figure.savefig(output / "stage_selection_accuracy.png", dpi=180)
+    plt.close(figure)
+
+    transition_lookup = {
+        (row["condition"], row["description_type"]): row for row in transitions
+    }
+    labels = ["K=2", "K=4", "K=8"]
+    x = np.arange(3)
+    figure, axis = plt.subplots(figsize=(8, 4))
+    for offset, prefix in enumerate(("static_update", "temporal_update")):
+        values = []
+        for k in (2, 4, 8):
+            value = transition_lookup.get((f"{prefix}_k{k}", "dynamic"), {})
+            rate = value.get("correction_rate_given_initial_wrong")
+            values.append(np.nan if rate is None else rate * 100)
+        axis.bar(x + (offset - 0.5) * 0.35, values, 0.35, label=prefix)
+    axis.set_xticks(x, labels)
+    axis.set_ylabel("Correction rate given initial error (%)")
+    axis.legend()
+    figure.tight_layout()
+    figure.savefig(output / "correction_transition.png", dpi=180)
     plt.close(figure)
 
 
@@ -320,7 +365,7 @@ def run(args) -> None:
     write_csv(docs / "condition_summary.csv", summary)
     write_csv(docs / "bootstrap_summary.csv", comparison_summaries)
     write_csv(docs / "correction_transition.csv", transitions)
-    plot_results(summary, docs)
+    plot_results(summary, analysis_stages, transitions, docs)
 
     summary_lookup = {(row["condition"], row["description_type"]): row for row in summary}
     comparison_lookup = {

@@ -471,6 +471,11 @@ def run(args) -> int:
             "candidate_selection": "IoU(frozen Sa2VA anchor grounding, current SAM3.1 candidate mask)",
             "dynamic_update_api": "public Sam3BasePredictor.add_prompt point refinement with fixed obj_id",
             "stage_chunk_policy": "correct at observed stage endpoint, backward propagate within that stage only",
+            "tracking_cache": (
+                "reuse only when video, stage endpoints, update flags, and exact "
+                "relative point coordinates are identical; reported latency is "
+                "the synchronized standalone execution value from the cache fill"
+            ),
             "shard_index": args.shard_index,
             "num_shards": args.num_shards,
         },
