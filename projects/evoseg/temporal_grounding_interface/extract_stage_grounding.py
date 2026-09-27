@@ -17,6 +17,7 @@ import os
 import sys
 import time
 import traceback
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -210,6 +211,10 @@ def run(args) -> int:
         {
             "created_at": utc_now(),
             "command": [sys.executable, *sys.argv],
+            "evoseg_commit": subprocess.check_output(
+                ["git", "-C", str(Path(__file__).resolve().parents[3]), "rev-parse", "HEAD"],
+                text=True,
+            ).strip(),
             "manifest": str(manifest_path),
             "manifest_sha256": file_sha256(manifest_path),
             "model": str(Path(args.model).resolve()),
@@ -367,4 +372,3 @@ def parse_args():
 
 if __name__ == "__main__":
     raise SystemExit(run(parse_args()))
-

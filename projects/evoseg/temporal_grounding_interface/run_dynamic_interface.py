@@ -453,6 +453,10 @@ def run(args) -> int:
         {
             "created_at": utc_now(),
             "command": [sys.executable, *sys.argv],
+            "evoseg_commit": subprocess.check_output(
+                ["git", "-C", str(Path(__file__).resolve().parents[3]), "rev-parse", "HEAD"],
+                text=True,
+            ).strip(),
             "manifest": str(manifest_path),
             "manifest_sha256": sha256(manifest_path),
             "state_root": str(state_root),

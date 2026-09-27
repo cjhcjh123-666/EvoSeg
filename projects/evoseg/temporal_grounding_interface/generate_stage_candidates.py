@@ -146,6 +146,7 @@ def run(args) -> int:
         {
             "created_at": utc_now(),
             "command": [sys.executable, *sys.argv],
+            "evoseg_commit": git_output(Path(__file__).resolve().parents[3], "rev-parse", "HEAD"),
             "official_repo": "https://github.com/facebookresearch/sam3",
             "official_repo_path": str(sam3_repo),
             "official_repo_commit": git_output(sam3_repo, "rev-parse", "HEAD"),
