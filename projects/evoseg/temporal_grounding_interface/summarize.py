@@ -118,6 +118,51 @@ def condition_summary(object_means: list[dict]) -> list[dict]:
     return rows
 
 
+def runtime_summary(success: list[dict]) -> list[dict]:
+    rows = []
+    for condition in CONDITIONS:
+        for description_type in ("static", "dynamic", "hybrid"):
+            selected = [
+                row
+                for row in success
+                if row["condition"] == condition
+                and row["description_type"] == description_type
+            ]
+            if not selected:
+                continue
+            rows.append(
+                {
+                    "condition": condition,
+                    "description_type": description_type,
+                    "expressions": len(selected),
+                    "median_total_latency_seconds": float(
+                        np.median([row["latency_seconds_synchronized"] for row in selected])
+                    ),
+                    "median_vlm_latency_seconds": float(
+                        np.median([row["vlm_latency_seconds_synchronized"] for row in selected])
+                    ),
+                    "median_candidate_latency_seconds": float(
+                        np.median(
+                            [row["candidate_latency_seconds_synchronized"] for row in selected]
+                        )
+                    ),
+                    "median_sam31_latency_seconds": float(
+                        np.median([row["sam31_latency_seconds_synchronized"] for row in selected])
+                    ),
+                    "max_peak_memory_gib": float(
+                        max(row["peak_memory_bytes"] for row in selected) / 2**30
+                    ),
+                    "mean_prompt_updates": float(
+                        np.mean([row["prompt_updates"] for row in selected])
+                    ),
+                    "mean_vlm_forward_count": float(
+                        np.mean([row["vlm_forward_count"] for row in selected])
+                    ),
+                }
+            )
+    return rows
+
+
 def paired_rows(object_means: list[dict]) -> tuple[list[dict], list[dict]]:
     index = {
         (row["condition"], row["video_id"], row["object_id"], row["description_type"]): row
@@ -344,6 +389,7 @@ def run(args) -> None:
     analysis_stages = [row for row in stages if row["identity"] in complete_identities]
     object_means = object_type_means(analysis_success)
     summary = condition_summary(object_means)
+    runtimes = runtime_summary(analysis_success)
     dynamic_static, temporal_static = paired_rows(object_means)
     transitions, transition_details = transition_summary(analysis_stages)
 
@@ -405,6 +451,7 @@ def run(args) -> None:
     write_csv(docs / "per_stage_selection.csv", stages)
     write_csv(docs / "paired_dynamic_results.csv", dynamic_static + temporal_static)
     write_csv(docs / "condition_summary.csv", summary)
+    write_csv(docs / "runtime_summary.csv", runtimes)
     write_csv(docs / "bootstrap_summary.csv", comparison_summaries)
     write_csv(docs / "correction_transition.csv", transitions)
     write_csv(docs / "correction_transition_details.csv", transition_details)
@@ -412,6 +459,9 @@ def run(args) -> None:
     plot_results(summary, analysis_stages, transitions, docs)
 
     summary_lookup = {(row["condition"], row["description_type"]): row for row in summary}
+    runtime_lookup = {
+        (row["condition"], row["description_type"]): row for row in runtimes
+    }
     comparison_lookup = {
         (row["comparison"], row.get("condition", row.get("K"))): row
         for row in comparison_summaries
@@ -506,9 +556,28 @@ def run(args) -> None:
         table.append(
             f"| {row['condition']} | {row['description_type']} | {row['J']*100:.2f} | {row['F']*100:.2f} | {row['J_and_F']*100:.2f} |"
         )
+    latency_table = [
+        "| Condition | Dynamic median total (s) | VLM forwards | Updates | Peak GiB |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for condition in CONDITIONS:
+        row = runtime_lookup.get((condition, "dynamic"))
+        if row:
+            latency_table.append(
+                f"| {condition} | {row['median_total_latency_seconds']:.2f} | "
+                f"{row['mean_vlm_forward_count']:.2f} | {row['mean_prompt_updates']:.2f} | "
+                f"{row['max_peak_memory_gib']:.2f} |"
+            )
+    covered_objects = len(
+        {
+            (row["video_id"], row["object_id"])
+            for row in analysis_success
+        }
+    )
+    covered_videos = len({row["video_id"] for row in analysis_success})
     report = f"""# Dynamic Grounding Interface results
 
-本页只统计七个条件均成功的完整 expression；失败记录保留且不补值。当前覆盖 {len(complete_identities)} expressions，失败 {len(failures)}。
+本页只统计七个条件均成功的完整 expression；失败记录保留且不补值。当前覆盖 {covered_videos} videos、{covered_objects} objects、{len(complete_identities)} expressions，terminal 失败 {len(failures)}。
 
 ## 主结果
 
@@ -519,6 +588,12 @@ def run(args) -> None:
 Single-global Dynamic-Static gap = {percentage(single_gap)} pp；Temporal K4 gap = {percentage(temporal_gap)} pp；绝对 gap 缩小 {percentage(gap_shrink)} pp。
 
 K4 Dynamic 中，Temporal 与 Static 产生不同 candidate sequence 的 expression 比例为 {percentage(dynamic_k4_selection_divergence)}%。该诊断区分“表示变化没有越过离散 grounding 决策边界”和“改变了 referent 但 tracking/掩码未改善”。
+
+## 运行代价
+
+{chr(10).join(latency_table)}
+
+延迟均包含 CUDA synchronize；tracking cache hit 仍报告首次独立执行该 trajectory 的同步延迟。VLM/candidate 缓存来自前置独立运行，且部分 GPU 与既有任务并行，因此这些数字用于如实记录本轮代价，不作为隔离效率结论。
 
 ## Decision gate
 
