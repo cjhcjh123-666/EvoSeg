@@ -1,0 +1,77 @@
+[
+  {
+    "model": "Sa2VA-Qwen3-VL-4B",
+    "prediction_files": [
+      "/9950backfile/chenjiahui/evo_artifacts/results/temporal_seg/20260921_2345_sa2va4b_temporal_process/predictions.jsonl"
+    ],
+    "records_after_condition_filter": 1189,
+    "successful_records": 1189,
+    "failed_records": 0,
+    "expected_expression_identities": 1189,
+    "successful_expression_identities": 1189,
+    "missing_expression_identities": [],
+    "extra_expression_identities": [],
+    "failed_keys": [],
+    "eligible_paired_objects": 274,
+    "complete_paired_objects": 274,
+    "incomplete_paired_objects": []
+  },
+  {
+    "model": "InstructSeg",
+    "prediction_files": [
+      "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_instructseg_long_rvos_all274_sharded/shard-0/predictions.jsonl",
+      "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_instructseg_long_rvos_all274_sharded/shard-1/predictions.jsonl",
+      "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_instructseg_long_rvos_all274_sharded/shard-2/predictions.jsonl",
+      "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_instructseg_long_rvos_all274_sharded/shard-3/predictions.jsonl"
+    ],
+    "records_after_condition_filter": 1189,
+    "successful_records": 1189,
+    "failed_records": 0,
+    "expected_expression_identities": 1189,
+    "successful_expression_identities": 1189,
+    "missing_expression_identities": [],
+    "extra_expression_identities": [],
+    "failed_keys": [],
+    "eligible_paired_objects": 274,
+    "complete_paired_objects": 274,
+    "incomplete_paired_objects": []
+  },
+  {
+    "model": "VIRST",
+    "prediction_files": [
+      "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_virst_long_rvos_all274_sharded/shard-0/predictions.jsonl",
+      "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_virst_long_rvos_all274_sharded/shard-1/predictions.jsonl",
+      "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_virst_long_rvos_all274_sharded/shard-2/predictions.jsonl",
+      "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_virst_long_rvos_all274_sharded/shard-3/predictions.jsonl"
+    ],
+    "records_after_condition_filter": 1189,
+    "successful_records": 1189,
+    "failed_records": 0,
+    "expected_expression_identities": 1189,
+    "successful_expression_identities": 1189,
+    "missing_expression_identities": [],
+    "extra_expression_identities": [],
+    "failed_keys": [],
+    "eligible_paired_objects": 274,
+    "complete_paired_objects": 274,
+    "incomplete_paired_objects": [],
+    "runtime_protocol": {
+      "status": "pass",
+      "audited_successful_records": 1189,
+      "audited_source_videos": 90,
+      "same_video_sampling_signature_mismatches": 0,
+      "gt_available_to_model_records": 0,
+      "actual_vlm_frame_counts": [
+        64
+      ],
+      "actual_sam_frame_counts": [
+        32
+      ],
+      "sampling_signature_fields": [
+        "vlm_frame_indices",
+        "segmentation_frame_indices",
+        "sampling_seed"
+      ]
+    }
+  }
+]

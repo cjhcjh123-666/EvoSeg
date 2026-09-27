@@ -14,7 +14,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--title", default="Long-RVOS 64-object protocol check")
+    parser.add_argument("--title", default="Long-RVOS cross-model Dynamic gap")
     args = parser.parse_args()
 
     with args.summary.open(newline="", encoding="utf-8") as handle:
@@ -41,8 +41,15 @@ def main() -> None:
     for index, value in enumerate(values):
         ax.text(index + 0.08, value + 0.12, f"{value:.2f} pp", ha="left", va="bottom",
                 color="white", fontsize=9, fontweight="bold")
-    ax.text(0.01, 0.01, "95% source-video cluster bootstrap CI; n=64 paired objects",
-            transform=ax.transAxes, fontsize=8, color="#555555")
+    count = rows[0].get("paired_objects", rows[0].get("shared_paired_objects", "?"))
+    ax.text(
+        0.01,
+        0.01,
+        f"95% source-video cluster bootstrap CI; n={count} paired objects",
+        transform=ax.transAxes,
+        fontsize=8,
+        color="#555555",
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.output, dpi=180)
     plt.close(fig)

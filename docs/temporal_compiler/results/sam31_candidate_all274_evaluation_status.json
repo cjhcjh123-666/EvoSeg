@@ -1,0 +1,142 @@
+{
+  "created_at": "2026-09-25T09:57:31.477326+00:00",
+  "source_runs": [
+    {
+      "run_dir": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_all274/shard-0",
+      "run_config": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_all274/shard-0/run_config.json",
+      "exact_expected_key_count": 903,
+      "status": {
+        "state": "complete_with_failures",
+        "pid": 3793784,
+        "planned": 903,
+        "completed": 899,
+        "attempted_this_process": 903,
+        "failed_this_process": 4,
+        "elapsed_seconds_this_process": 76483.42833926529,
+        "estimated_remaining_seconds": 0.0,
+        "current_key": null,
+        "updated_at": "2026-09-25T08:54:58.405142+00:00"
+      }
+    },
+    {
+      "run_dir": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_all274/shard-1",
+      "run_config": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_all274/shard-1/run_config.json",
+      "exact_expected_key_count": 843,
+      "status": {
+        "state": "complete_with_failures",
+        "pid": 3548018,
+        "planned": 843,
+        "completed": 837,
+        "attempted_this_process": 843,
+        "failed_this_process": 6,
+        "elapsed_seconds_this_process": 61732.34128165245,
+        "estimated_remaining_seconds": 0.0,
+        "current_key": null,
+        "updated_at": "2026-09-24T23:52:00.309088+00:00"
+      }
+    },
+    {
+      "run_dir": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_all274/shard-2",
+      "run_config": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_all274/shard-2/run_config.json",
+      "exact_expected_key_count": 906,
+      "status": {
+        "state": "complete_with_failures",
+        "pid": 3639136,
+        "planned": 906,
+        "completed": 903,
+        "attempted_this_process": 906,
+        "failed_this_process": 3,
+        "elapsed_seconds_this_process": 71834.91839907318,
+        "estimated_remaining_seconds": 0.0,
+        "current_key": null,
+        "updated_at": "2026-09-25T04:47:38.225990+00:00"
+      }
+    },
+    {
+      "run_dir": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_all274/shard-3",
+      "run_config": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_all274/shard-3/run_config.json",
+      "exact_expected_key_count": 915,
+      "status": {
+        "state": "complete_with_failures",
+        "pid": 3686514,
+        "planned": 915,
+        "completed": 912,
+        "attempted_this_process": 915,
+        "failed_this_process": 3,
+        "elapsed_seconds_this_process": 73569.95697557181,
+        "estimated_remaining_seconds": 0.0,
+        "current_key": null,
+        "updated_at": "2026-09-25T06:00:18.736232+00:00"
+      }
+    }
+  ],
+  "generation_records": 3567,
+  "generation_attempt_records": 3567,
+  "successful_generation_records": 3551,
+  "unique_successful_generation_keys": 3551,
+  "failed_generation_records": 16,
+  "failed_generation_attempt_records": 16,
+  "unique_attempted_keys": 3567,
+  "retry_attempt_records": 0,
+  "expected_generation_records": 3567,
+  "missing_generation_records": 16,
+  "missing_successful_generation_records": 16,
+  "exact_expected_key_audit": {
+    "integrity_status": "pass",
+    "coverage_status": "incomplete",
+    "expected_keys": 3567,
+    "attempted_keys": 3567,
+    "successful_keys": 3551,
+    "never_attempted_keys": [],
+    "missing_successful_keys": [
+      "long_rvos/092ba1d6df/2/4/raw_expression",
+      "long_rvos/6fb7a04167/12/25/qwen_concept",
+      "long_rvos/6fb7a04167/15/28/qwen_concept",
+      "long_rvos/882e8c62d3/2/3/raw_expression",
+      "long_rvos/939b6aed6d/2/5/concept",
+      "long_rvos/939b6aed6d/2/5/qwen_concept",
+      "long_rvos/939b6aed6d/3/10/qwen_concept",
+      "long_rvos/939b6aed6d/3/8/concept",
+      "long_rvos/939b6aed6d/3/8/qwen_concept",
+      "long_rvos/939b6aed6d/3/9/concept",
+      "long_rvos/939b6aed6d/3/9/qwen_concept",
+      "long_rvos/c5c9b749d4/1/3/raw_expression",
+      "long_rvos/dca31590b8/1/9/raw_expression",
+      "long_rvos/e29fbdf03c/3/17/qwen_concept",
+      "long_rvos/f3fdaa2e8b/2/10/concept",
+      "long_rvos/f3fdaa2e8b/2/7/raw_expression"
+    ],
+    "failed_without_successful_retry_keys": [
+      "long_rvos/092ba1d6df/2/4/raw_expression",
+      "long_rvos/6fb7a04167/12/25/qwen_concept",
+      "long_rvos/6fb7a04167/15/28/qwen_concept",
+      "long_rvos/882e8c62d3/2/3/raw_expression",
+      "long_rvos/939b6aed6d/2/5/concept",
+      "long_rvos/939b6aed6d/2/5/qwen_concept",
+      "long_rvos/939b6aed6d/3/10/qwen_concept",
+      "long_rvos/939b6aed6d/3/8/concept",
+      "long_rvos/939b6aed6d/3/8/qwen_concept",
+      "long_rvos/939b6aed6d/3/9/concept",
+      "long_rvos/939b6aed6d/3/9/qwen_concept",
+      "long_rvos/c5c9b749d4/1/3/raw_expression",
+      "long_rvos/dca31590b8/1/9/raw_expression",
+      "long_rvos/e29fbdf03c/3/17/qwen_concept",
+      "long_rvos/f3fdaa2e8b/2/10/concept",
+      "long_rvos/f3fdaa2e8b/2/7/raw_expression"
+    ],
+    "failed_then_successful_retry_keys": [],
+    "unexpected_attempted_keys": [],
+    "source_expected_key_counts": [
+      903,
+      843,
+      906,
+      915
+    ]
+  },
+  "all_source_runs_complete": true,
+  "unique_successful_keys": 3551,
+  "evaluated_records": 3551,
+  "evaluation_workers": 4,
+  "output_dir": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260922_sam31_candidate_all274",
+  "ground_truth_used_only_in_evaluation": true
+}

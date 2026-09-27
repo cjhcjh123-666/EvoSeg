@@ -55,8 +55,8 @@ A one-object smoke completed 27/27 prompt-expression records with zero failures.
 
 For that one object only, concept prompts achieved oracle J&F 0.9302/0.9348/0.8100 for Static/Dynamic/Hybrid, and the Qwen concepts achieved 0.9348 for all three types. Raw expressions achieved 0.8287/0.3090/0.2161. Recall@0.5 was 1.0 for concept and Qwen conditions, while raw Dynamic and Hybrid were 0.3333. These values remain explicitly preliminary because the sample size is one object.
 
-The prediction-independent 32-object pilot is running as four object-level shards on GPUs 0--3. Final candidate coverage and the go/no-go decision remain pending the merged object-weighted evaluation; no method route is inferred from the smoke.
+The prediction-independent 32-object pilot and the full 274-object audit have now completed. The full run attempted all 3,567 expected conditions: 3,551 succeeded and 16 retained failures came from the official tracker's `No points are provided` path. There were no never-attempted keys. Deterministic concept prompting reached Dynamic oracle J&F 0.6892 and Recall@0.5 0.8162 on 272 complete objects.
 
 ## Suitability verdict at setup stage
 
-SAM 3.1 is technically suitable for testing as a candidate-track / pixel executor: the official checkpoint loads, text prompting produces multiple persistent object IDs and mask tracks, and candidate generation can be isolated from GT. Whether it is scientifically suitable for the proposed matcher is not yet established. That requires high target coverage on the 32-object pilot and then the full paired-object protocol; a low-coverage outcome is an explicit no-go for matcher training.
+SAM 3.1 is technically suitable as a candidate-track / pixel executor: the official checkpoint loads, text prompting produces multiple persistent object IDs and mask tracks, and candidate generation is isolated from GT. Full deterministic-concept coverage is sufficient for a limited frozen-component matcher prototype, but not complete enough to hide candidate misses or claim an end-to-end solution. Raw-expression prompting is not suitable as the primary candidate generator.
