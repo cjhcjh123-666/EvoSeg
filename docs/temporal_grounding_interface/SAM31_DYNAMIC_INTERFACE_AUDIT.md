@@ -4,7 +4,8 @@
 
 - 官方仓库：`facebookresearch/sam3`，本地 `main` commit `2345a4ad109ac29c569da749c91d84f10dc08c40`，工作树干净。
 - 版本依据：官方 `RELEASE_SAM3p1.md`（2026-03-27），Object Multiplex checkpoint。
-- checkpoint：`sam3.1_multiplex.pt`；实验配置会另存绝对路径和 SHA-256。
+- checkpoint：`sam3.1_multiplex.pt`，SHA-256 `0567debeec80ba4ac6369540c6c248025283cb3ff2b92827509e57e2b3541cb6`。
+- 隔离环境：Python 3.12，PyTorch `2.7.1+cu118`，A800 80GB；未修改共享 shell/CUDA 环境。
 - 原则：不修改 Meta checkout，不调用私有核心逻辑来制造实验效果。
 
 ## 官方公开 wrapper 能力
@@ -43,4 +44,3 @@ Static control 重复当前 anchor 图像到与 temporal branch 相同的图像/
 - 不直接调用内部 mask/point tracker 函数。
 - 候选点只由 candidate mask 计算；GT 只在完整推理结束后做指标与 correction transition 诊断。
 - 若真实 smoke 发现公开 point refinement 无法在同一 session 中按 stage 有界回传，本轮会明确改为 chunk-wise proxy，并在结果中单独标注，绝不静默替换。
-

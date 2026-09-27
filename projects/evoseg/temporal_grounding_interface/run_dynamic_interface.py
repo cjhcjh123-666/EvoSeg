@@ -133,6 +133,81 @@ def stream_masks(
     return result
 
 
+def build_selection_plan(condition, states: np.lib.npyio.NpzFile, candidates: dict) -> list[dict]:
+    """Fix all candidate choices before tracker execution, without GT."""
+
+    stage_numbers = stage_indices_for_count(condition.stages)
+    stage_by_number = {int(value["stage_index"]): value for value in candidates["stages"]}
+    plan = []
+    for order, stage_number in enumerate(stage_numbers):
+        stage = stage_by_number[stage_number]
+        state_kind = (
+            "temporal" if condition.state_kind in {"temporal", "global"} else "static"
+        )
+        reference = np.asarray(states[f"{state_kind}_{stage_number}_mask"], dtype=bool)
+        decoded = [decode_rle(value["mask"]) for value in stage["candidates"]]
+        selected = select_candidate(reference, decoded)
+        selected_candidate = stage["candidates"][selected] if selected is not None else None
+        point = deterministic_positive_point(decoded[selected]) if selected is not None else None
+        plan.append(
+            {
+                "stage_order": order,
+                "canonical_stage_index": stage_number,
+                "anchor_frame_index": int(stage["anchor_frame_index"]),
+                "state_kind": state_kind,
+                "candidate_count": len(decoded),
+                "selected_candidate_index": selected,
+                "selected_candidate_object_id": selected_candidate["object_id"]
+                if selected_candidate
+                else None,
+                "selected_candidate_confidence": selected_candidate["confidence"]
+                if selected_candidate
+                else None,
+                "candidate_scores": [mask_iou(reference, value) for value in decoded],
+                "update_applied": selected is not None,
+                "positive_point_relative_xy": point,
+            }
+        )
+    return plan
+
+
+def tracking_signature(video_id: str, plan: list[dict]) -> str:
+    """The SAM tracker depends only on video, endpoints, and public point prompts."""
+
+    value = [
+        {
+            "frame": row["anchor_frame_index"],
+            "point": row["positive_point_relative_xy"],
+            "update": row["update_applied"],
+        }
+        for row in plan
+    ]
+    return f"{video_id}:" + json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def reuse_tracking_output(cached: dict, plan: list[dict]) -> dict:
+    if len(cached["stages"]) != len(plan):
+        raise RuntimeError("cached tracking stage count differs from selection plan")
+    stages = []
+    for selection, tracking in zip(plan, cached["stages"]):
+        if selection["anchor_frame_index"] != tracking["anchor_frame_index"]:
+            raise RuntimeError("cached tracking endpoint differs")
+        stages.append(
+            {
+                **selection,
+                "pre_update_mask": tracking["pre_update_mask"],
+                "post_update_mask": tracking["post_update_mask"],
+            }
+        )
+    return {
+        "masks": cached["masks"],
+        "stages": stages,
+        "session_api_compat": cached["session_api_compat"],
+        "update_count": sum(value["update_applied"] for value in plan),
+        "vlm_forward_count": len(plan),
+    }
+
+
 def infer_condition(
     predictor,
     video_path: Path,
@@ -140,11 +215,11 @@ def infer_condition(
     condition,
     states: np.lib.npyio.NpzFile,
     candidates: dict,
+    selection_plan: list[dict] | None = None,
 ) -> dict:
     """Inference-only function: by design, it cannot receive ground truth."""
 
-    stage_numbers = stage_indices_for_count(condition.stages)
-    stage_by_number = {int(value["stage_index"]): value for value in candidates["stages"]}
+    plan = selection_plan or build_selection_plan(condition, states, candidates)
     with Image.open(video_path / f"{item['frame_names'][0]}.jpg") as image:
         shape = (image.height, image.width)
     session, compatibility = start_multiplex_session(predictor, str(video_path))
@@ -154,9 +229,8 @@ def infer_condition(
     stages = []
     previous_endpoint = -1
     try:
-        for order, stage_number in enumerate(stage_numbers):
-            stage = stage_by_number[stage_number]
-            endpoint = int(stage["anchor_frame_index"])
+        for selection in plan:
+            endpoint = int(selection["anchor_frame_index"])
             chunk_start = previous_endpoint + 1
             pre_update = None
             if previous_endpoint >= 0:
@@ -174,16 +248,10 @@ def infer_condition(
                     if chunk_start <= index <= endpoint:
                         final_masks[index] = mask
 
-            state_kind = "temporal" if condition.state_kind in {"temporal", "global"} else "static"
-            reference = np.asarray(states[f"{state_kind}_{stage_number}_mask"], dtype=bool)
-            decoded_candidates = [decode_rle(value["mask"]) for value in stage["candidates"]]
-            selected = select_candidate(reference, decoded_candidates)
-            update_applied = selected is not None
-            selected_candidate = stage["candidates"][selected] if selected is not None else None
-            point = None
+            update_applied = bool(selection["update_applied"])
+            point = selection["positive_point_relative_xy"]
             post_update = None
-            if selected_candidate is not None:
-                point = deterministic_positive_point(decoded_candidates[selected])
+            if update_applied:
                 response = predictor.add_prompt(
                     session_id=session_id,
                     frame_idx=endpoint,
@@ -212,21 +280,7 @@ def infer_condition(
                 final_masks.setdefault(index, np.zeros(shape, dtype=bool))
             stages.append(
                 {
-                    "stage_order": order,
-                    "canonical_stage_index": stage_number,
-                    "anchor_frame_index": endpoint,
-                    "state_kind": state_kind,
-                    "candidate_count": len(decoded_candidates),
-                    "selected_candidate_index": selected,
-                    "selected_candidate_object_id": selected_candidate["object_id"]
-                    if selected_candidate
-                    else None,
-                    "selected_candidate_confidence": selected_candidate["confidence"]
-                    if selected_candidate
-                    else None,
-                    "candidate_scores": [mask_iou(reference, value) for value in decoded_candidates],
-                    "update_applied": update_applied,
-                    "positive_point_relative_xy": point,
+                    **selection,
                     "pre_update_mask": pre_update,
                     "post_update_mask": post_update,
                 }
@@ -241,7 +295,7 @@ def infer_condition(
         "masks": final_masks,
         "stages": stages,
         "session_api_compat": compatibility,
-        "update_count": sum(value["update_applied"] for value in stages),
+        "update_count": sum(value["update_applied"] for value in plan),
         "vlm_forward_count": len(stages),
     }
 
@@ -427,6 +481,7 @@ def run(args) -> int:
     planned = len(ordered_identities) * len(CONDITIONS)
     attempted = failed = 0
     started = time.monotonic()
+    tracking_cache = {}
     image_root = Path(manifest["dataset"]["image_root"])
     (run_dir / "prediction_masks").mkdir(parents=True, exist_ok=True)
     for identity in ordered_identities:
@@ -459,16 +514,34 @@ def run(args) -> int:
                     torch.cuda.synchronize()
                     torch.cuda.reset_peak_memory_stats()
                     condition_started = time.perf_counter()
-                    inference = infer_condition(
-                        predictor,
-                        image_root / item["video_id"],
-                        item,
-                        condition,
-                        state_payload,
-                        candidate_value,
+                    selection_plan = build_selection_plan(
+                        condition, state_payload, candidate_value
                     )
-                    torch.cuda.synchronize()
-                    sam31_latency = time.perf_counter() - condition_started
+                    signature = tracking_signature(item["video_id"], selection_plan)
+                    cache_hit = signature in tracking_cache
+                    if cache_hit:
+                        cached = tracking_cache[signature]
+                        inference = reuse_tracking_output(cached["inference"], selection_plan)
+                        sam31_latency = cached["latency"]
+                        sam_peak = cached["peak_memory"]
+                    else:
+                        inference = infer_condition(
+                            predictor,
+                            image_root / item["video_id"],
+                            item,
+                            condition,
+                            state_payload,
+                            candidate_value,
+                            selection_plan=selection_plan,
+                        )
+                        torch.cuda.synchronize()
+                        sam31_latency = time.perf_counter() - condition_started
+                        sam_peak = int(torch.cuda.max_memory_allocated())
+                        tracking_cache[signature] = {
+                            "inference": inference,
+                            "latency": sam31_latency,
+                            "peak_memory": sam_peak,
+                        }
                     metrics, stage_rows = evaluate_fixed_output(inference, item, candidate_value)
                     selected_stage_indices = {
                         int(value["canonical_stage_index"]) for value in stage_rows
@@ -496,7 +569,6 @@ def run(args) -> int:
                             if int(value["stage_index"]) in selected_stage_indices
                         )
                     )
-                    sam_peak = int(torch.cuda.max_memory_allocated())
                     state_peak = max(
                         int(value["peak_memory_bytes"]) for value in selected_state_metadata
                     )
@@ -539,6 +611,8 @@ def run(args) -> int:
                             "vlm_latency_seconds_synchronized": vlm_latency,
                             "candidate_latency_seconds_synchronized": candidate_latency,
                             "sam31_latency_seconds_synchronized": sam31_latency,
+                            "sam31_tracking_cache_hit": cache_hit,
+                            "sam31_tracking_signature": signature,
                             "latency_seconds_synchronized": vlm_latency
                             + candidate_latency
                             + sam31_latency,
