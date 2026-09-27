@@ -57,8 +57,106 @@ from projects.evoseg.temporal_compiler.summarize_cross_model import (
     summarize_model,
     summarize_shared_pairs,
 )
+from projects.evoseg.temporal_compiler.temporal_matcher_prototype import (
+    MatchedTrackScorer,
+    cluster_bootstrap_difference as matcher_cluster_bootstrap_difference,
+    deterministic_video_split,
+    model_parameter_count,
+    region_pool,
+    top_confidence_jf,
+    uniform_positions,
+)
 
 import numpy as np
+
+
+def test_temporal_matcher_sampling_and_split_are_deterministic():
+    assert uniform_positions(17, 8) == [0, 2, 5, 7, 9, 11, 14, 16]
+    assert uniform_positions(4, 8) == [0, 1, 2, 3]
+    videos = [f"v{index:02d}" for index in range(10)]
+    first = deterministic_video_split(videos, seed=42, train=6, val=2)
+    second = deterministic_video_split(reversed(videos), seed=42, train=6, val=2)
+    assert first == second
+    assert {video for values in first.values() for video in values} == set(videos)
+
+
+def test_temporal_matcher_static_and_temporal_paths_are_parameter_matched():
+    import torch
+
+    scorer = MatchedTrackScorer.build(
+        query_dimension=4,
+        visual_dimension=6,
+        model_dimension=8,
+        heads=2,
+        layers=2,
+        dropout=0.0,
+    )
+    query = torch.randn(3, 4)
+    tracks = torch.randn(3, 5, 6)
+    assert scorer(query, tracks, temporal=False).shape == (3,)
+    assert scorer(query, tracks, temporal=True).shape == (3,)
+    count = model_parameter_count(scorer)
+    assert count > 0
+    assert model_parameter_count(scorer) == count
+
+
+def test_temporal_matcher_region_pool_and_dynamic_bootstrap():
+    import torch
+
+    patches = torch.arange(12, dtype=torch.float32).reshape(4, 3)
+    pooled, nonempty = region_pool(
+        patches, np.array([[1, 0], [0, 0]], dtype=bool), (2, 2)
+    )
+    assert nonempty is True
+    assert torch.equal(pooled, patches[0])
+    empty, nonempty = region_pool(patches, np.zeros((2, 2), dtype=bool), (2, 2))
+    assert nonempty is False
+    assert torch.equal(empty, torch.zeros(3))
+
+    rows = [
+        {
+            "video_id": "a",
+            "object_id": "1",
+            "description_type": "dynamic",
+            "static_J_and_F": 0.4,
+            "temporal_J_and_F": 0.5,
+        },
+        {
+            "video_id": "b",
+            "object_id": "2",
+            "description_type": "dynamic",
+            "static_J_and_F": 0.6,
+            "temporal_J_and_F": 0.7,
+        },
+        {
+            "video_id": "a",
+            "object_id": "1",
+            "description_type": "static",
+            "static_J_and_F": 0.1,
+            "temporal_J_and_F": 0.9,
+        },
+    ]
+    summary = matcher_cluster_bootstrap_difference(rows, seed=42, iterations=20)
+    assert summary["objects"] == 2
+    assert np.isclose(summary["mean_difference"], 0.1)
+    assert np.isclose(summary["ci_low"], 0.1)
+    assert np.isclose(summary["ci_high"], 0.1)
+
+
+def test_temporal_matcher_confidence_selection_is_gt_free_and_null_safe():
+    metric = {
+        "candidate_metrics": [
+            {"track_id": 1, "confidence": None, "J_and_F": 0.9},
+            {"track_id": 2, "confidence": 0.2, "J_and_F": 0.4},
+            {"track_id": 3, "confidence": 0.8, "J_and_F": 0.3},
+        ]
+    }
+    assert top_confidence_jf(metric) == 0.3
+    metric["candidate_metrics"] = [
+        {"track_id": 1, "confidence": None, "J_and_F": 0.2},
+        {"track_id": 2, "confidence": None, "J_and_F": 0.9},
+    ]
+    assert top_confidence_jf(metric) == 0.2
 
 
 def test_stable_key_keeps_expression_and_budget():
