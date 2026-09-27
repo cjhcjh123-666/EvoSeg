@@ -43,4 +43,8 @@ Prototype gate 通过，但边界如下：
 - source-video-disjoint train/val/test；固定 split seed=42，三个模型种子。
 - static/temporal scorer 参数完全相同，区别只有时间顺序是否保留。
 - 只用官方表达和 GT mask 匹配 candidate target；不生成 query 或伪标签。
-- candidate miss 独立保留。若 Dynamic 上 temporal ≤ static 或区间跨零，则停止，不 claim temporal sequence modeling 有效，也不进入更大训练。
+- candidate miss 独立保留并按实际选中候选计分，生成失败或零候选记为 0。若 Dynamic 上 temporal ≤ static 或区间跨零，则停止，不 claim temporal sequence modeling 有效，也不进入更大训练。
+
+## Post-gate prototype outcome
+
+The authorized minimal prototype did not clear its core ablation: Dynamic J&F was 0.4291 for the temporal matcher and 0.4468 for the parameter-matched static scorer. Across seeds 11/23/42, D−C was −1.77pp with 95% source-video cluster bootstrap CI [−4.51,+0.64]pp. Route B remains the diagnosis-driven research direction, but this particular frozen SigLIP-region-feature + single-`z_seg` matcher is a NO-GO. No larger training was launched.

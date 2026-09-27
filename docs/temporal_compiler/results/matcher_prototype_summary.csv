@@ -1,0 +1,16 @@
+method,description_type,objects,source_videos,mean_J_and_F
+raw_expression,dynamic,40,15,0.19202067413848983
+raw_expression,hybrid,40,15,0.21700252583332924
+raw_expression,static,40,15,0.29921467259992307
+concept_only,dynamic,40,15,0.38062888416703017
+concept_only,hybrid,40,15,0.4180381103715537
+concept_only,static,40,15,0.4082288331554008
+concept_oracle,dynamic,40,15,0.5932661133179866
+concept_oracle,hybrid,40,15,0.5709075011661209
+concept_oracle,static,40,15,0.6293147305029363
+static,dynamic,40,15,0.4468285946063618
+static,hybrid,40,15,0.4611225282556724
+static,static,40,15,0.5000700077290008
+temporal,dynamic,40,15,0.42909880175320947
+temporal,hybrid,40,15,0.45057824536415536
+temporal,static,40,15,0.4743238270490334

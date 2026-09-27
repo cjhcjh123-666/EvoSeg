@@ -31,7 +31,7 @@ deterministic concept 的 Dynamic Recall@0.5 为 81.62%，说明 candidate bank 
 ## Decision
 
 - **Candidate-generation gate：有条件通过。** deterministic concept 是首选，Dynamic coverage 足以检验轻量 matcher，但不是部署级完整召回。
-- **允许的训练范围：** 冻结 SAM3.1、VLM 和视觉塔，只训练最小 parameter-matched static/temporal track scorer；candidate miss 不进入正样本训练，并在端到端测试中保留为 0。
+- **允许的训练范围：** 冻结 SAM3.1、VLM 和视觉塔，只训练最小 parameter-matched static/temporal track scorer；candidate miss 不进入正样本训练，并在端到端测试中保留标记、按实际选中候选计分。生成失败或零候选记为 0。
 - **不允许的结论：** oracle 高不代表 query-conditioned selection 已解决，也不代表 SAM3.1 理解了 dynamic expression；oracle 使用 GT，仅测候选集合覆盖。
 - 若 temporal scorer 未在 Dynamic 上优于 parameter-matched static scorer，则不能 claim temporal sequence modeling 有效，并在最小 prototype 后停止。
 

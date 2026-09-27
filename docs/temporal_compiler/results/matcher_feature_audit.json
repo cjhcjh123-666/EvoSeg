@@ -1,0 +1,15 @@
+{
+  "created_at": "2026-09-27T04:39:18.711548+00:00",
+  "inputs": [
+    "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260927_temporal_matcher_prototype/features/shard-0.pt",
+    "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260927_temporal_matcher_prototype/features/shard-1.pt"
+  ],
+  "input_sha256": {
+    "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260927_temporal_matcher_prototype/features/shard-0.pt": "d0229f873e04cb48755ee022e1284b0734aa423586d1ea29d0162cecf15e7a99",
+    "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260927_temporal_matcher_prototype/features/shard-1.pt": "d9ca8bbeb9dbca42dd4c405207cb28f77452e77f05e801a616b1af421c07ca67"
+  },
+  "record_count": 1185,
+  "unique_identities": 1185,
+  "feature_file": "/9950backfile/chenjiahui/evo_artifacts/results/temporal_compiler/20260927_temporal_matcher_prototype/features/all.pt",
+  "feature_file_sha256": "557695fe5bbd2b01091cfb1458feec7e2cf67bc650c270f5e3c4b67036469b06"
+}

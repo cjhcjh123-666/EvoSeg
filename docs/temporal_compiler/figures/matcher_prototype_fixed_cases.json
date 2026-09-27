@@ -1,0 +1,41 @@
+{
+  "selection": "seeded shuffle of all Dynamic test identities; prediction-independent",
+  "selection_seed": 42,
+  "model_seeds": [
+    11,
+    23,
+    42
+  ],
+  "cases": [
+    {
+      "identity": "long_rvos/2980a00b04/2/5",
+      "expression": "The woman spins the paper bag in her hand and directs the blindfolded woman.",
+      "concept_prompt": "woman",
+      "frame_index": 127,
+      "frame_name": "00635",
+      "selected_tracks": {
+        "static_seed11": 3,
+        "temporal_seed11": 3,
+        "static_seed23": 3,
+        "temporal_seed23": 3,
+        "static_seed42": 3,
+        "temporal_seed42": 3
+      }
+    },
+    {
+      "identity": "long_rvos/2980a00b04/3/8",
+      "expression": "The man guides a woman wearing a blindfold to hit a tree, then runs and sits on a chair on the grass.",
+      "concept_prompt": "man",
+      "frame_index": 117,
+      "frame_name": "00585",
+      "selected_tracks": {
+        "static_seed11": 14,
+        "temporal_seed11": 15,
+        "static_seed23": 14,
+        "temporal_seed23": 0,
+        "static_seed42": 14,
+        "temporal_seed42": 15
+      }
+    }
+  ]
+}
