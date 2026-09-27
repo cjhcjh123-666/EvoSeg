@@ -446,6 +446,9 @@ def run(args) -> int:
             item_by_identity[identity] = item
             expression_by_identity[identity] = expression
             ordered_identities.append(identity)
+    if args.start_expression < 0:
+        raise ValueError("--start-expression must be non-negative")
+    ordered_identities = ordered_identities[args.start_expression :]
     if args.max_expressions:
         ordered_identities = ordered_identities[: args.max_expressions]
     states = successful_index(state_root / "stage_grounding_records.jsonl")
@@ -500,6 +503,8 @@ def run(args) -> int:
             ),
             "shard_index": args.shard_index,
             "num_shards": args.num_shards,
+            "start_expression": args.start_expression,
+            "max_expressions": args.max_expressions,
         },
     )
     records_path = run_dir / "dynamic_predictions.jsonl"
@@ -709,6 +714,7 @@ def parse_args():
     parser.add_argument("--device", type=int, required=True)
     parser.add_argument("--max-objects", type=int)
     parser.add_argument("--max-expressions", type=int)
+    parser.add_argument("--start-expression", type=int, default=0)
     parser.add_argument(
         "--condition",
         action="append",
