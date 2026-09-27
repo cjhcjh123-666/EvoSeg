@@ -221,16 +221,21 @@ def run(args) -> int:
                     query_started = time.perf_counter()
                     stages = []
                     for stage_index, endpoint in enumerate(endpoints):
+                        torch.cuda.synchronize()
+                        stage_started = time.perf_counter()
                         response = predictor.add_prompt(
                             session_id=session_id,
                             frame_idx=endpoint,
                             text=parse["concept"],
                         )
+                        torch.cuda.synchronize()
                         stages.append(
                             {
                                 "stage_index": stage_index,
                                 "anchor_frame_index": int(response["frame_index"]),
                                 "anchor_frame_name": item["frame_names"][endpoint],
+                                "latency_seconds_synchronized": time.perf_counter()
+                                - stage_started,
                                 "candidates": output_candidates(response["outputs"]),
                             }
                         )
@@ -323,4 +328,3 @@ def parse_args():
 
 if __name__ == "__main__":
     raise SystemExit(run(parse_args()))
-

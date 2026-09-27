@@ -468,8 +468,39 @@ def run(args) -> int:
                         candidate_value,
                     )
                     torch.cuda.synchronize()
-                    latency = time.perf_counter() - condition_started
+                    sam31_latency = time.perf_counter() - condition_started
                     metrics, stage_rows = evaluate_fixed_output(inference, item, candidate_value)
+                    selected_stage_indices = {
+                        int(value["canonical_stage_index"]) for value in stage_rows
+                    }
+                    state_kind = (
+                        "temporal"
+                        if condition.state_kind in {"temporal", "global"}
+                        else "static"
+                    )
+                    selected_state_metadata = [
+                        value
+                        for value in state_record["state_metadata"]
+                        if value["state_kind"] == state_kind
+                        and int(value["stage_index"]) in selected_stage_indices
+                    ]
+                    if len(selected_state_metadata) != condition.stages:
+                        raise RuntimeError("selected VLM stage metadata is incomplete")
+                    vlm_latency = float(
+                        sum(value["latency_seconds_synchronized"] for value in selected_state_metadata)
+                    )
+                    candidate_latency = float(
+                        sum(
+                            value.get("latency_seconds_synchronized", 0.0)
+                            for value in candidate_value["stages"]
+                            if int(value["stage_index"]) in selected_stage_indices
+                        )
+                    )
+                    sam_peak = int(torch.cuda.max_memory_allocated())
+                    state_peak = max(
+                        int(value["peak_memory_bytes"]) for value in selected_state_metadata
+                    )
+                    candidate_peak = int(candidate_record["peak_memory_bytes"])
                     relative = Path("prediction_masks") / (
                         f"{identity.replace('/', '__')}__{condition.name}.json"
                     )
@@ -505,8 +536,18 @@ def run(args) -> int:
                             **metrics,
                             "prompt_updates": inference["update_count"],
                             "vlm_forward_count": inference["vlm_forward_count"],
-                            "latency_seconds_synchronized": latency,
-                            "peak_memory_bytes": int(torch.cuda.max_memory_allocated()),
+                            "vlm_latency_seconds_synchronized": vlm_latency,
+                            "candidate_latency_seconds_synchronized": candidate_latency,
+                            "sam31_latency_seconds_synchronized": sam31_latency,
+                            "latency_seconds_synchronized": vlm_latency
+                            + candidate_latency
+                            + sam31_latency,
+                            "peak_memory_bytes": max(sam_peak, state_peak, candidate_peak),
+                            "component_peak_memory_bytes": {
+                                "vlm": state_peak,
+                                "candidate_generator": candidate_peak,
+                                "sam31_tracking": sam_peak,
+                            },
                             "prediction_masks_path": str(relative),
                             "session_api_compat": inference["session_api_compat"],
                         }
