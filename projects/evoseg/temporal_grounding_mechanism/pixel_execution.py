@@ -269,6 +269,9 @@ def run(args) -> int:
         for item in manifest["objects"][: args.max_objects]
     }
     plans = load_plans(Path(args.plans), manifest, args.max_objects, args.shard_index, args.num_shards)
+    if not 0 <= args.plan_slice_index < args.plan_slice_count:
+        raise ValueError("plan-slice-index must be in [0, plan-slice-count)")
+    plans = plans[args.plan_slice_index :: args.plan_slice_count]
     if args.max_plans is not None:
         plans = plans[: args.max_plans]
     candidates = candidate_sources(Path(args.candidate_root))
@@ -462,6 +465,8 @@ def parse_args():
     parser.add_argument("--max-objects", type=int, default=64)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--num-shards", type=int, default=1)
+    parser.add_argument("--plan-slice-index", type=int, default=0)
+    parser.add_argument("--plan-slice-count", type=int, default=1)
     parser.add_argument("--max-plans", type=int)
     return parser.parse_args()
 
