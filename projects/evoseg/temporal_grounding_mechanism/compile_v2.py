@@ -95,6 +95,33 @@ def pixel_summary(rows: list[dict]) -> list[dict]:
     return output
 
 
+def decomposition_summary(rows: list[dict]) -> list[dict]:
+    fields = [
+        "direct_track_J_and_F", "anchor_candidate_J_and_F", "init_J_and_F",
+        "candidate_to_init_IoU", "propagated_J_and_F",
+        "initialization_loss_J_and_F", "propagation_loss_J_and_F",
+        "direct_to_propagated_loss_J_and_F",
+    ]
+    output = []
+    for basis in ("predicted_static", "oracle_identity"):
+        for form in ("point", "box"):
+            for kind in ("static", "dynamic", "hybrid"):
+                selected = [
+                    row for row in rows
+                    if row["identity_basis"] == basis and row["prompt_form"] == form
+                    and row["description_type"] == kind
+                ]
+                output.append({
+                    "identity_basis": basis,
+                    "prompt_form": form,
+                    "description_type": kind,
+                    "expressions": len(selected),
+                    "objects": len({(row["video_id"], row["object_id"]) for row in selected}),
+                    **mean_objects(selected, fields),
+                })
+    return output
+
+
 def markdown_table(rows: list[dict], fields: list[str], percent: set[str]) -> str:
     lines = ["| " + " | ".join(fields) + " |", "|" + "---|" * len(fields)]
     for row in rows:
@@ -116,13 +143,21 @@ def run(args) -> None:
     output.mkdir(parents=True, exist_ok=True)
     detailed_probe = read_csv(probe_dir / "probe_results_by_model.csv")
     ensemble = [row for row in detailed_probe if row["model_seed"] == "ensemble"]
-    if len(ensemble) != 1189:
-        raise RuntimeError(f"full probe incomplete: ensemble {len(ensemble)}/1189")
-    if len(detailed_probe) != 1189 * 4:
-        raise RuntimeError(f"full probe seed matrix incomplete: {len(detailed_probe)}/{1189 * 4}")
     probe_audit = json.loads((probe_dir / "probe_audit.json").read_text())
+    expected_evaluation = int(probe_audit["evaluation_expressions"])
+    if len(ensemble) != expected_evaluation:
+        raise RuntimeError(f"full probe incomplete: ensemble {len(ensemble)}/{expected_evaluation}")
+    if len(detailed_probe) != expected_evaluation * 4:
+        raise RuntimeError(
+            f"full probe seed matrix incomplete: {len(detailed_probe)}/{expected_evaluation * 4}"
+        )
     if probe_audit["checkpoint_mode"] != "load_only":
         raise RuntimeError("full validation was not evaluated from frozen reconstructed checkpoints")
+    eval_feature_meta = json.loads(
+        Path(probe_audit["inputs"]["eval_features"]).with_suffix(".json").read_text()
+    )
+    missing_states = eval_feature_meta.get("missing_state_identities", [])
+    missing_candidates = eval_feature_meta.get("missing_candidate_identities", [])
     shutil.copyfile(probe_dir / "probe_results_by_model.csv", output / "full_probe_results.csv")
     probe_stats = probe_summary(detailed_probe)
 
@@ -170,15 +205,15 @@ def run(args) -> None:
         })
     write_csv(output / "propagation_decomposition.csv", decomposition)
     pixel_stats = pixel_summary(pixel)
+    decomposition_stats = decomposition_summary(decomposition)
 
     dynamic_ensemble = [row for row in ensemble if row["description_type"] == "dynamic"]
     dynamic_hits = [row for row in dynamic_ensemble if int(row["candidate_hit"])]
     accuracy_ci = source_video_bootstrap(dynamic_hits, "temporal_selection_correct", "static_selection_correct")
     jf_ci = source_video_bootstrap(dynamic_ensemble, "temporal_candidate_direct_J_and_F", "static_candidate_direct_J_and_F")
-    dynamic_probe = [row for row in probe_stats if row["model_seed"] == "ensemble" and row["description_type"] == "dynamic"]
-    full_report = """# Full Temporal Probe Validation
+    full_report = f"""# Full Temporal Probe Validation
 
-The preregistered, parameter-identical probes were evaluated on all 274 paired validation objects without validation training, seed selection, architecture changes, or hyperparameter changes. The original implementation did not persist pilot checkpoints; the three probes were therefore deterministically reconstructed once from the unchanged official-train tensors/split/config, checked against the pilot outputs, frozen, and loaded in `load_only` mode for this full evaluation.
+The preregistered, parameter-identical probes were evaluated on all 274 paired validation objects without validation training, seed selection, architecture changes, or hyperparameter changes. {expected_evaluation}/1189 expressions produced evaluable frozen inputs; {len(missing_states)} deterministic state-extraction failure(s) are listed below and were not imputed. The {len(missing_candidates)} official candidate-generation failure(s) were retained as genuine no-candidate outcomes (zero candidate-direct J&F), rather than silently removed. The original implementation did not persist pilot checkpoints; the three probes were therefore deterministically reconstructed once from the unchanged official-train tensors/split/config, checked against the pilot outputs, frozen, and loaded in `load_only` mode for this full evaluation.
 
 """ + markdown_table(
         [row for row in probe_stats if row["model_seed"] == "ensemble"],
@@ -197,19 +232,33 @@ The preregistered, parameter-identical probes were evaluated on all 274 paired v
         [row for row in probe_stats if row["model_seed"] != "ensemble" and row["description_type"] == "dynamic"],
         ["model_seed", "method", "selection_accuracy_on_candidate_hits", "candidate_direct_J_and_F"],
         {"selection_accuracy_on_candidate_hits", "candidate_direct_J_and_F"},
+    ) + "\n\n## State extraction failures\n\n" + (
+        "\n".join(f"- `{identity}`" for identity in missing_states) if missing_states else "None."
+    ) + "\n\n## Candidate-generation failures (counted as misses)\n\n" + (
+        "\n".join(f"- `{identity}`" for identity in missing_candidates)
+        if missing_candidates else "None."
     ) + "\n"
     (output / "FULL_PROBE_REPORT.md").write_text(full_report)
 
-    dynamic_pixel = [row for row in pixel_stats if row["description_type"] == "dynamic"]
     pixel_report = """# Pixel Execution Decomposition
 
 The candidate identity and four-stage plan are fixed across C0/C1/C2 and C3/C4. Candidate masks generate prompts; GT is opened only after prompt inference. Point and box use the Meta public multiplex `add_prompt` wrapper. The public multiplex model has no stable mask-prompt method (`add_mask` explicitly rejects it), so MASK_INIT / MASK_PROPAGATE are **N/A**. Box prompting uses official semantic-box behavior, which resets semantic state at each stage; this limitation is part of the measured public interface.
 
 """ + markdown_table(
-        dynamic_pixel,
-        ["identity_basis", "prompt_form", "expressions", "anchor_candidate_J_and_F", "init_J_and_F", "candidate_to_init_IoU", "propagated_J_and_F", "initialization_loss_J_and_F", "propagation_loss_J_and_F"],
-        {"anchor_candidate_J_and_F", "init_J_and_F", "candidate_to_init_IoU", "propagated_J_and_F", "initialization_loss_J_and_F", "propagation_loss_J_and_F"},
-    ) + "\n"
+        decomposition_stats,
+        ["identity_basis", "prompt_form", "description_type", "expressions",
+         "direct_track_J_and_F", "anchor_candidate_J_and_F", "init_J_and_F",
+         "candidate_to_init_IoU", "propagated_J_and_F",
+         "initialization_loss_J_and_F", "propagation_loss_J_and_F",
+         "direct_to_propagated_loss_J_and_F"],
+        {"direct_track_J_and_F", "anchor_candidate_J_and_F", "init_J_and_F",
+         "candidate_to_init_IoU", "propagated_J_and_F",
+         "initialization_loss_J_and_F", "propagation_loss_J_and_F",
+         "direct_to_propagated_loss_J_and_F"},
+    ) + """
+
+`initialization_loss_J_and_F = init - anchor`; `propagation_loss_J_and_F = propagated - init`; and `direct_to_propagated_loss_J_and_F = propagated - C0 DIRECT_TRACK`. Negative values are losses. C1/C3 score only the immediate anchor output, whereas C2/C4 score the propagated video.
+"""
     (output / "PIXEL_EXECUTION_REPORT.md").write_text(pixel_report)
 
     decision_names = {
@@ -237,6 +286,9 @@ No final Method was trained in this run.
     (output / "summary.json").write_text(json.dumps({
         "probe_summary": probe_stats, "dynamic_accuracy_bootstrap": accuracy_ci,
         "dynamic_candidate_direct_bootstrap": jf_ci, "pixel_summary": pixel_stats,
+        "decomposition_summary": decomposition_stats,
+        "missing_candidate_identities": missing_candidates,
+        "missing_state_identities": missing_states,
         "decision": args.decision,
     }, indent=2) + "\n")
 

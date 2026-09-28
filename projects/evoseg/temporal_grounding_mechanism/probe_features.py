@@ -64,9 +64,21 @@ def run(args) -> None:
     }
     candidates = load_candidates(Path(args.candidate_root))
     states = load_states(Path(args.state_records))
-    missing = sorted(set(expression_index) - set(candidates) | (set(expression_index) - set(states)))
-    if missing:
-        raise RuntimeError(f"missing frozen cache for {len(missing)} expressions; first={missing[0]}")
+    missing_candidates = sorted(set(expression_index) - set(candidates))
+    missing_states = sorted(set(expression_index) - set(states))
+    if missing_candidates and not args.allow_missing_candidates:
+        raise RuntimeError(
+            f"missing candidate cache for {len(missing_candidates)} expressions; first={missing_candidates[0]}"
+        )
+    if missing_states and not args.allow_missing_states:
+        raise RuntimeError(
+            f"missing frozen state for {len(missing_states)} expressions; first={missing_states[0]}"
+        )
+    if missing_states:
+        expression_index = {
+            key: value for key, value in expression_index.items() if key not in set(missing_states)
+        }
+    missing_candidates = [key for key in missing_candidates if key in expression_index]
     torch.cuda.set_device(args.device)
     model, processor, config, load_audit = load_siglip_vision_model(
         Path(args.vision_checkpoint), f"cuda:{args.device}"
@@ -75,9 +87,46 @@ def run(args) -> None:
     image_root = Path(manifest["dataset"]["image_root"])
     by_video = defaultdict(list)
     for key, value in expression_index.items():
-        by_video[value[0]["video_id"]].append(key)
+        if key not in set(missing_candidates):
+            by_video[value[0]["video_id"]].append(key)
     payload = []
     records = []
+    # A failed candidate-generation call is a genuine no-candidate outcome, not
+    # a reason to silently remove the expression.  It needs no image feature:
+    # both probes return no selection and candidate-direct J&F=0.  We still
+    # retain the frozen query/state so the serialized schema stays identical.
+    for key in missing_candidates:
+        item, expression = expression_index[key]
+        with np.load(states[key]) as state:
+            temporal_states = np.stack(
+                [np.asarray(state[f"temporal_{stage}_z"], dtype=np.float32) for stage in STAGES]
+            )
+            static_state = np.asarray(state["static_7_z"], dtype=np.float32)
+        payload.append(
+            {
+                "identity": key,
+                "static_query": torch.from_numpy(static_state),
+                "temporal_states": torch.from_numpy(temporal_states),
+                "tracks": torch.zeros((0, len(STAGES), config.hidden_size), dtype=torch.float16),
+            }
+        )
+        records.append(
+            {
+                "identity": key,
+                "dataset": item["dataset"],
+                "split": item["split"],
+                "video_id": item["video_id"],
+                "object_id": item["object_id"],
+                "expression_id": expression["expression_id"],
+                "description_type": expression["type"],
+                "expression": expression["text"],
+                "candidate_track_ids": [],
+                "selected_frame_indices": [],
+                "candidate_tracks_path": None,
+                "candidate_generation_failure": True,
+                "state_path": str(states[key]),
+            }
+        )
     with torch.inference_mode():
         for video_number, (video_id, keys) in enumerate(sorted(by_video.items()), start=1):
             tracks = {key: json.loads(Path(candidates[key]["track_path"]).read_text()) for key in keys}
@@ -163,6 +212,10 @@ def run(args) -> None:
                 "cuda": torch.version.cuda,
                 "gpu": torch.cuda.get_device_name(args.device),
                 "ground_truth_read": False,
+                "missing_candidate_identities": missing_candidates,
+                "missing_candidate_count": len(missing_candidates),
+                "missing_state_identities": missing_states,
+                "missing_state_count": len(missing_states),
                 "manifest": str(Path(args.manifest).resolve()),
                 "candidate_root": str(Path(args.candidate_root).resolve()),
                 "state_records": str(Path(args.state_records).resolve()),
@@ -192,6 +245,8 @@ def parse_args():
     parser.add_argument("--image-batch-size", type=int, default=8)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--num-shards", type=int, default=1)
+    parser.add_argument("--allow-missing-states", action="store_true")
+    parser.add_argument("--allow-missing-candidates", action="store_true")
     return parser.parse_args()
 
 

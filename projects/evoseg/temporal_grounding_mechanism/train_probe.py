@@ -69,11 +69,21 @@ def examples(feature_path: Path, metric_path: Path, hit_threshold: float) -> tup
     for value in payload:
         key = value["identity"]
         meta = metadata[key]
-        metric = metrics[key]
-        oracle_id = int(metric["oracle_track_id"]) if metric["oracle_track_id"] else None
         track_ids = [int(value) for value in meta["candidate_track_ids"]]
-        hit = oracle_id in track_ids and float(metric["oracle_J_and_F"]) >= hit_threshold
-        candidate_jf = {int(row["track_id"]): float(row["J_and_F"]) for row in metric["candidate_metrics"]}
+        metric = metrics.get(key)
+        if metric is None:
+            if track_ids or not meta.get("candidate_generation_failure"):
+                raise RuntimeError(f"missing candidate metrics for non-failure expression: {key}")
+            oracle_id = None
+            hit = False
+            candidate_jf = {}
+        else:
+            oracle_id = int(metric["oracle_track_id"]) if metric["oracle_track_id"] else None
+            hit = oracle_id in track_ids and float(metric["oracle_J_and_F"]) >= hit_threshold
+            candidate_jf = {
+                int(row["track_id"]): float(row["J_and_F"])
+                for row in metric["candidate_metrics"]
+            }
         row = {
             **value,
             **meta,

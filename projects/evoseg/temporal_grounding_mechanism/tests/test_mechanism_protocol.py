@@ -17,7 +17,7 @@ from projects.evoseg.temporal_grounding_mechanism.pixel_execution import (
     plan_signature,
     tight_box,
 )
-from projects.evoseg.temporal_grounding_mechanism.train_probe import ProbeFactory
+from projects.evoseg.temporal_grounding_mechanism.train_probe import ProbeFactory, examples
 
 
 def test_train_frame_sampling_is_uniform_and_bounded():
@@ -51,6 +51,36 @@ def test_probe_architecture_is_shared_and_accepts_candidate_sequences():
     )
     scores = static(torch.randn(3, 4), torch.randn(3, 4, 4), torch.randn(3, 4, 6))
     assert scores.shape == (3,)
+
+
+def test_candidate_generation_failure_is_retained_as_a_miss(tmp_path):
+    import torch
+
+    feature_path = tmp_path / "features.pt"
+    torch.save(
+        [{
+            "identity": "long_rvos/v/1/0",
+            "static_query": torch.zeros(256),
+            "temporal_states": torch.zeros(4, 256),
+            "tracks": torch.zeros(0, 4, 1152),
+        }],
+        feature_path,
+    )
+    feature_path.with_suffix(".json").write_text(
+        '{"records":[{"identity":"long_rvos/v/1/0","dataset":"long_rvos",'
+        '"split":"validation","video_id":"v","object_id":"1",'
+        '"expression_id":"0","description_type":"dynamic","expression":"x",'
+        '"candidate_track_ids":[],"candidate_generation_failure":true}]}\n'
+    )
+    metrics = tmp_path / "metrics.csv"
+    metrics.write_text(
+        "dataset,video_id,object_id,expression_id,prompt_method,oracle_track_id,"
+        "oracle_J_and_F,candidate_metrics\n"
+    )
+    rows, hits = examples(feature_path, metrics, 0.3)
+    assert len(rows) == 1 and hits == []
+    assert rows[0]["candidate_hit"] is False
+    assert rows[0]["candidate_jf"] == {}
 
 
 def test_tracking_cache_signature_uses_only_public_pixel_prompts():
