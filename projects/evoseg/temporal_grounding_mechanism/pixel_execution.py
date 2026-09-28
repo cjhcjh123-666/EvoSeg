@@ -279,12 +279,21 @@ def run(args) -> int:
     output = Path(args.run_dir).resolve()
     records_path = output / "pixel_execution_results.jsonl"
     completed = {}
-    if records_path.is_file():
-        with records_path.open() as handle:
+    valid_keys = {
+        (row["identity"], BASES[row["condition"]], prompt_form)
+        for row in plans
+        for prompt_form in ("point", "box")
+    }
+    resume_paths = [records_path, *(Path(value) for value in args.resume_records)]
+    for resume_path in resume_paths:
+        if not resume_path.is_file():
+            continue
+        with resume_path.open() as handle:
             for line in handle:
                 row = json.loads(line)
-                if row.get("status") == "success":
-                    completed[(row["identity"], row["identity_basis"], row["prompt_form"])] = row
+                key = (row["identity"], row["identity_basis"], row["prompt_form"])
+                if row.get("status") == "success" and key in valid_keys:
+                    completed[key] = row
     done = set(completed)
     result_cache = {
         row["execution_signature"]: row
@@ -467,6 +476,7 @@ def parse_args():
     parser.add_argument("--num-shards", type=int, default=1)
     parser.add_argument("--plan-slice-index", type=int, default=0)
     parser.add_argument("--plan-slice-count", type=int, default=1)
+    parser.add_argument("--resume-records", nargs="*", default=[])
     parser.add_argument("--max-plans", type=int)
     return parser.parse_args()
 
