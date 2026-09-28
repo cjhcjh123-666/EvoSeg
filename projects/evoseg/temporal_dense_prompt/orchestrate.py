@@ -56,9 +56,9 @@ def run(args):
  q=Queue(args.run_dir);root=q.root
  try:
   while True:
-   statuses=list((root/'val_static_states').glob('shard*/STAGE_STATUS.json'))
-   if len(statuses)==4 and all(json.loads(x.read_text()).get('state','').startswith('complete') for x in statuses):break
-   q.write(extra={'static_validation_shards_complete':sum(json.loads(x.read_text()).get('state','').startswith('complete') for x in statuses)});time.sleep(30)
+   statuses=list((root/'val_static_states').glob('v8shard*/STAGE_STATUS.json'))
+   if len(statuses)==8 and all(json.loads(x.read_text()).get('state','').startswith('complete') for x in statuses):break
+   q.write(extra={'static_validation_shards_complete':sum(json.loads(x.read_text()).get('state','').startswith('complete') for x in statuses),'static_validation_shards_planned':8});time.sleep(30)
   q.phase='extract_train_sam31_features';q.group([(f'train_features_{i}',feature_command(TRAIN,root/'train_features',i),i+2,PY_SAM) for i in range(4)])
   q.phase='extract_validation_sam31_features';q.group([(f'val_features_{i}',feature_command(VAL,root/'val_features',i),i+2,PY_SAM) for i in range(4)])
   q.phase='two_video_training_smoke';q.group([('smoke_train',['projects.evoseg.temporal_dense_prompt.smoke_train','--manifest',TRAIN,'--temporal-records',TRAIN_TEMP,'--static-records',str(root/'train_static_states'),'--features',str(root/'train_features'),'--output',str(root/'smoke/training_smoke.json'),'--device','0'],2,PY_SA)])
