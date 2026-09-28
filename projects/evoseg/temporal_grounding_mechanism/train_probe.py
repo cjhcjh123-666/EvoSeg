@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import platform
 import random
@@ -173,6 +174,75 @@ def predict(models, rows, temporal: bool, device: str) -> dict[str, np.ndarray]:
     return result
 
 
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def save_models(models, histories, args, fitting, validation) -> dict:
+    import torch
+
+    root = Path(args.checkpoint_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    files = {}
+    for temporal, name in ((False, "static"), (True, "temporal")):
+        for seed, model in zip(args.seeds, models[temporal]):
+            path = root / f"{name}_seed{seed}.pt"
+            torch.save(
+                {
+                    "state_dict": model.state_dict(),
+                    "method": name,
+                    "seed": seed,
+                    "architecture": "parameter-identical single-layer BiGRU",
+                },
+                path,
+            )
+            files[path.name] = sha256(path)
+    manifest = {
+        "seeds": args.seeds,
+        "epochs": args.epochs,
+        "patience": args.patience,
+        "learning_rate": args.learning_rate,
+        "hit_threshold": args.hit_threshold,
+        "train_features": str(Path(args.train_features).resolve()),
+        "train_metrics": str(Path(args.train_metrics).resolve()),
+        "fit_identities": [row["identity"] for row in fitting],
+        "early_stop_identities": [row["identity"] for row in validation],
+        "files": files,
+        "histories": histories,
+    }
+    (root / "checkpoint_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    return manifest
+
+
+def load_models(args) -> tuple[dict, dict, dict]:
+    import torch
+
+    root = Path(args.load_checkpoint_dir)
+    manifest = json.loads((root / "checkpoint_manifest.json").read_text())
+    if manifest["seeds"] != args.seeds:
+        raise RuntimeError("checkpoint seeds differ from requested preregistered seeds")
+    for name in ("epochs", "patience", "learning_rate", "hit_threshold"):
+        if manifest[name] != getattr(args, name):
+            raise RuntimeError(f"checkpoint {name} differs from evaluation argument")
+    models = {False: [], True: []}
+    for temporal, name in ((False, "static"), (True, "temporal")):
+        for seed in args.seeds:
+            path = root / f"{name}_seed{seed}.pt"
+            if sha256(path) != manifest["files"][path.name]:
+                raise RuntimeError(f"checkpoint hash mismatch: {path}")
+            payload = torch.load(path, map_location="cpu")
+            if payload["method"] != name or payload["seed"] != seed:
+                raise RuntimeError(f"checkpoint metadata mismatch: {path}")
+            model = ProbeFactory.build().to(args.device)
+            model.load_state_dict(payload["state_dict"])
+            models[temporal].append(model.eval())
+    return models, manifest.get("histories", {}), manifest
+
+
 def build_result_rows(evaluation: list[dict], predictions: dict) -> list[dict]:
     rows = []
     for example in evaluation:
@@ -229,13 +299,23 @@ def run(args) -> None:
     validation_videos = set(train_videos[: max(8, len(train_videos) // 5)])
     fitting = [row for row in train_hits if row["video_id"] not in validation_videos]
     validation = [row for row in train_hits if row["video_id"] in validation_videos]
-    models = {False: [], True: []}
-    histories = {}
-    for temporal in (False, True):
-        for seed in args.seeds:
-            model, history = train_one(fitting, validation, temporal, seed, args)
-            models[temporal].append(model)
-            histories[f"{'temporal' if temporal else 'static'}_{seed}"] = history
+    checkpoint_manifest = None
+    if args.load_checkpoint_dir:
+        models, histories, checkpoint_manifest = load_models(args)
+        if checkpoint_manifest["fit_identities"] != [row["identity"] for row in fitting]:
+            raise RuntimeError("checkpoint fitting split differs from reconstructed official-train split")
+        if checkpoint_manifest["early_stop_identities"] != [row["identity"] for row in validation]:
+            raise RuntimeError("checkpoint early-stop split differs from reconstructed official-train split")
+    else:
+        models = {False: [], True: []}
+        histories = {}
+        for temporal in (False, True):
+            for seed in args.seeds:
+                model, history = train_one(fitting, validation, temporal, seed, args)
+                models[temporal].append(model)
+                histories[f"{'temporal' if temporal else 'static'}_{seed}"] = history
+        if args.checkpoint_dir:
+            checkpoint_manifest = save_models(models, histories, args, fitting, validation)
     predictions = {
         "static": predict(models[False], evaluation, False, args.device),
         "temporal": predict(models[True], evaluation, True, args.device),
@@ -249,6 +329,7 @@ def run(args) -> None:
         "static_candidate_direct_J_and_F",
     )
     seed_dynamic_results = []
+    detailed_rows = [{**row, "model_seed": "ensemble"} for row in rows]
     for index, seed in enumerate(args.seeds):
         seed_rows = build_result_rows(
             evaluation,
@@ -280,9 +361,11 @@ def run(args) -> None:
                 ),
             }
         )
+        detailed_rows.extend({**row, "model_seed": seed} for row in seed_rows)
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
     write_csv(output / "probe_results.csv", rows)
+    write_csv(output / "probe_results_by_model.csv", detailed_rows)
     (output / "probe_audit.json").write_text(
         json.dumps(
             {
@@ -311,6 +394,11 @@ def run(args) -> None:
                 "architecture": "parameter-identical single-layer BiGRU; static repeats final anchor/state four times; temporal reads four ordered region/state pairs",
                 "trainable_parameters": sum(parameter.numel() for parameter in models[False][0].parameters()),
                 "seeds": args.seeds,
+                "checkpoint_mode": "load_only" if args.load_checkpoint_dir else "trained_on_official_train",
+                "checkpoint_dir": str(
+                    Path(args.load_checkpoint_dir or args.checkpoint_dir).resolve()
+                ) if (args.load_checkpoint_dir or args.checkpoint_dir) else None,
+                "checkpoint_manifest": checkpoint_manifest,
                 "dynamic_bootstrap_selection_accuracy": bootstrap_accuracy,
                 "dynamic_bootstrap_candidate_direct_J_and_F": bootstrap_jf,
                 "per_seed_dynamic_results": seed_dynamic_results,
@@ -336,6 +424,9 @@ def parse_args():
     parser.add_argument("--patience", type=int, default=6)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--hit-threshold", type=float, default=0.3)
+    checkpoint = parser.add_mutually_exclusive_group()
+    checkpoint.add_argument("--checkpoint-dir")
+    checkpoint.add_argument("--load-checkpoint-dir")
     return parser.parse_args()
 
 

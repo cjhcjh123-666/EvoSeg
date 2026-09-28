@@ -13,6 +13,10 @@ from projects.evoseg.temporal_grounding_mechanism.common import (
 from projects.evoseg.temporal_grounding_mechanism.point_executor import (
     rebuild_tracking_cache,
 )
+from projects.evoseg.temporal_grounding_mechanism.pixel_execution import (
+    plan_signature,
+    tight_box,
+)
 from projects.evoseg.temporal_grounding_mechanism.train_probe import ProbeFactory
 
 
@@ -95,3 +99,26 @@ def test_point_cache_is_rebuilt_from_successful_resume_records():
     signature = "1:" + tracking_signature("v", plan["plan"])
     assert cache[signature]["J_and_F"] == 0.55
     assert cache[signature]["reused_source_condition"] == "ORACLE_ID_POINT"
+
+
+def test_pixel_prompt_geometry_is_candidate_derived_and_normalized():
+    mask = np.zeros((10, 20), dtype=bool)
+    mask[2:6, 5:15] = True
+    assert tight_box(mask) == [0.25, 0.2, 0.5, 0.4]
+    assert tight_box(np.zeros_like(mask)) is None
+
+
+def test_pixel_execution_signature_fixes_candidate_identity_and_prompt_form():
+    row = {
+        "video_id": "v",
+        "object_id": "1",
+        "plan": [{
+            "anchor_frame_index": 10,
+            "selected_candidate_object_id": 7,
+            "positive_point_relative_xy": [0.25, 0.75],
+        }],
+    }
+    mask = np.ones((4, 4), dtype=bool)
+    assert plan_signature(row, "point") != plan_signature(row, "box", [mask])
+    changed = {**row, "plan": [{**row["plan"][0], "selected_candidate_object_id": 8}]}
+    assert plan_signature(row, "box", [mask]) != plan_signature(changed, "box", [mask])
