@@ -36,6 +36,16 @@ def latest_success(paths: list[Path]) -> list[dict]:
     return list(rows.values())
 
 
+def failed_attempt_count(paths: list[Path]) -> int:
+    count = 0
+    for path in paths:
+        if not path.is_file():
+            continue
+        with path.open() as handle:
+            count += sum(json.loads(line).get("status") == "failed" for line in handle)
+    return count
+
+
 def mean_objects(rows: list[dict], fields: list[str]) -> dict[str, float | None]:
     values = object_weighted(rows, fields)
     return {
@@ -163,6 +173,7 @@ def run(args) -> None:
 
     pixel_paths = sorted(pixel_root.glob("pixel*_shard_*/pixel_execution_results.jsonl"))
     pixel = latest_success(pixel_paths)
+    pixel_failed_attempts = failed_attempt_count(pixel_paths)
     expected = 275 * 2 * 2
     if len(pixel) != expected:
         raise RuntimeError(f"pixel condition matrix incomplete: {len(pixel)}/{expected}")
@@ -240,9 +251,9 @@ The preregistered, parameter-identical probes were evaluated on all 274 paired v
     ) + "\n"
     (output / "FULL_PROBE_REPORT.md").write_text(full_report)
 
-    pixel_report = """# Pixel Execution Decomposition
+    pixel_report = f"""# Pixel Execution Decomposition
 
-The candidate identity and four-stage plan are fixed across C0/C1/C2 and C3/C4. Candidate masks generate prompts; GT is opened only after prompt inference. Point and box use the Meta public multiplex `add_prompt` wrapper. The public multiplex model has no stable mask-prompt method (`add_mask` explicitly rejects it), so MASK_INIT / MASK_PROPAGATE are **N/A**. Box prompting uses official semantic-box behavior, which resets semantic state at each stage; this limitation is part of the measured public interface.
+The candidate identity and four-stage plan are fixed across C0/C1/C2 and C3/C4. Candidate masks generate prompts; GT is opened only after prompt inference. The matrix contains all **{len(pixel)}/1100 unique successful conditions**. It preserves **{pixel_failed_attempts} failed attempt(s)** separately; their keys were retried successfully and are counted once in the matrix. Point and box use the Meta public multiplex `add_prompt` wrapper. The public multiplex model has no stable mask-prompt method (`add_mask` explicitly rejects it), so MASK_INIT / MASK_PROPAGATE are **N/A**. Box prompting uses official semantic-box behavior, which resets semantic state at each stage; this limitation is part of the measured public interface.
 
 """ + markdown_table(
         decomposition_stats,
@@ -267,12 +278,12 @@ The candidate identity and four-stage plan are fixed across C0/C1/C2 and C3/C4. 
         "C": "BOTH",
         "D": "NEITHER",
     }
-    probe_support = jf_ci["mean"] > 0 and jf_ci["ci_high"] >= 0
+    probe_support = jf_ci["ci_low"] > 0 and accuracy_ci["ci_low"] > 0
     final = f"""# Final Interface Diagnosis
 
 ## Decision: {args.decision} — {decision_names[args.decision]}
 
-Full-validation Dynamic Temporal − Static is {jf_ci['mean'] * 100:+.2f} pp J&F (95% CI [{jf_ci['ci_low'] * 100:+.2f}, {jf_ci['ci_high'] * 100:+.2f}]) and {accuracy_ci['mean'] * 100:+.2f} pp selection accuracy (95% CI [{accuracy_ci['ci_low'] * 100:+.2f}, {accuracy_ci['ci_high'] * 100:+.2f}]). The statement that temporal information is present/readable is therefore {'supported by a positive full-validation direction, with uncertainty reported above' if probe_support else 'not stably supported on full validation'}.
+Full-validation Dynamic Temporal − Static is {jf_ci['mean'] * 100:+.2f} pp J&F (95% CI [{jf_ci['ci_low'] * 100:+.2f}, {jf_ci['ci_high'] * 100:+.2f}]) and {accuracy_ci['mean'] * 100:+.2f} pp selection accuracy (95% CI [{accuracy_ci['ci_low'] * 100:+.2f}, {accuracy_ci['ci_high'] * 100:+.2f}]). The statement that temporal information is present/readable is therefore {'stably supported on full validation because both source-video confidence intervals are positive' if probe_support else 'not stably supported on full validation'}.
 
 The pixel diagnosis uses the measured point/box initialization and propagation deltas in `PIXEL_EXECUTION_REPORT.md`; mask prompting is N/A for the official multiplex public API. {args.decision_rationale}
 
@@ -289,6 +300,8 @@ No final Method was trained in this run.
         "decomposition_summary": decomposition_stats,
         "missing_candidate_identities": missing_candidates,
         "missing_state_identities": missing_states,
+        "pixel_unique_successes": len(pixel),
+        "pixel_failed_attempts_preserved": pixel_failed_attempts,
         "decision": args.decision,
     }, indent=2) + "\n")
 
