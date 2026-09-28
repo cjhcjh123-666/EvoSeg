@@ -132,7 +132,13 @@ class StageGroundingRuntime:
         return (logits[0, 0].sigmoid() > 0.5).cpu().numpy()
 
     @torch.inference_mode()
-    def run(self, frames: list[Image.Image], anchor: Image.Image, query: str) -> dict:
+    def run(
+        self,
+        frames: list[Image.Image],
+        anchor: Image.Image,
+        query: str,
+        decode_anchor: bool = True,
+    ) -> dict:
         torch.cuda.synchronize()
         torch.cuda.reset_peak_memory_stats()
         started = time.perf_counter()
@@ -158,7 +164,7 @@ class StageGroundingRuntime:
         z_seg = self.model.text_hidden_fcs(h_seg)
         if z_seg.shape[0] != 1:
             raise RuntimeError(f"expected one [SEG] state, received {z_seg.shape[0]}")
-        mask = self._decode_anchor(anchor, z_seg[0])
+        mask = self._decode_anchor(anchor, z_seg[0]) if decode_anchor else None
         torch.cuda.synchronize()
         token_info.update(
             {
@@ -180,6 +186,13 @@ class StageGroundingRuntime:
 
 
 def run(args) -> int:
+    if args.stage_indices is not None and (
+        args.stage_indices != sorted(set(args.stage_indices))
+        or any(index < 0 or index >= 8 for index in args.stage_indices)
+    ):
+        raise ValueError("--stage-indices must be unique, sorted, and within [0, 7]")
+    if len(args.state_kinds) != len(set(args.state_kinds)):
+        raise ValueError("--state-kinds must not contain duplicates")
     manifest_path = Path(args.manifest).resolve()
     manifest = json.loads(manifest_path.read_text())
     objects = manifest["objects"][: args.max_objects] if args.max_objects else manifest["objects"]
@@ -231,6 +244,10 @@ def run(args) -> int:
             "cuda": torch.version.cuda,
             "protocol": {
                 "canonical_stages": 8,
+                "extracted_stage_indices": args.stage_indices or list(range(8)),
+                "state_kinds": args.state_kinds,
+                "static_final_only": args.static_final_only,
+                "anchor_mask_decoded": not args.skip_anchor_mask,
                 "maximum_cumulative_frames": args.maximum_cumulative_frames,
                 "static_control": "current anchor repeated to temporal image-slot count",
                 "anchor_decoder": "frozen Sa2VA SAM2 current-frame language embedding",
@@ -247,6 +264,7 @@ def run(args) -> int:
     image_root = Path(manifest["dataset"]["image_root"])
     for item in objects:
         endpoints = stage_end_positions(item["frame_count"], 8)
+        selected_stage_indices = args.stage_indices or list(range(8))
         paths = [image_root / item["video_id"] / f"{name}.jpg" for name in item["frame_names"]]
         cache: dict[int, Image.Image] = {}
 
@@ -278,20 +296,33 @@ def run(args) -> int:
                 state_metadata = []
                 query = f"Please segment {expression['text']} in this video."
                 for stage_index, endpoint in enumerate(endpoints):
+                    if stage_index not in selected_stage_indices:
+                        continue
                     temporal_positions = cumulative_visible_positions(
                         item["frame_count"], endpoint, args.maximum_cumulative_frames
                     )
-                    for state_kind, positions in (
-                        ("temporal", temporal_positions),
-                        ("static", anchor_only_positions(endpoint, len(temporal_positions))),
+                    state_inputs = []
+                    if "temporal" in args.state_kinds:
+                        state_inputs.append(("temporal", temporal_positions))
+                    if "static" in args.state_kinds and (
+                        not args.static_final_only or stage_index == selected_stage_indices[-1]
                     ):
+                        state_inputs.append(
+                            ("static", anchor_only_positions(endpoint, len(temporal_positions)))
+                        )
+                    for state_kind, positions in state_inputs:
                         output = runtime.run(
-                            [image_at(position) for position in positions], image_at(endpoint), query
+                            [image_at(position) for position in positions],
+                            image_at(endpoint),
+                            query,
+                            decode_anchor=not args.skip_anchor_mask,
                         )
                         prefix = f"{state_kind}_{stage_index}"
                         arrays[f"{prefix}_h"] = output.pop("h_seg")
                         arrays[f"{prefix}_z"] = output.pop("z_seg")
-                        arrays[f"{prefix}_mask"] = output.pop("mask").astype(np.uint8)
+                        mask = output.pop("mask")
+                        if mask is not None:
+                            arrays[f"{prefix}_mask"] = mask.astype(np.uint8)
                         state_metadata.append(
                             {
                                 "state_kind": state_kind,
@@ -367,6 +398,12 @@ def parse_args():
     parser.add_argument("--num-shards", type=int, default=1)
     parser.add_argument("--maximum-cumulative-frames", type=int, default=16)
     parser.add_argument("--max-new-tokens", type=int, default=64)
+    parser.add_argument("--stage-indices", type=int, nargs="+")
+    parser.add_argument(
+        "--state-kinds", nargs="+", choices=("static", "temporal"), default=["static", "temporal"]
+    )
+    parser.add_argument("--static-final-only", action="store_true")
+    parser.add_argument("--skip-anchor-mask", action="store_true")
     return parser.parse_args()
 
 

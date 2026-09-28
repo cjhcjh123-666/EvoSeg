@@ -331,6 +331,8 @@ def load_qwen_concepts(path_value: str | None) -> tuple[dict[str, dict], Path | 
 
 
 def run_generation(args) -> int:
+    if not args.prompt_methods or len(args.prompt_methods) != len(set(args.prompt_methods)):
+        raise ValueError("--prompt-methods must be non-empty and unique")
     # Import from the exact official checkout only at runtime.  The recorded
     # source path and commit make accidental use of a vendored fork visible.
     sam3_repo = Path(args.sam3_repo).resolve()
@@ -361,8 +363,21 @@ def run_generation(args) -> int:
     run_dir = Path(args.run_dir).resolve()
     records_path = run_dir / "candidate_records.jsonl"
     done = completed_keys(records_path)
+    generation_cache = {}
+    if records_path.is_file():
+        for record in load_records(records_path):
+            if record.get("status") == "success":
+                generation_cache[
+                    (
+                        record["video_id"],
+                        record["prompt_method"],
+                        record["prompt"],
+                    )
+                ] = record
     parser = SpacyConceptParser(args.spacy_model)
     qwen_concepts, qwen_concepts_path = load_qwen_concepts(args.qwen_concepts)
+    if "qwen_concept" in args.prompt_methods and qwen_concepts_path is None:
+        raise ValueError("--prompt-methods qwen_concept requires --qwen-concepts")
     if qwen_concepts_path is not None:
         missing = [
             expression_key(item, expression)
@@ -420,8 +435,7 @@ def run_generation(args) -> int:
         "protocol": {
             "manifest": str(manifest_path),
             "manifest_sha256": sha256(manifest_path),
-            "prompt_methods": ["raw_expression", "concept"]
-            + (["qwen_concept"] if qwen_concepts_path is not None else []),
+            "prompt_methods": args.prompt_methods,
             "prompt_frame_index": 0,
             "candidate_generation_reads_gt": False,
             "max_num_objects": args.max_num_objects,
@@ -446,7 +460,7 @@ def run_generation(args) -> int:
     }
     atomic_json(run_dir / "run_config.json", config)
 
-    prompt_method_count = 3 if qwen_concepts_path is not None else 2
+    prompt_method_count = len(args.prompt_methods)
     planned = sum(len(item["expressions"]) * prompt_method_count for item in objects)
     attempted = 0
     failed = 0
@@ -468,17 +482,15 @@ def run_generation(args) -> int:
             image_shape = (image.height, image.width)
         for expression in item["expressions"]:
             concept = parser(expression["text"])
-            prompts = [
-                ("raw_expression", expression["text"]),
-                ("concept", concept["concept"]),
-            ]
+            available_prompts = {
+                "raw_expression": expression["text"],
+                "concept": concept["concept"],
+            }
             if qwen_concepts_path is not None:
-                prompts.append(
-                    (
-                        "qwen_concept",
-                        qwen_concepts[expression_key(item, expression)]["concept"],
-                    )
-                )
+                available_prompts["qwen_concept"] = qwen_concepts[
+                    expression_key(item, expression)
+                ]["concept"]
+            prompts = [(method, available_prompts[method]) for method in args.prompt_methods]
             for prompt_method, prompt in prompts:
                 key = candidate_key(item, expression, prompt_method)
                 if key in done:
@@ -504,6 +516,32 @@ def run_generation(args) -> int:
                 }
                 session_id = None
                 try:
+                    cache_key = (item["video_id"], prompt_method, prompt)
+                    if cache_key in generation_cache:
+                        cached = generation_cache[cache_key]
+                        base.update(
+                            {
+                                key: cached[key]
+                                for key in (
+                                    "candidate_tracks_path",
+                                    "latency_seconds_synchronized",
+                                    "peak_memory_bytes",
+                                    "session_api_compat",
+                                    "candidate_count",
+                                    "candidate_track_ids",
+                                )
+                            }
+                        )
+                        base.update(
+                            status="success",
+                            completed_at=utc_now(),
+                            generation_cache_hit=True,
+                            generation_cache_source_key=cached["key"],
+                        )
+                        done.add(key)
+                        append_jsonl(records_path, base)
+                        attempted += 1
+                        continue
                     torch.cuda.synchronize()
                     torch.cuda.reset_peak_memory_stats()
                     query_started = time.perf_counter()
@@ -548,8 +586,11 @@ def run_generation(args) -> int:
                             "peak_memory_bytes": int(torch.cuda.max_memory_allocated()),
                             "session_api_compat": session_api_compat,
                             **candidate_info,
+                            "generation_cache_hit": False,
+                            "generation_cache_source_key": None,
                         }
                     )
+                    generation_cache[cache_key] = base.copy()
                     done.add(key)
                 except torch.cuda.OutOfMemoryError as error:
                     torch.cuda.empty_cache()
@@ -1218,6 +1259,12 @@ def parse_args():
     generation.add_argument("--multiplex-count", type=int, default=16)
     generation.add_argument("--spacy-model", default="en_core_web_sm")
     generation.add_argument("--qwen-concepts")
+    generation.add_argument(
+        "--prompt-methods",
+        nargs="+",
+        choices=("raw_expression", "concept", "qwen_concept"),
+        default=["raw_expression", "concept"],
+    )
     generation.add_argument("--use-fa3", action=argparse.BooleanOptionalAction, default=False)
     generation.add_argument("--compile", action=argparse.BooleanOptionalAction, default=False)
     evaluation = subparsers.add_parser("evaluate")
