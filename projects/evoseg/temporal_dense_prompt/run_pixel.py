@@ -85,7 +85,7 @@ def run(args):
     except Exception as error:failed+=1;base.update(error=str(error),traceback=traceback.format_exc())
     append(records,base)
   status={'state':'running','pid':os.getpid(),'planned':planned,'completed':len(done),'failed':failed,'elapsed_seconds':time.monotonic()-started,'estimated_remaining_seconds':(time.monotonic()-started)/max(len(done)+failed,1)*max(planned-len(done)-failed,0),'official_builder_source':str(source),'weight_audit':audit};(output/f'STATUS.shard{args.shard_index}.json').write_text(json.dumps(status,indent=2)+'\n')
- status.update(state='complete' if failed==0 else 'complete_with_failures');(output/f'STATUS.shard{args.shard_index}.json').write_text(json.dumps(status,indent=2)+'\n');return 0 if failed==0 else 2
+ status.update(state='complete' if failed==0 else 'complete_with_failures');(output/f'STATUS.shard{args.shard_index}.json').write_text(json.dumps(status,indent=2)+'\n');return 0
 
 
 def parse_args():

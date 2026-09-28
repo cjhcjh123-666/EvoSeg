@@ -31,7 +31,7 @@ def run(args):
     torch.cuda.set_device(args.device);device=f'cuda:{args.device}';manifest=json.loads(Path(args.manifest).read_text());objects=manifest['objects'][args.object_start:args.object_stop]
     objects=[x for i,x in enumerate(objects) if i%args.num_shards==args.shard_index]
     temporal=state_index(Path(args.temporal_records));static=state_index(Path(args.static_records));models=load_models(args.checkpoints,device)
-    all_expressions=[(identity(item,e),item['video_id']) for item in manifest['objects'] for e in item['expressions']]
+    all_expressions=[(identity(item,e),item['video_id']) for item in manifest['objects'] for e in item['expressions'] if identity(item,e) in temporal]
     ordered=sorted(all_expressions); donor={}
     for offset,(key,video) in enumerate(ordered):
         for step in range(1,len(ordered)):
@@ -45,6 +45,12 @@ def run(args):
         endpoints=stage_endpoints(item['frame_count'])
         for expression in item['expressions']:
           key=identity(item,expression)
+          if key not in temporal or key not in static:
+            for stage in STAGES:
+              for condition in ('static','temporal','shuffled'):
+                if (key,condition,stage) not in done:
+                  append(records,{'status':'failed_missing_state','identity':key,'video_id':item['video_id'],'object_id':item['object_id'],'expression_id':expression['expression_id'],'description_type':expression['type'],'expression':expression['text'],'condition':condition,'stage':stage,'error':'missing_temporal_state' if key not in temporal else 'missing_static_state','gt_entered_prompt_generation':False})
+            continue
           for stage,endpoint in zip(STAGES,endpoints):
             feature_path=Path(args.features)/f"{item['video_id']}__{endpoint}.npz"; feature=torch.from_numpy(np.load(feature_path)['feature'].astype(np.float32))[None].to(device)
             for condition in ('static','temporal','shuffled'):
