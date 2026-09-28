@@ -73,11 +73,11 @@ def run(args):
   q.phase='pilot64_summary';subprocess.run([PY_SA,'-m','projects.evoseg.temporal_dense_prompt.summarize','--dense-root',str(root/'pilot64/dense'),'--pixel-root',str(root/'pilot64/pixel'),'--output',str(root/'pilot64/summary'),'--phase','pilot'],cwd=REPO,check=True)
   pilot=json.loads((root/'pilot64/summary/summary.json').read_text())
   if pilot['decision']!='GO_TO_CONFIRM210':
-   q.phase='finalize_reports';subprocess.run([PY_SA,'-m','projects.evoseg.temporal_dense_prompt.finalize','--run-dir',str(root),'--docs',str(Path(REPO)/'docs/temporal_dense_prompt')],cwd=REPO,check=True);q.write('complete',{'decision':'NO-GO','pilot':pilot});return 0
+   q.phase='finalize_reports';subprocess.run([PY_SA,'-m','projects.evoseg.temporal_dense_prompt.finalize','--run-dir',str(root),'--docs',str(Path(REPO)/'docs/temporal_dense_prompt'),'--manifest',VAL],cwd=REPO,check=True);q.write('complete',{'decision':'NO-GO','pilot':pilot});return 0
   q.phase='confirm210_dense';q.group([(f'confirm_dense_{i}',dense_command(root,VAL,root/'val_features',root/'confirm210/dense',64,274,i),i+2,PY_SA) for i in range(4)])
   q.phase='confirm210_pixel';q.group([(f'confirm_pixel_{i}',pixel_command(VAL,root/'confirm210/dense',root/'confirm210/pixel',64,274,i),i+2,PY_SAM) for i in range(4)])
   q.phase='confirm210_summary';subprocess.run([PY_SA,'-m','projects.evoseg.temporal_dense_prompt.summarize','--dense-root',str(root/'confirm210/dense'),'--pixel-root',str(root/'confirm210/pixel'),'--output',str(root/'confirm210/summary'),'--phase','confirm'],cwd=REPO,check=True)
-  final=json.loads((root/'confirm210/summary/summary.json').read_text());q.phase='finalize_reports';subprocess.run([PY_SA,'-m','projects.evoseg.temporal_dense_prompt.finalize','--run-dir',str(root),'--docs',str(Path(REPO)/'docs/temporal_dense_prompt')],cwd=REPO,check=True);q.write('complete',{'decision':final['decision'],'pilot':pilot,'confirm':final});return 0
+  final=json.loads((root/'confirm210/summary/summary.json').read_text());q.phase='finalize_reports';subprocess.run([PY_SA,'-m','projects.evoseg.temporal_dense_prompt.finalize','--run-dir',str(root),'--docs',str(Path(REPO)/'docs/temporal_dense_prompt'),'--manifest',VAL],cwd=REPO,check=True);q.write('complete',{'decision':final['decision'],'pilot':pilot,'confirm':final});return 0
  except Exception as error:
   q.write('failed',{'error':str(error),'traceback':traceback.format_exc()});raise
 

@@ -5,6 +5,8 @@ from collections import defaultdict
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
+from PIL import Image
+from pycocotools import mask as mask_utils
 
 
 def read_jsonl(paths):
@@ -22,6 +24,10 @@ def write_csv(path,rows):
 
 
 def pct(value):return 'N/A' if value is None else f'{100*value:.2f}'
+
+
+def decode(rle):
+ value=dict(rle);value['counts']=value['counts'].encode('ascii');return mask_utils.decode(value).astype(bool)
 
 
 def run(args):
@@ -52,9 +58,35 @@ Frozen Sa2VA cumulative or anchor-only state is combined with the frozen officia
  figures=[('dynamic_jf_main.png',['Static P8','Temporal P8'],[d['static_p8'],d['temporal_p8']]),('onepoint_vs_multipoint.png',['Temporal P1','Temporal P8'],[d['temporal_p1'],d['temporal_p8']]),('dense_grounding_static_vs_temporal.png',['Static dense','Temporal dense','Shuffled'],[d['dense_static'],d['dense_temporal'],d['dense_shuffled']]),('pixel_loss_decomposition.png',['Dense→init','Init→final'],[loss['dense_to_init'],loss['init_to_final']])]
  for filename,labels,values in figures:
   fig,ax=plt.subplots(figsize=(5,3.2));ax.bar(labels,np.asarray(values)*100);ax.set_ylabel('J&F / delta (pp)');ax.grid(axis='y',alpha=.25);fig.tight_layout();fig.savefig(docs/'figures'/filename,dpi=160);plt.close(fig)
- return 0
+ # Deterministic Dynamic success/no-change/damage cases on the final evaluated split.
+ manifest=json.loads(Path(args.manifest).read_text());item_index={f"{x['dataset']}/{x['video_id']}/{x['object_id']}":x for x in manifest['objects']}
+ by_identity=defaultdict(dict)
+ for row in pixel:
+  if row.get('status')=='success' and row['description_type']=='dynamic' and row['condition'] in {'static_p8','temporal_p8'}:by_identity[row['identity']][row['condition']]=row
+ candidates=[]
+ for key,pair in by_identity.items():
+  if len(pair)==2:candidates.append((pair['temporal_p8']['J_and_F']-pair['static_p8']['J_and_F'],key,pair))
+ selected=[];used=set()
+ for label,ordered in [('success',sorted(candidates,reverse=True)),('no_change',sorted(candidates,key=lambda x:abs(x[0]))),('damage',sorted(candidates))]:
+  count=0
+  for delta,key,pair in ordered:
+   if key in used:continue
+   if label=='success' and delta<=0:continue
+   if label=='damage' and delta>=0:continue
+   used.add(key);selected.append((label,delta,key,pair));count+=1
+   if count==3:break
+ for label,delta,key,pair in selected:
+  base='/'.join(key.split('/')[:3]);item=item_index[base];frame_index=item['evaluation_frame_indices'][-1];frame_name=item['frame_names'][frame_index]
+  image=np.asarray(Image.open(Path(manifest['dataset']['image_root'])/item['video_id']/f'{frame_name}.jpg').convert('RGB'));gt=np.asarray(Image.open(item['evaluation_mask_paths'][-1]).convert('L'))>0
+  masks={};heats={}
+  for condition in ('static_p8','temporal_p8'):
+   payload=json.loads(Path(pair[condition]['mask_path']).read_text());masks[condition]=decode(payload['masks'][-1]);stage=pair[condition]['plan'][-1];heats[condition]=np.load(stage['heatmap_path'])['probability']
+  fig,axes=plt.subplots(1,6,figsize=(15,3));values=[image,gt,heats['static_p8'],heats['temporal_p8'],masks['static_p8'],masks['temporal_p8']];titles=['Frame','GT','Static heatmap','Temporal heatmap','Static final','Temporal final']
+  for ax,value,title in zip(axes,values,titles):ax.imshow(value,cmap=None if value.ndim==3 else 'viridis');ax.set_title(title);ax.axis('off')
+  fig.suptitle(f"{label}: delta {100*delta:+.2f} pp | {pair['temporal_p8']['expression']}",fontsize=9);fig.tight_layout();fig.savefig(docs/'figures/qualitative_cases'/f"{label}__{key.replace('/','__')}.png",dpi=130);plt.close(fig)
+  return 0
 
 
 def parse_args():
- p=argparse.ArgumentParser();p.add_argument('--run-dir',required=True);p.add_argument('--docs',required=True);return p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--run-dir',required=True);p.add_argument('--docs',required=True);p.add_argument('--manifest',required=True);return p.parse_args()
 if __name__=='__main__':raise SystemExit(run(parse_args()))
