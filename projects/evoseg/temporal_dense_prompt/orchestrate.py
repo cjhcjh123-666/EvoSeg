@@ -48,8 +48,10 @@ def dense_command(root,manifest,features,output,start,stop,shard):
  return ['projects.evoseg.temporal_dense_prompt.evaluate_dense','--manifest',manifest,'--temporal-records',VAL_TEMP,'--static-records',str(root/'val_static_states'),'--features',str(features),'--checkpoints',*checkpoints,'--output',str(output),'--device','0','--object-start',str(start),'--object-stop',str(stop),'--shard-index',str(shard),'--num-shards','4']
 
 
-def pixel_command(manifest,dense,output,start,stop,shard,shards=4):
- return ['projects.evoseg.temporal_dense_prompt.run_pixel','--manifest',manifest,'--dense-root',str(dense),'--output',str(output),'--sam3-repo',SAM_REPO,'--checkpoint',CKPT,'--expected-checkpoint-sha256',SHA,'--device','0','--object-start',str(start),'--object-stop',str(stop),'--shard-index',str(shard),'--num-shards',str(shards)]
+def pixel_command(manifest,dense,output,start,stop,shard,shards=4,max_expressions=None):
+ command=['projects.evoseg.temporal_dense_prompt.run_pixel','--manifest',manifest,'--dense-root',str(dense),'--output',str(output),'--sam3-repo',SAM_REPO,'--checkpoint',CKPT,'--expected-checkpoint-sha256',SHA,'--device','0','--object-start',str(start),'--object-stop',str(stop),'--shard-index',str(shard),'--num-shards',str(shards)]
+ if max_expressions is not None:command.extend(['--max-expressions-per-object',str(max_expressions)])
+ return command
 
 
 def run(args):
@@ -75,8 +77,10 @@ def run(args):
    command=['projects.evoseg.temporal_dense_prompt.train','--manifest',TRAIN,'--temporal-records',TRAIN_TEMP,'--static-records',str(root/'train_static_states'),'--features',str(root/'train_features'),'--output',str(root/f'training/seed{seed}'),'--seed',str(seed),'--device','0']
    spec.append((f'train_seed{seed}',command,gpu,PY_SA))
   if spec:q.group(spec)
-  q.phase='pilot64_dense';q.group([(f'pilot_dense_{i}',dense_command(root,VAL,root/'val_features',root/'pilot64/dense',0,64,i),i+2,PY_SA) for i in range(4)])
-  q.phase='two_video_public_point_smoke';q.group([('smoke_pixel',pixel_command(VAL,root/'pilot64/dense',root/'smoke/pixel',0,2,0,1),2,PY_SAM)])
+  pilot_dense_status=list((root/'pilot64/dense').glob('STATUS.shard*.json'))
+  if len(pilot_dense_status)!=4 or not all(json.loads(x.read_text()).get('state')=='complete' for x in pilot_dense_status):
+   q.phase='pilot64_dense';q.group([(f'pilot_dense_{i}',dense_command(root,VAL,root/'val_features',root/'pilot64/dense',0,64,i),i+2,PY_SA) for i in range(4)])
+  q.phase='two_video_public_point_smoke';q.group([('smoke_pixel',pixel_command(VAL,root/'pilot64/dense',root/'smoke/pixel',0,2,0,1,max_expressions=1),2,PY_SAM)])
   smoke_rows=[json.loads(line) for line in (root/'smoke/pixel/pixel_results.shard0.jsonl').open() if line.strip() and json.loads(line).get('status')=='success']
   single_peak=max(row['peak_memory_bytes'] for row in smoke_rows);pixel_workers=8 if single_peak < 30*2**30 else 4
   q.write(extra={'sam31_single_worker_peak_bytes':single_peak,'sam31_workers_per_gpu':pixel_workers//4})

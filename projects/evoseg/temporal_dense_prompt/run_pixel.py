@@ -62,11 +62,12 @@ def run(args):
  manifest=json.loads(Path(args.manifest).read_text());selected=manifest['objects'][args.object_start:args.object_stop];selected=[x for i,x in enumerate(selected) if i%args.num_shards==args.shard_index]
  output=Path(args.output);output.mkdir(parents=True,exist_ok=True);records=output/f'pixel_results.shard{args.shard_index}.jsonl';done=set()
  if records.is_file():done={(r['identity'],r['condition']) for line in records.open() if line.strip() for r in [json.loads(line)] if r.get('status')=='success'}
- torch.cuda.set_device(args.device);predictor=build_sam3_multiplex_video_predictor(checkpoint_path=str(checkpoint),max_num_objects=16,multiplex_count=16,use_fa3=False,compile=False,warm_up=False,async_loading_frames=False);audit=audit_loaded_checkpoint(predictor.model,checkpoint);started=time.monotonic();planned=sum(len(x['expressions'])*4 for x in selected);failed=0
+ torch.cuda.set_device(args.device);predictor=build_sam3_multiplex_video_predictor(checkpoint_path=str(checkpoint),max_num_objects=16,multiplex_count=16,use_fa3=False,compile=False,warm_up=False,async_loading_frames=False);audit=audit_loaded_checkpoint(predictor.model,checkpoint);started=time.monotonic();planned=sum(min(len(x['expressions']),args.max_expressions_per_object or len(x['expressions']))*4 for x in selected);failed=0
  for item in selected:
   video_path=Path(manifest['dataset']['image_root'])/item['video_id'];
   with Image.open(video_path/f"{item['frame_names'][0]}.jpg") as image:shape=(image.height,image.width)
-  for expression in item['expressions']:
+  expressions=item['expressions'] if args.max_expressions_per_object is None else item['expressions'][:args.max_expressions_per_object]
+  for expression in expressions:
    key=identity(item,expression)
    for condition in ('static_p1','temporal_p1','static_p8','temporal_p8'):
     if (key,condition) in done:continue
@@ -90,7 +91,7 @@ def run(args):
 
 
 def parse_args():
- p=argparse.ArgumentParser();p.add_argument('--manifest',required=True);p.add_argument('--dense-root',required=True);p.add_argument('--output',required=True);p.add_argument('--sam3-repo',required=True);p.add_argument('--checkpoint',required=True);p.add_argument('--expected-checkpoint-sha256',required=True);p.add_argument('--device',type=int,required=True);p.add_argument('--object-start',type=int,default=0);p.add_argument('--object-stop',type=int,default=274);p.add_argument('--shard-index',type=int,default=0);p.add_argument('--num-shards',type=int,default=1);return p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--manifest',required=True);p.add_argument('--dense-root',required=True);p.add_argument('--output',required=True);p.add_argument('--sam3-repo',required=True);p.add_argument('--checkpoint',required=True);p.add_argument('--expected-checkpoint-sha256',required=True);p.add_argument('--device',type=int,required=True);p.add_argument('--object-start',type=int,default=0);p.add_argument('--object-stop',type=int,default=274);p.add_argument('--shard-index',type=int,default=0);p.add_argument('--num-shards',type=int,default=1);p.add_argument('--max-expressions-per-object',type=int);return p.parse_args()
 
 
 if __name__=='__main__':raise SystemExit(run(parse_args()))
