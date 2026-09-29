@@ -82,8 +82,12 @@ def run(args):
    q.phase='pilot64_dense';q.group([(f'pilot_dense_{i}',dense_command(root,VAL,root/'val_features',root/'pilot64/dense',0,64,i),i+2,PY_SA) for i in range(4)])
   q.phase='two_video_public_point_smoke';q.group([('smoke_pixel',pixel_command(VAL,root/'pilot64/dense',root/'smoke/pixel',0,2,0,1,max_expressions=1),2,PY_SAM)])
   smoke_rows=[json.loads(line) for line in (root/'smoke/pixel/pixel_results.shard0.jsonl').open() if line.strip() and json.loads(line).get('status')=='success']
-  single_peak=max(row['peak_memory_bytes'] for row in smoke_rows);pixel_workers=8 if single_peak < 30*2**30 else 4
-  q.write(extra={'sam31_single_worker_peak_bytes':single_peak,'sam31_workers_per_gpu':pixel_workers//4})
+  single_peak=max(row['peak_memory_bytes'] for row in smoke_rows)
+  # Short smoke videos materially underestimated the memory required by long
+  # videos.  Keep one SAM3.1 process per A800; changing resolution, K, or the
+  # prompt protocol is not an admissible OOM fallback.
+  pixel_workers=4
+  q.write(extra={'sam31_single_worker_peak_bytes':single_peak,'sam31_workers_per_gpu':1})
   q.phase='pilot64_pixel';q.group([(f'pilot_pixel_{i}',pixel_command(VAL,root/'pilot64/dense',root/'pilot64/pixel',0,64,i,pixel_workers),2+i%4,PY_SAM) for i in range(pixel_workers)])
   q.phase='pilot64_summary';subprocess.run([PY_SA,'-m','projects.evoseg.temporal_dense_prompt.summarize','--dense-root',str(root/'pilot64/dense'),'--pixel-root',str(root/'pilot64/pixel'),'--output',str(root/'pilot64/summary'),'--phase','pilot'],cwd=REPO,check=True)
   pilot=json.loads((root/'pilot64/summary/summary.json').read_text())

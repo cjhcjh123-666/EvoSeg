@@ -13,6 +13,20 @@ def rows(root,pattern):
  return result
 
 
+def pixel_coverage(dense, pixel):
+ expected_identities={row['identity'] for row in dense}
+ expected={(identity,condition) for identity in expected_identities for condition in ('static_p1','temporal_p1','static_p8','temporal_p8')}
+ observed={(row['identity'],row['condition']) for row in pixel}
+ missing=sorted(expected-observed)
+ return {
+  'expected_identity_condition_pairs':len(expected),
+  'successful_identity_condition_pairs':len(expected&observed),
+  'missing_identity_condition_pairs':len(missing),
+  'complete':not missing,
+  'missing_examples':[{'identity':identity,'condition':condition} for identity,condition in missing[:20]],
+ }
+
+
 def object_means(values,metric,condition,kind):
  grouped=defaultdict(list)
  for row in values:
@@ -41,7 +55,8 @@ def run(args):
  dense_expr=[]
  for (_,condition),group in dg.items():
   base=dict(group[0]);base['J_and_F']=float(np.mean([x['J_and_F'] for x in group]));dense_expr.append(base)
- result={'phase':args.phase,'dense_success_rows':len(dense),'pixel_success_rows':len(pixel),'by_type':{}}
+ coverage=pixel_coverage(dense,pixel)
+ result={'phase':args.phase,'dense_success_rows':len(dense),'pixel_success_rows':len(pixel),'pixel_coverage':coverage,'by_type':{}}
  for kind in ('static','dynamic','hybrid'):
   d={}
   for condition in ('static','temporal','shuffled'):
@@ -52,7 +67,8 @@ def run(args):
    values=delta(source,'J_and_F',a,b,kind);d[name]=float(np.mean(list(values.values()))) if values else None;d[name+'_ci95']=bootstrap(values) if values else None;d[name+'_objects']=len(values)
   result['by_type'][kind]=d
  dynamic=result['by_type']['dynamic'];pilot_go=all(dynamic[x] is not None and dynamic[x]>0 for x in ('dense_temporal_minus_static','dense_temporal_minus_shuffled','final_temporal8_minus_static8'))
- if args.phase=='pilot':decision='GO_TO_CONFIRM210' if pilot_go else 'NO-GO'
+ if not coverage['complete']:decision='INCOMPLETE'
+ elif args.phase=='pilot':decision='GO_TO_CONFIRM210' if pilot_go else 'NO-GO'
  else:
   ci=dynamic['final_temporal8_minus_static8_ci95'];dense_ci=dynamic['dense_temporal_minus_static_ci95'];shuffle_ci=dynamic['dense_temporal_minus_shuffled_ci95']
   decision='GO' if dynamic['final_temporal8_minus_static8']>0 and ci[0]>0 and dense_ci[0]>0 and shuffle_ci[0]>0 else ('MIXED' if dense_ci[0]>0 and dynamic['final_temporal8_minus_static8']<=0 else 'NO-GO')
