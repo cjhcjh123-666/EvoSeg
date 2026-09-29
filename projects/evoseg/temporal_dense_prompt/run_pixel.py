@@ -50,7 +50,8 @@ def infer(predictor,video_path,frame_count,shape,plan):
  return final,stages,compat
 
 
-def gt_mask(path):
+def gt_mask(path,shape):
+ if not Path(path).is_file():return np.zeros(shape,dtype=bool)
  with Image.open(path) as image:return np.asarray(image.convert('L'))>0
 
 
@@ -74,10 +75,10 @@ def run(args):
      plan=build_plan(Path(args.dense_root),item,expression,condition);torch.cuda.reset_peak_memory_stats(args.device);torch.cuda.synchronize(args.device);begin=time.monotonic();masks,stages,compat=infer(predictor,video_path,item['frame_count'],shape,plan);torch.cuda.synchronize(args.device);latency=time.monotonic()-begin
      js=[];fs=[]
      for frame,path in zip(item['evaluation_frame_indices'],item['evaluation_mask_paths']):
-      gt=gt_mask(path);js.append(float(db_eval_iou(gt,masks[frame])));fs.append(float(db_eval_boundary(gt,masks[frame])))
+      gt=gt_mask(path,shape);js.append(float(db_eval_iou(gt,masks[frame])));fs.append(float(db_eval_boundary(gt,masks[frame])))
      stage_metrics=[]
      for row in stages:
-      endpoint=row['anchor_frame_index'];path=Path(manifest['dataset']['annotation_root'])/item['video_id']/str(item['object_id'])/f"{item['frame_names'][endpoint]}.png";gt=gt_mask(path);prob=np.load(row['heatmap_path'])['probability'].astype(np.float32);dense=np.asarray(Image.fromarray((prob*255).astype(np.uint8)).resize((shape[1],shape[0]),Image.Resampling.BILINEAR))>=128
+      endpoint=row['anchor_frame_index'];path=Path(manifest['dataset']['annotation_root'])/item['video_id']/str(item['object_id'])/f"{item['frame_names'][endpoint]}.png";gt=gt_mask(path,shape);prob=np.load(row['heatmap_path'])['probability'].astype(np.float32);dense=np.asarray(Image.fromarray((prob*255).astype(np.uint8)).resize((shape[1],shape[0]),Image.Resampling.BILINEAR))>=128
       dj=float(db_eval_iou(gt,dense));df=float(db_eval_boundary(gt,dense));ij=float(db_eval_iou(gt,row['post_update_mask']));iff=float(db_eval_boundary(gt,row['post_update_mask']));stage_metrics.append({'stage':row['stage'],'anchor_frame_index':endpoint,'dense_J_and_F':(dj+df)/2,'init_J_and_F':(ij+iff)/2,'dense_to_init_loss_J_and_F':(dj+df-ij-iff)/2,'positive_count':sum(x==1 for x in row['point_labels']),'negative_count':sum(x==0 for x in row['point_labels']),'update_latency_seconds':row['update_latency_seconds']})
      mask_path=output/'masks'/condition/f"{key.replace('/','__')}.json";mask_path.parent.mkdir(parents=True,exist_ok=True);mask_path.write_text(json.dumps({'evaluation_frame_indices':item['evaluation_frame_indices'],'masks':[encode(masks[i]) for i in item['evaluation_frame_indices']]})+'\n')
      j=float(np.mean(js));f=float(np.mean(fs));base.update(status='success',J=j,F=f,J_and_F=(j+f)/2,stage_metrics=stage_metrics,mean_dense_J_and_F=float(np.mean([x['dense_J_and_F'] for x in stage_metrics])),mean_init_J_and_F=float(np.mean([x['init_J_and_F'] for x in stage_metrics])),dense_to_init_loss_J_and_F=float(np.mean([x['dense_to_init_loss_J_and_F'] for x in stage_metrics])),init_to_final_loss_J_and_F=float(np.mean([x['init_J_and_F'] for x in stage_metrics]))-(j+f)/2,latency_seconds_synchronized=latency,peak_memory_bytes=torch.cuda.max_memory_allocated(args.device),mask_path=str(mask_path),public_api_compat=compat,plan=plan)

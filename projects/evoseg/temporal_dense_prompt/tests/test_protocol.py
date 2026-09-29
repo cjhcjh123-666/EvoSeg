@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from projects.evoseg.temporal_dense_prompt.protocol import DensePromptHead, count_parameters, local_extrema_points, one_point, stage_endpoints
+from projects.evoseg.temporal_dense_prompt.protocol import DensePromptHead, count_parameters, local_extrema_points, one_point, resize_mask, stage_endpoints
 
 
 def test_head_shape_and_budget():
@@ -15,3 +15,7 @@ def test_points_fixed_counts_and_disjoint():
 
 def test_four_stage_endpoints():
     assert stage_endpoints(235)==[58,117,176,234]
+
+
+def test_absent_official_mask_is_empty(tmp_path):
+    value=resize_mask(tmp_path/'absent.png',(72,72));assert value.shape==(72,72);assert value.sum()==0

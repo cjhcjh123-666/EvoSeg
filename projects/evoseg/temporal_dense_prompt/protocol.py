@@ -73,6 +73,8 @@ def training_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 
 
 def resize_mask(path: Path, size: tuple[int, int]) -> torch.Tensor:
+    if not path.is_file():
+        return torch.zeros(size, dtype=torch.float32)
     with Image.open(path) as image:
         value = torch.from_numpy((np.asarray(image.convert("L")) > 0).astype(np.float32))[None, None]
     return F.interpolate(value, size=size, mode="nearest")[0, 0]

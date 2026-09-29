@@ -29,8 +29,8 @@ def samples(manifest: dict, temporal_records: Path, static_records: Path, featur
             for stage, endpoint in zip(STAGES,endpoints):
                 feature=features/f"{item['video_id']}__{endpoint}.npz"
                 mask=Path(manifest['dataset']['annotation_root'])/item['video_id']/str(item['object_id'])/f"{item['frame_names'][endpoint]}.png"
-                if not feature.is_file() or not mask.is_file(): raise RuntimeError(f'missing feature/mask: {feature} {mask}')
-                values.append({'identity':key,'video_id':item['video_id'],'stage':stage,'temporal':temporal[key],'static':static[key],'feature':feature,'mask':mask,'fold':video_fold(item['video_id'])})
+                if not feature.is_file(): raise RuntimeError(f'missing feature: {feature}')
+                values.append({'identity':key,'video_id':item['video_id'],'stage':stage,'temporal':temporal[key],'static':static[key],'feature':feature,'mask':mask,'mask_present':mask.is_file(),'fold':video_fold(item['video_id'])})
     if not {x['fold'] for x in values} == {'train','internal_val'}: raise RuntimeError('fixed split is empty')
     return values
 

@@ -60,7 +60,11 @@ def run(args):
               logits=torch.stack([pair[kind](state,feature)[0] for pair in models]).mean(0);prob=logits.sigmoid();heatmap=prob.detach().cpu().numpy().astype(np.float16)
               heatpath=output/'heatmaps'/condition/f"{key.replace('/','__')}__s{stage}.npz";heatpath.parent.mkdir(parents=True,exist_ok=True);np.savez_compressed(heatpath,probability=heatmap)
               mask_path=Path(manifest['dataset']['annotation_root'])/item['video_id']/str(item['object_id'])/f"{item['frame_names'][endpoint]}.png"
-              with Image.open(mask_path) as image: gt=np.asarray(image.convert('L'))>0
+              if mask_path.is_file():
+                with Image.open(mask_path) as image: gt=np.asarray(image.convert('L'))>0
+              else:
+                image_path=Path(manifest['dataset']['image_root'])/item['video_id']/f"{item['frame_names'][endpoint]}.jpg"
+                with Image.open(image_path) as image: gt=np.zeros((image.height,image.width),dtype=bool)
               pred=F.interpolate(prob[None,None],size=gt.shape,mode='bilinear',align_corners=False)[0,0].cpu().numpy()>=.5
               j=float(db_eval_iou(gt,pred));f=float(db_eval_boundary(gt,pred)); row={'status':'success','identity':key,'video_id':item['video_id'],'object_id':item['object_id'],'expression_id':expression['expression_id'],'description_type':expression['type'],'expression':expression['text'],'condition':condition,'stage':stage,'anchor_frame_index':endpoint,'state_identity':state_key,'shuffle_different_video':condition!='shuffled' or dict(ordered)[state_key]!=item['video_id'],'threshold':.5,'J':j,'F':f,'J_and_F':(j+f)/2,'heatmap_path':str(heatpath),'gt_entered_prompt_generation':False};append(records,row);done.add((key,condition,stage))
         status={'state':'running','pid':os.getpid(),'planned':planned,'completed':len(done),'elapsed_seconds':time.monotonic()-started,'peak_memory_bytes':torch.cuda.max_memory_allocated(args.device)};(output/f'STATUS.shard{args.shard_index}.json').write_text(json.dumps(status,indent=2)+'\n')

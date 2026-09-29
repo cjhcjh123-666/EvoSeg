@@ -59,14 +59,22 @@ def run(args):
    statuses=list((root/'val_static_states').glob('v12shard*/STAGE_STATUS.json'))
    if len(statuses)==12 and all(json.loads(x.read_text()).get('state','').startswith('complete') for x in statuses):break
    q.write(extra={'static_validation_shards_complete':sum(json.loads(x.read_text()).get('state','').startswith('complete') for x in statuses),'static_validation_shards_planned':12});time.sleep(30)
-  q.phase='extract_train_sam31_features';q.group([(f'train_features_{i}',feature_command(TRAIN,root/'train_features',i),i+2,PY_SAM) for i in range(4)])
-  q.phase='extract_validation_sam31_features';q.group([(f'val_features_{i}',feature_command(VAL,root/'val_features',i),i+2,PY_SAM) for i in range(4)])
-  q.phase='two_video_training_smoke';q.group([('smoke_train',['projects.evoseg.temporal_dense_prompt.smoke_train','--manifest',TRAIN,'--temporal-records',TRAIN_TEMP,'--static-records',str(root/'train_static_states'),'--features',str(root/'train_features'),'--output',str(root/'smoke/training_smoke.json'),'--device','0'],2,PY_SA)])
+  train_feature_status=list((root/'train_features').glob('STATUS.shard*.json'))
+  if len(train_feature_status)!=4 or not all(json.loads(x.read_text()).get('state')=='complete' for x in train_feature_status):
+   q.phase='extract_train_sam31_features';q.group([(f'train_features_{i}',feature_command(TRAIN,root/'train_features',i),i+2,PY_SAM) for i in range(4)])
+  val_feature_status=list((root/'val_features').glob('STATUS.shard*.json'))
+  if len(val_feature_status)!=4 or not all(json.loads(x.read_text()).get('state')=='complete' for x in val_feature_status):
+   q.phase='extract_validation_sam31_features';q.group([(f'val_features_{i}',feature_command(VAL,root/'val_features',i),i+2,PY_SAM) for i in range(4)])
+  smoke_path=root/'smoke/training_smoke.json'
+  if not smoke_path.is_file() or json.loads(smoke_path.read_text()).get('status')!='pass':
+   q.phase='two_video_training_smoke';q.group([('smoke_train',['projects.evoseg.temporal_dense_prompt.smoke_train','--manifest',TRAIN,'--temporal-records',TRAIN_TEMP,'--static-records',str(root/'train_static_states'),'--features',str(root/'train_features'),'--output',str(smoke_path),'--device','0'],2,PY_SA)])
   q.phase='train_three_seeds';spec=[]
   for seed,gpu in zip((11,23,42),(2,3,4)):
+   status_path=root/f'training/seed{seed}/training_status.json'
+   if status_path.is_file() and json.loads(status_path.read_text()).get('state')=='complete':continue
    command=['projects.evoseg.temporal_dense_prompt.train','--manifest',TRAIN,'--temporal-records',TRAIN_TEMP,'--static-records',str(root/'train_static_states'),'--features',str(root/'train_features'),'--output',str(root/f'training/seed{seed}'),'--seed',str(seed),'--device','0']
    spec.append((f'train_seed{seed}',command,gpu,PY_SA))
-  q.group(spec)
+  if spec:q.group(spec)
   q.phase='pilot64_dense';q.group([(f'pilot_dense_{i}',dense_command(root,VAL,root/'val_features',root/'pilot64/dense',0,64,i),i+2,PY_SA) for i in range(4)])
   q.phase='two_video_public_point_smoke';q.group([('smoke_pixel',pixel_command(VAL,root/'pilot64/dense',root/'smoke/pixel',0,2,0,1),2,PY_SAM)])
   smoke_rows=[json.loads(line) for line in (root/'smoke/pixel/pixel_results.shard0.jsonl').open() if line.strip() and json.loads(line).get('status')=='success']
