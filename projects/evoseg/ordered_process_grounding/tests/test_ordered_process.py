@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+import numpy as np
 
 from projects.evoseg.ordered_process_grounding.model import monotonic_logsumexp
 from projects.evoseg.ordered_process_grounding.protocol import (
@@ -9,6 +10,8 @@ from projects.evoseg.ordered_process_grounding.protocol import (
     is_order_sensitive,
     reverse_order,
 )
+from projects.evoseg.ordered_process_grounding.prepare_features import batch_region_pool
+from projects.evoseg.temporal_compiler.temporal_matcher_prototype import region_pool
 
 
 def test_monotonic_alignment_prefers_abc_to_cba():
@@ -46,3 +49,16 @@ def test_filter_and_fixed_negative_are_deterministic():
     name, order = fixed_order_negative("x")
     assert name in {"reverse", "block_swap"}
     assert sorted(order) == list(range(8))
+
+
+def test_batched_region_pool_matches_reference(monkeypatch):
+    masks=[np.eye(8,dtype=bool),np.fliplr(np.eye(8,dtype=bool)).copy()]
+    tracks=[{"frames":[index]} for index in range(2)]
+    monkeypatch.setattr(
+        "projects.evoseg.ordered_process_grounding.prepare_features.decode_rle",
+        lambda value:masks[value],
+    )
+    features=torch.randn(16,7)
+    actual=batch_region_pool(tracks,[0],[0],{0:features},(4,4))[:,0]
+    expected=np.stack([region_pool(features,mask,(4,4))[0].numpy() for mask in masks])
+    assert np.allclose(actual,expected,atol=1e-6)

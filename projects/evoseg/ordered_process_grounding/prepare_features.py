@@ -18,7 +18,6 @@ import numpy as np
 from projects.evoseg.temporal_compiler.temporal_matcher_prototype import (
     decode_rle,
     load_siglip_vision_model,
-    region_pool,
 )
 
 
@@ -46,6 +45,23 @@ def frozen_embedding(model_root: Path):
         "embedding_shape": list(value.shape),
         "embedding_dtype": str(value.dtype),
     }
+
+
+def batch_region_pool(tracks: list[dict], positions: list[int], selected: list[int], frame_features: dict, grid):
+    """Exactly the same area-weight pooling, batched across candidates."""
+    import torch
+    import torch.nn.functional as functional
+
+    by_time=[]
+    for position,frame_index in zip(positions,selected):
+        masks=np.stack([decode_rle(track["frames"][position]) for track in tracks])
+        weights=functional.interpolate(torch.from_numpy(masks.astype(np.float32))[:,None],size=grid,mode="area").flatten(1)
+        denominator=weights.sum(-1,keepdim=True);features=frame_features[frame_index]
+        pooled=weights.to(features.dtype) @ features
+        pooled=pooled/denominator.clamp_min(1).to(features.dtype)
+        pooled[denominator[:,0]<=0]=0
+        by_time.append(pooled.numpy())
+    return np.stack(by_time,axis=1)
 
 
 def run(args) -> None:
@@ -150,15 +166,10 @@ def run(args) -> None:
                     if cache_key in pooled_track_cache:
                         candidate_features, candidate_ids = pooled_track_cache[cache_key]
                     else:
-                        for track in tracks["tracks"]:
-                            values = []
-                            for position, frame_index in zip(positions, selected):
-                                pooled, _ = region_pool(
-                                    frame_features[frame_index], decode_rle(track["frames"][position]), (grid, grid)
-                                )
-                                values.append(pooled.numpy())
-                            candidate_features.append(np.stack(values))
-                            candidate_ids.append(int(track["track_id"]))
+                        candidate_features = list(batch_region_pool(
+                            tracks["tracks"], positions, selected, frame_features, (grid, grid)
+                        ))
+                        candidate_ids = [int(track["track_id"]) for track in tracks["tracks"]]
                         pooled_track_cache[cache_key] = (candidate_features, candidate_ids)
                 track_array = (
                     np.stack(candidate_features).astype(np.float16)
