@@ -36,7 +36,11 @@ def jsonl_rows(path: Path) -> int:
 
 
 def snapshot(
-    root: Path, sessions: list[str], planned_steps: int, output_prefix: str
+    root: Path,
+    sessions: list[str],
+    planned_steps: int,
+    output_prefix: str,
+    extra_sessions: list[str],
 ) -> dict:
     tasks = []
     for name in sessions:
@@ -56,13 +60,18 @@ def snapshot(
                 "summary": summary,
             }
         )
+    extra_tasks = [
+        {"session": name, "active": session_active(name)} for name in extra_sessions
+    ]
     return {
         "updated_at": datetime.now().astimezone().isoformat(),
         "run_root": str(root.resolve()),
         "tasks": tasks,
         "completed_steps": sum(task["completed_steps"] for task in tasks),
         "planned_steps": planned_steps * len(tasks),
-        "all_finished": all(task["status"] == "success" for task in tasks),
+        "extra_tasks": extra_tasks,
+        "all_finished": all(task["status"] == "success" for task in tasks)
+        and not any(task["active"] for task in extra_tasks),
     }
 
 
@@ -82,6 +91,12 @@ def progress_markdown(value: dict) -> str:
             f"| {task['seed']} | {task['status']} | "
             f"{task['completed_steps']}/{task['planned_steps']} | `{task['session']}` |"
         )
+    if value["extra_tasks"]:
+        lines.extend(["", "Additional persistent tasks:", ""])
+        lines.extend(
+            f"- `{task['session']}`: {'running' if task['active'] else 'finished'}"
+            for task in value["extra_tasks"]
+        )
     lines.extend(["", "No final scientific conclusion is assigned before evaluation.", ""])
     return "\n".join(lines)
 
@@ -92,13 +107,18 @@ def main() -> None:
     parser.add_argument("--session", action="append", required=True)
     parser.add_argument("--planned-steps", type=int, required=True)
     parser.add_argument("--output-prefix", default="pilot_train_seed")
+    parser.add_argument("--extra-session", action="append", default=[])
     parser.add_argument("--interval", type=int, default=1800)
     parser.add_argument("--progress-interval", type=int, default=7200)
     args = parser.parse_args()
     last_progress = 0.0
     while True:
         value = snapshot(
-            args.run_root, args.session, args.planned_steps, args.output_prefix
+            args.run_root,
+            args.session,
+            args.planned_steps,
+            args.output_prefix,
+            args.extra_session,
         )
         atomic_write(args.run_root / "STATUS.json", json.dumps(value, indent=2) + "\n")
         now = time.monotonic()
