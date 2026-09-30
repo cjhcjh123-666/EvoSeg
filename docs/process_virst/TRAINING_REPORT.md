@@ -29,6 +29,20 @@
 - `beta` remained approximately 1.0; peak allocated GPU memory was 19.38 GiB.
 - A separate two-step loader smoke succeeded with both Long-RVOS and GroundMoRe registered simultaneously.
 
+### Mixed-precision correction
+
+The first 3-seed pilot launch was stopped at roughly 160/384 updates after an audit found that a blanket `model.to(bfloat16)` had also converted the new trainable head. With learning rate `1e-5`, `beta` remained bit-identical throughout those partial runs. Their logs are retained, but they are marked numerically invalid and are excluded from all results.
+
+The implementation now keeps the frozen VIRST/SAM2 model in BF16 while retaining FP32 master parameters for the ProcessVIRST head and fusion LayerNorm. A nine-update real-data re-smoke confirmed:
+
+- every trainable tensor is FP32;
+- `beta` changes across updates;
+- trainable-parameter delta L2 is 0.06135 and max absolute delta is 0.0000877;
+- 3,217,620 of 3,217,666 trainable scalar values changed;
+- peak allocated memory remains 19.39 GiB.
+
+The preregistered pilot is restarted from scratch in new output directories; no partial BF16 checkpoint is resumed.
+
 ## Preregistered pilot budget
 
 Before viewing pilot results, the three-seed pilot was fixed to 128 identity-warm-up updates followed by 256 ordered-SFT updates per seed. Datasets are sampled 1:1. The learning rate, frame count, loss weights, slot count, and architecture are identical across seeds.

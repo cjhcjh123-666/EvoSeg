@@ -229,9 +229,23 @@ def main() -> None:
     core.model.seg_model.sam_prompt_encoder.to(torch.float32)
     model.eval()
     prompter = core.model.seg_prompter
+    # Keep a true FP32 master copy for the small trainable modules. Converting
+    # these parameters to BF16 makes 1e-5 AdamW updates smaller than the local
+    # quantization interval and can silently leave beta/weights unchanged.
+    prompter.conditioner.to(torch.float32)
+    prompter.fusion_norm.to(torch.float32)
     prompter.conditioner.train()
     prompter.fusion_norm.train()
-    parameters = [value for value in model.parameters() if value.requires_grad]
+    named_parameters = [
+        (name, value) for name, value in model.named_parameters() if value.requires_grad
+    ]
+    parameters = [value for _, value in named_parameters]
+    trainable_dtypes = sorted({str(value.dtype) for value in parameters})
+    if trainable_dtypes != ["torch.float32"]:
+        raise RuntimeError(f"trainable ProcessVIRST parameters are not FP32: {trainable_dtypes}")
+    initial_parameters = {
+        name: value.detach().float().cpu().clone() for name, value in named_parameters
+    }
     optimizer = AdamW(parameters, lr=args.learning_rate, weight_decay=0.0)
     total_steps = args.warmup_steps + args.ordered_steps
     loader = build_loader(
@@ -309,6 +323,7 @@ def main() -> None:
             "grad_norm": float(grad_norm),
             "seconds": time.perf_counter() - step_start,
             "peak_memory_gib": torch.cuda.max_memory_allocated(device) / 2**30,
+            "trainable_dtype": trainable_dtypes[0],
         }
         records.append(record)
         with (args.output_dir / "training.jsonl").open("a") as handle:
@@ -322,6 +337,14 @@ def main() -> None:
         "optimizer": optimizer.state_dict(),
     }
     torch.save(checkpoint, args.output_dir / "process_virst_sft.pt")
+    squared_delta = 0.0
+    max_abs_delta = 0.0
+    changed_values = 0
+    for name, value in named_parameters:
+        delta = value.detach().float().cpu() - initial_parameters[name]
+        squared_delta += float(delta.square().sum())
+        max_abs_delta = max(max_abs_delta, float(delta.abs().max()))
+        changed_values += int(delta.count_nonzero())
     summary = {
         "status": "success",
         "seed": args.seed,
@@ -330,6 +353,10 @@ def main() -> None:
         "process_params": sum(value.numel() for value in prompter.conditioner.parameters()),
         "beta_final": float(prompter.conditioner.beta.detach()),
         "peak_memory_gib": torch.cuda.max_memory_allocated(device) / 2**30,
+        "trainable_dtypes": trainable_dtypes,
+        "trainable_parameter_delta_l2": squared_delta**0.5,
+        "trainable_parameter_delta_max_abs": max_abs_delta,
+        "changed_trainable_values": changed_values,
         "elapsed_seconds": time.perf_counter() - start,
     }
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
