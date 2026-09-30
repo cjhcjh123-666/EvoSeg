@@ -43,16 +43,17 @@ The implementation now keeps the frozen VIRST/SAM2 model in BF16 while retaining
 
 The preregistered pilot is restarted from scratch in new output directories; no partial BF16 checkpoint is resumed.
 
-## Infrastructure interruption and resumability
+## Pilot completion and resumability
 
 All three valid FP32 pilot seeds completed 384/384 updates successfully on
 2026-09-30 at 20:56--20:57 Asia/Shanghai. Their final beta values are 1.00295,
 1.00314, and 1.00313 for seeds 11, 23, and 42; peak allocated memory was about
-19.39 GiB per worker. Both ablation jobs, the official GroundMoRe full baseline,
-the data extraction job, and the status monitor subsequently stopped without
-an application traceback, and `nvidia-smi` could no longer communicate with
-the NVIDIA driver. Those incomplete peripheral outputs remain in place and are
-excluded from scientific metrics until resumed or rerun.
+19.39 GiB per worker. The ablation jobs, official GroundMoRe full baseline,
+data extraction, and status monitor remained active after the main seeds
+finished. An initial unprivileged status probe could not access the tmux socket
+or NVIDIA device nodes; a privileged read-only check confirmed that the jobs
+and driver were healthy. No infrastructure failure is inferred from that
+sandbox access error.
 
 The trainer now writes an atomic `resume_latest.pt` every 32 completed updates.
 It includes the ProcessVIRST and fusion weights, optimizer state, initial
