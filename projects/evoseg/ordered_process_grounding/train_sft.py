@@ -104,12 +104,19 @@ def base_logits(model, row: dict, device: str):
 
     if isinstance(model, dict):
         model = model[row.get("_base_kind", "long_rvos")]
+    cache = row.setdefault("_opg_base_logits_cache", {})
+    cache_key = (id(model), str(device))
+    if cache_key in cache:
+        return cache[cache_key]
     with torch.no_grad():
         if row.get("_base_kind") == "groundmore":
             query, tracks = order_inputs(row, device)
-            return model(query[0], tracks[0]).detach()
-        query, states, tracks = temporal_inputs(row, device)
-        return model(query, states, tracks).detach()
+            value = model(query[0], tracks[0]).detach()
+        else:
+            query, states, tracks = temporal_inputs(row, device)
+            value = model(query, states, tracks).detach()
+    cache[cache_key] = value
+    return value
 
 
 def order_supervised(row: dict) -> bool:
@@ -117,12 +124,21 @@ def order_supervised(row: dict) -> bool:
 
 
 def order_inputs(row: dict, device: str, order: list[int] | None = None):
+    import torch
     import torch.nn.functional as functional
 
-    tracks = functional.normalize(row["tracks"].float().to(device), dim=-1)
+    cache = row.setdefault("_opg_device_input_cache", {})
+    cache_key = str(device)
+    if cache_key not in cache:
+        cache[cache_key] = (
+            row["query_tokens"].to(device=device, dtype=torch.float32),
+            functional.normalize(
+                row["tracks"].to(device=device, dtype=torch.float32), dim=-1
+            ),
+        )
+    query, tracks = cache[cache_key]
     if order is not None:
         tracks = tracks[:, order]
-    query = row["query_tokens"].float().to(device)
     return query.unsqueeze(0), tracks.unsqueeze(0)
 
 
