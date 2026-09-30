@@ -167,7 +167,7 @@ class QueryStateCapture:
         return args, kwargs
 
     def _capture_hidden(self, module: nn.Module, args: tuple[Any, ...], kwargs: dict[str, Any], output: Any):
-        hidden = output.last_hidden_state if hasattr(output, "last_hidden_state") else output[0]
+        hidden = self._last_hidden_state(output)
         expanded_attention = kwargs.get("attention_mask")
         states = []
         for row in range(hidden.shape[0]):
@@ -197,6 +197,17 @@ class QueryStateCapture:
             padded[row, : value.shape[0]] = value
             padding[row, : value.shape[0]] = False
         self.prompter.set_query_context(padded, padding, self.permutation)
+
+    @staticmethod
+    def _last_hidden_state(output: Any) -> Tensor:
+        """Handle Hugging Face and VideoChat's nested ``(output, labels)`` form."""
+        if isinstance(output, Tensor):
+            return output
+        if hasattr(output, "last_hidden_state"):
+            return output.last_hidden_state
+        if isinstance(output, (tuple, list)) and output:
+            return QueryStateCapture._last_hidden_state(output[0])
+        raise TypeError(f"cannot extract last_hidden_state from {type(output)!r}")
 
 
 def install_process_virst(model: nn.Module, slots: int = 4) -> QueryStateCapture:

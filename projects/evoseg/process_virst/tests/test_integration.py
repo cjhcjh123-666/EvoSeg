@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from projects.evoseg.process_virst.virst_integration import ProcessAwareSegPrompter
+from projects.evoseg.process_virst.virst_integration import ProcessAwareSegPrompter, QueryStateCapture
 
 
 class _Layer(nn.Module):
@@ -44,3 +44,11 @@ def test_wrapper_produces_frame_specific_prompts_and_order_diagnostics():
     assert wrapper.last_diagnostics is not None
     assert wrapper.last_diagnostics.original.alignment.shape == (1, 4, 6)
     assert wrapper.last_diagnostics.permuted_score is not None
+
+
+def test_videochat_nested_output_hidden_state_is_extracted():
+    class Output:
+        last_hidden_state = torch.randn(1, 3, 4)
+
+    expected = Output.last_hidden_state
+    assert QueryStateCapture._last_hidden_state((Output(), torch.ones(1, 3))) is expected
