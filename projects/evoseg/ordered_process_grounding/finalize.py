@@ -27,6 +27,45 @@ def lookup(summary: list[dict], kind: str, method: str):
     return next(row for row in summary if row["description_type"]==kind and row["method"]==method)
 
 
+def candidate_runtime(root: Path):
+    records={}
+    for path in sorted((root/"groundmore_candidates").glob("shard-*/candidate_records.jsonl")):
+        with path.open() as handle:
+            for line in handle:
+                row=json.loads(line)
+                if row.get("prompt_method")!="raw_expression":continue
+                key=row.get("key") or "/".join((row["dataset"],row["video_id"],str(row["object_id"]),str(row["expression_id"]),row["prompt_method"]))
+                records[key]=row
+    success=[row for row in records.values() if row.get("status")=="success" and row.get("latency_seconds_synchronized") is not None]
+    latencies=[float(row["latency_seconds_synchronized"]) for row in success]
+    peaks=[int(row.get("peak_memory_bytes",0)) for row in success]
+    return {
+        "records":len(records),"success":len(success),"failed":len(records)-len(success),
+        "mean_latency_seconds":float(np.mean(latencies)) if latencies else None,
+        "median_latency_seconds":float(np.median(latencies)) if latencies else None,
+        "p95_latency_seconds":float(np.quantile(latencies,.95)) if latencies else None,
+        "peak_memory_bytes":max(peaks,default=0),
+    }
+
+
+def transition_counts(rows: list[dict]):
+    paired=defaultdict(dict)
+    for row in rows:
+        if row["seed"]=="ensemble" and row["method"] in {"mean_pool","opg_full"}:
+            paired[row["identity"]][row["method"]]=row
+    counts={"paired":0,"candidate_miss":0,"opg_fixes_mean":0,"opg_damages_mean":0,"both_correct":0,"both_wrong":0}
+    for methods in paired.values():
+        if len(methods)!=2:continue
+        counts["paired"]+=1
+        if not int(methods["opg_full"]["candidate_hit"]):counts["candidate_miss"]+=1
+        mean_ok=int(methods["mean_pool"]["selection_correct"]);opg_ok=int(methods["opg_full"]["selection_correct"])
+        if opg_ok and not mean_ok:counts["opg_fixes_mean"]+=1
+        elif mean_ok and not opg_ok:counts["opg_damages_mean"]+=1
+        elif mean_ok and opg_ok:counts["both_correct"]+=1
+        else:counts["both_wrong"]+=1
+    return counts
+
+
 def plot_bars(path: Path, title: str, labels: list[str], values: list[float], ylabel: str):
     import matplotlib.pyplot as plt
     fig,ax=plt.subplots(figsize=(7,4));colors=["#8da0cb","#66c2a5","#fc8d62","#e78ac3"][:len(values)]
@@ -91,7 +130,13 @@ def run(args) -> None:
     partial=(not full_go and ground_comparison["J_and_F"]["mean"]>0 and reverse["mean"]>0 and block["mean"]>0 and comparisons["dynamic"]["J_and_F"]["mean"]>=-0.01)
     decision="GO" if full_go else "PARTIAL GO" if partial else "NO-GO"
 
-    for name in ("per_expression.csv","order_pairs.csv","groundmore_sequential.csv"):
+    runtime_rows=read_csv(artifact/"runtime.csv")
+    candidate_cost=candidate_runtime(artifact)
+    long_rows=read_csv(artifact/"per_expression.csv")
+    ground_rows=read_csv(artifact/"groundmore_sequential.csv")
+    long_transitions=transition_counts(long_rows);ground_transitions=transition_counts(ground_rows)
+
+    for name in ("per_expression.csv","order_pairs.csv","groundmore_sequential.csv","runtime.csv"):
         shutil.copy2(artifact/name,docs/name)
     with (docs/"ablations.csv").open("w",newline="") as handle:
         writer=csv.DictWriter(handle,fieldnames=list((long+ground)[0]));writer.writeheader();writer.writerows(long+ground)
@@ -105,7 +150,7 @@ def run(args) -> None:
     for text,x in labels:ax.text(x,.5,text,ha="center",va="center",bbox=dict(boxstyle="round",fc="#eef4ff",ec="#315d9c"),transform=ax.transAxes)
     for (_,a),(_,b) in zip(labels,labels[1:]):ax.annotate("",xy=(b-.07,.5),xytext=(a+.07,.5),xycoords="axes fraction",arrowprops=dict(arrowstyle="->"))
     fig.tight_layout();fig.savefig(docs/"figures"/"method_overview.png",dpi=180);plt.close(fig)
-    qualitative(artifact,docs,Path(args.long_manifest),read_csv(artifact/"per_expression.csv"),read_csv(artifact/"order_pairs.csv"))
+    qualitative(artifact,docs,Path(args.long_manifest),long_rows,read_csv(artifact/"order_pairs.csv"))
 
     method=f"""# Ordered Process Grounding (OPG) SFT
 
@@ -159,6 +204,35 @@ Full OPG − mean pool: accuracy {ci(ground_comparison['selection_accuracy'],100
 Permutation diagnostics keep the candidate, frame set, visual content, and query fixed. They change temporal order only; no alternative GT label is asserted.
 """)
     (docs/"ABLATIONS.md").write_text("# Ablations\n\n`ablations.csv` contains object-balanced Long-RVOS and GroundMoRe results for mean-pool, no-monotonic global attention, monotonic without order loss, and full monotonic OPG SFT. All new variants use identical frozen inputs and three fixed seeds.\n")
+    selector_lines=[]
+    for row in runtime_rows:
+        seconds=float(row["latency_seconds"]);expressions=max(int(row["expressions"]),1)
+        selector_lines.append(f"| {row['dataset']} | {row['method']} | {seconds/expressions*1000:.3f} | {int(row['peak_memory_bytes'])/2**30:.3f} |")
+    (docs/"EFFICIENCY.md").write_text(f"""# Efficiency
+
+- OPG trainable parameters per seed: {summary['trainable_parameters']:,}; three-seed ensemble loaded parameters: {summary['trainable_parameters']*3:,}.
+- GroundMoRe official SAM3.1 raw-expression candidate generation: {candidate_cost['success']}/{candidate_cost['records']} successful; synchronized mean/median/p95 latency {fmt(candidate_cost['mean_latency_seconds'],1,3)}/{fmt(candidate_cost['median_latency_seconds'],1,3)}/{fmt(candidate_cost['p95_latency_seconds'],1,3)} seconds per expression; observed peak {candidate_cost['peak_memory_bytes']/2**30:.2f} GiB.
+- Candidate generation and selector timing are reported separately. Concurrently contended GPU wall time is not presented as a clean deployment benchmark.
+
+| Dataset | component | synchronized ms/query | peak allocated GiB |
+|---|---|---:|---:|
+{chr(10).join(selector_lines)}
+""")
+    ground_order_rows=read_csv(artifact/"groundmore_order_pairs.csv")
+    full_order=[row for row in ground_order_rows if row["method"]=="opg_full"]
+    positive_reverse=sum(float(row["original_minus_reverse"])>0 for row in full_order)
+    positive_block=sum(float(row["original_minus_block_swap"])>0 for row in full_order)
+    (docs/"FAILURE_ANALYSIS.md").write_text(f"""# Failure analysis
+
+Counts below follow fixed rules over every ensemble result; no cases were dropped based on outcome.
+
+| Dataset | paired | candidate miss | OPG fixes mean-pool | OPG damages mean-pool | both correct | both wrong |
+|---|---:|---:|---:|---:|---:|---:|
+| Long-RVOS | {long_transitions['paired']} | {long_transitions['candidate_miss']} | {long_transitions['opg_fixes_mean']} | {long_transitions['opg_damages_mean']} | {long_transitions['both_correct']} | {long_transitions['both_wrong']} |
+| GroundMoRe Sequential | {ground_transitions['paired']} | {ground_transitions['candidate_miss']} | {ground_transitions['opg_fixes_mean']} | {ground_transitions['opg_damages_mean']} | {ground_transitions['both_correct']} | {ground_transitions['both_wrong']} |
+
+For verified GroundMoRe target tracks, Full OPG scores original above reverse in {positive_reverse}/{len(full_order)} cases and above block-swap in {positive_block}/{len(full_order)} cases. Candidate misses remain an executor ceiling and are always scored as failures. `figures/qualitative_order_cases/` contains deterministic success, bag-of-frames failure, static-cue, and candidate-miss examples rather than success-only curation.
+""")
     (docs/"FINAL_SFT_GO_NOGO.md").write_text(f"""# Final SFT decision: {decision}
 
 The preregistered gate is applied without post-hoc tuning. GroundMoRe J&F delta is {ci(ground_comparison['J_and_F'],100)} pp; reverse and block-swap order margins are {ci(reverse)} and {ci(block)}. Long-RVOS Dynamic J&F delta is {ci(comparisons['dynamic']['J_and_F'],100)} pp and Static delta is {ci(comparisons['static']['J_and_F'],100)} pp.

@@ -377,6 +377,27 @@ def predict_mean(models, rows: list[dict], device: str):
     return result, per_seed, time.monotonic() - started, peak
 
 
+def prewarm_frozen_inputs(models, rows: list[dict], device: str):
+    """Materialize identical frozen inputs before timing any selector."""
+    import torch
+
+    if str(device).startswith("cuda"):
+        torch.cuda.synchronize(device); torch.cuda.reset_peak_memory_stats(device)
+    started=time.monotonic()
+    with torch.inference_mode():
+        for row in rows:
+            if not row["tracks"].shape[0]:
+                continue
+            order_inputs(row,device)
+            for model in models:
+                base_logits(model,row,device)
+    if str(device).startswith("cuda"):
+        torch.cuda.synchronize(device);peak=int(torch.cuda.max_memory_allocated(device))
+    else:
+        peak=0
+    return time.monotonic()-started,peak
+
+
 def selected_row(row: dict, method: str, logits: np.ndarray, seed: str = "ensemble") -> dict:
     track_ids = [int(value) for value in row.get("candidate_track_ids", [])]
     selected_index = int(np.argmax(logits)) if len(logits) else None
@@ -548,9 +569,13 @@ def run(args) -> None:
             status(root, "running", "training", completed=len(training), planned=planned, variant=variant, seed=seed)
 
     status(root, "running", "long_rvos_evaluation", expressions=len(evaluation))
+    preparation_latency,preparation_peak=prewarm_frozen_inputs(base_models,evaluation,args.device)
     mean_predictions, mean_seeds, mean_latency, mean_peak = predict_mean(base_models, evaluation, args.device)
     variant_outputs = {}
-    runtime = [{"dataset": "long_rvos", "method": "mean_pool", "latency_seconds": mean_latency, "expressions": len(evaluation), "peak_memory_bytes": mean_peak}]
+    runtime = [
+        {"dataset":"long_rvos","method":"frozen_input_preparation","latency_seconds":preparation_latency,"expressions":len(evaluation),"peak_memory_bytes":preparation_peak},
+        {"dataset": "long_rvos", "method": "mean_pool", "latency_seconds": mean_latency, "expressions": len(evaluation), "peak_memory_bytes": mean_peak},
+    ]
     for variant, models in model_sets.items():
         pred, order, seed_values, latency, peak = predict_variant(models, base_models, evaluation, args.device)
         variant_outputs[variant] = (pred, order, seed_values)
@@ -587,6 +612,8 @@ def run(args) -> None:
     ground_rows=[];ground_summary=[];ground_comparison=None;ground_order_rows=[];ground_order_summary={}
     if ground_evaluation:
         status(root,"running","groundmore_evaluation",expressions=len(ground_evaluation))
+        ground_preparation_latency,ground_preparation_peak=prewarm_frozen_inputs(base_models,ground_evaluation,args.device)
+        runtime.append({"dataset":"groundmore","method":"frozen_input_preparation","latency_seconds":ground_preparation_latency,"expressions":len(ground_evaluation),"peak_memory_bytes":ground_preparation_peak})
         ground_mean,ground_mean_seeds,ground_mean_latency,ground_mean_peak=predict_mean(base_models,ground_evaluation,args.device)
         runtime.append({"dataset":"groundmore","method":"mean_pool","latency_seconds":ground_mean_latency,"expressions":len(ground_evaluation),"peak_memory_bytes":ground_mean_peak})
         ground_outputs={}
