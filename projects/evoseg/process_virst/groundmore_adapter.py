@@ -57,6 +57,7 @@ def prepare(
     videos = {}
     mapping = []
     mask_dict = {}
+    missing_clips = []
 
     for video_id, video in source.items():
         sequential = {
@@ -72,7 +73,15 @@ def prepare(
         image_dir = source_dir / "images"
         mask_dir = source_dir / "masks"
         if not image_dir.is_dir() or not mask_dir.is_dir():
-            raise FileNotFoundError(f"incomplete GroundMoRe clip: {video_id}")
+            missing_clips.append(
+                {
+                    "video_id": video_id,
+                    "sequential_expressions": len(sequential),
+                    "images_present": image_dir.is_dir(),
+                    "masks_present": mask_dir.is_dir(),
+                }
+            )
+            continue
         link = jpeg_root / video_id
         if not link.exists():
             os.symlink(image_dir, link, target_is_directory=True)
@@ -136,6 +145,10 @@ def prepare(
         "split": split,
         "videos": len(videos),
         "sequential_expressions": len(mapping),
+        "missing_clips": missing_clips,
+        "missing_sequential_expressions": sum(
+            item["sequential_expressions"] for item in missing_clips
+        ),
         "fps": 6,
         "evaluation_frames": 20 if not training else None,
         "gt_outside_action_interval": "zero",
