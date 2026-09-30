@@ -28,7 +28,7 @@ from projects.evoseg.temporal_grounding_mechanism.common import (
     source_video_bootstrap,
     write_csv,
 )
-from projects.evoseg.temporal_grounding_mechanism.train_probe import examples
+from projects.evoseg.temporal_grounding_mechanism.train_probe import load_features
 
 
 VARIANTS = {
@@ -36,6 +36,29 @@ VARIANTS = {
     "opg_no_order_loss": {"alignment": "monotonic", "lambda_order": 0.0},
     "opg_full": {"alignment": "monotonic", "lambda_order": 1.0},
 }
+
+
+def opg_examples(feature_path: Path, metric_path: Path, hit_threshold: float, prompt_method: str):
+    payload, metadata = load_features(feature_path)
+    metrics = {}
+    with metric_path.open() as handle:
+        for row in csv.DictReader(handle):
+            if row["prompt_method"] != prompt_method: continue
+            identity = "/".join((row["dataset"],row["video_id"],row["object_id"],row["expression_id"]))
+            row["candidate_metrics"] = json.loads(row["candidate_metrics"]);metrics[identity]=row
+    all_rows=[];hits=[]
+    for value in payload:
+        identity=value["identity"];meta=metadata[identity];track_ids=[int(x) for x in meta["candidate_track_ids"]];metric=metrics.get(identity)
+        candidate_values={} if metric is None else {int(x["track_id"]):x for x in metric["candidate_metrics"]}
+        oracle=int(metric["oracle_track_id"]) if metric is not None and metric["oracle_track_id"] else None
+        hit=bool(metric is not None and oracle in track_ids and float(metric["oracle_J_and_F"])>=hit_threshold)
+        row={**value,**meta,"oracle_track_id":oracle,"candidate_hit":hit,"target_index":track_ids.index(oracle) if hit else None,
+             "candidate_jf":{key:float(x["J_and_F"]) for key,x in candidate_values.items()},
+             "candidate_j":{key:float(x["J"]) for key,x in candidate_values.items()},
+             "candidate_f":{key:float(x["F"]) for key,x in candidate_values.items()}}
+        all_rows.append(row)
+        if hit:hits.append(row)
+    return all_rows,hits
 
 
 def atomic_json(path: Path, value: dict) -> None:
@@ -344,6 +367,8 @@ def selected_row(row: dict, method: str, logits: np.ndarray, seed: str = "ensemb
         "candidate_count": len(track_ids), "oracle_track_id": row["oracle_track_id"],
         "selected_track_id": selected_id,
         "selection_correct": int(row["candidate_hit"] and selected_id == row["oracle_track_id"]),
+        "J": float(row["candidate_j"].get(selected_id, 0.0)),
+        "F": float(row["candidate_f"].get(selected_id, 0.0)),
         "J_and_F": float(row["candidate_jf"].get(selected_id, 0.0)),
     }
 
@@ -353,11 +378,13 @@ def summaries(rows: list[dict]) -> list[dict]:
     for kind in ("static", "dynamic", "hybrid", "sequential"):
         for method in sorted({row["method"] for row in rows if row["seed"] == "ensemble"}):
             subset = [row for row in rows if row["seed"] == "ensemble" and row["description_type"] == kind and row["method"] == method]
-            objects = object_weighted(subset, ["selection_correct", "J_and_F"])
+            objects = object_weighted(subset, ["selection_correct", "J", "F", "J_and_F"])
             result.append({
                 "description_type": kind, "method": method, "expressions": len(subset),
                 "objects": len(objects), "candidate_hits": sum(row["candidate_hit"] for row in subset),
                 "selection_accuracy": float(np.mean([row["selection_correct"] for row in objects])),
+                "J": float(np.mean([row["J"] for row in objects])),
+                "F": float(np.mean([row["F"] for row in objects])),
                 "J_and_F": float(np.mean([row["J_and_F"] for row in objects])),
             })
     return result
@@ -436,8 +463,8 @@ def run(args) -> None:
 
     root = Path(args.output); root.mkdir(parents=True, exist_ok=True)
     status(root, "running", "load")
-    train_all, train_hits = examples(Path(args.train_features), Path(args.train_metrics), args.hit_threshold)
-    evaluation, _ = examples(Path(args.eval_features), Path(args.eval_metrics), args.hit_threshold)
+    train_all, train_hits = opg_examples(Path(args.train_features), Path(args.train_metrics), args.hit_threshold,"concept")
+    evaluation, _ = opg_examples(Path(args.eval_features), Path(args.eval_metrics), args.hit_threshold,"concept")
     for row in train_all + evaluation: row["_base_kind"] = "long_rvos"
     if {row["video_id"] for row in train_all} & {row["video_id"] for row in evaluation}:
         raise RuntimeError("train/evaluation source-video overlap")
@@ -447,8 +474,8 @@ def run(args) -> None:
     fitting, validation = split_train(train_hits)
     ground_train_all=[];ground_train_hits=[];ground_evaluation=[];ground_fitting=[];ground_validation=[]
     if args.ground_train_features:
-        ground_train_all,ground_train_hits=examples(Path(args.ground_train_features),Path(args.ground_train_metrics),args.hit_threshold)
-        ground_evaluation,_=examples(Path(args.ground_eval_features),Path(args.ground_eval_metrics),args.hit_threshold)
+        ground_train_all,ground_train_hits=opg_examples(Path(args.ground_train_features),Path(args.ground_train_metrics),args.hit_threshold,"raw_expression")
+        ground_evaluation,_=opg_examples(Path(args.ground_eval_features),Path(args.ground_eval_metrics),args.hit_threshold,"raw_expression")
         for row in ground_train_all+ground_evaluation: row["_base_kind"]="groundmore"
         if {row["video_id"] for row in ground_train_all} & {row["video_id"] for row in ground_evaluation}:
             raise RuntimeError("GroundMoRe train/test source-video overlap")

@@ -128,20 +128,20 @@ OPG preserves the frozen order-agnostic multi-frame identity score and adds only
     (docs/"TRAINING_REPORT.md").write_text(f"# Training report\n\nSeeds are fixed at 11/23/42; no final-validation seed selection or hyperparameter sweep was performed. Stage 1 is exactly one identity-only epoch, followed by fixed-budget ordered SFT with train-internal source-video early stopping.\n\n{seed_lines}\n")
     (docs/"LONG_RVOS_RESULTS.md").write_text(f"""# Long-RVOS full paired validation
 
-| Method | Dynamic accuracy | Dynamic J&F |
-|---|---:|---:|
-| Mean pool | {fmt(dynamic_mean['selection_accuracy'],100)} | {fmt(dynamic_mean['J_and_F'],100)} |
-| Full OPG | {fmt(dynamic_full['selection_accuracy'],100)} | {fmt(dynamic_full['J_and_F'],100)} |
+| Method | Dynamic accuracy | J | F | J&F |
+|---|---:|---:|---:|---:|
+| Mean pool | {fmt(dynamic_mean['selection_accuracy'],100)} | {fmt(dynamic_mean['J'],100)} | {fmt(dynamic_mean['F'],100)} | {fmt(dynamic_mean['J_and_F'],100)} |
+| Full OPG | {fmt(dynamic_full['selection_accuracy'],100)} | {fmt(dynamic_full['J'],100)} | {fmt(dynamic_full['F'],100)} | {fmt(dynamic_full['J_and_F'],100)} |
 
 Full OPG − mean pool Dynamic J&F: {ci(comparisons['dynamic']['J_and_F'],100)} pp. Static J&F changes from {fmt(static_mean['J_and_F'],100)} to {fmt(static_full['J_and_F'],100)} ({fmt(comparisons['static']['J_and_F']['mean'],100)} pp).
 """)
     (docs/"GROUNDMORE_RESULTS.md").write_text(f"""# GroundMoRe Sequential
 
-| Method | Selection accuracy | Candidate-direct J&F |
-|---|---:|---:|
-| Mean pool | {fmt(ground_mean['selection_accuracy'],100)} | {fmt(ground_mean['J_and_F'],100)} |
-| OPG no order loss | {fmt(ground_no['selection_accuracy'],100)} | {fmt(ground_no['J_and_F'],100)} |
-| Full OPG | {fmt(ground_full['selection_accuracy'],100)} | {fmt(ground_full['J_and_F'],100)} |
+| Method | Selection accuracy | J | F | J&F |
+|---|---:|---:|---:|---:|
+| Mean pool | {fmt(ground_mean['selection_accuracy'],100)} | {fmt(ground_mean['J'],100)} | {fmt(ground_mean['F'],100)} | {fmt(ground_mean['J_and_F'],100)} |
+| OPG no order loss | {fmt(ground_no['selection_accuracy'],100)} | {fmt(ground_no['J'],100)} | {fmt(ground_no['F'],100)} | {fmt(ground_no['J_and_F'],100)} |
+| Full OPG | {fmt(ground_full['selection_accuracy'],100)} | {fmt(ground_full['J'],100)} | {fmt(ground_full['F'],100)} | {fmt(ground_full['J_and_F'],100)} |
 
 Full OPG − mean pool: accuracy {ci(ground_comparison['selection_accuracy'],100)} pp; J&F {ci(ground_comparison['J_and_F'],100)} pp (source-video cluster bootstrap, 2,000 resamples).
 """)
