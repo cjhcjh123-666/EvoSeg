@@ -40,19 +40,27 @@ def metrics(values,total):
 def run(args):
     root=Path(args.output);root.mkdir(parents=True,exist_ok=True);logs=root/"logs";logs.mkdir(exist_ok=True)
     manifest=json.loads(Path(args.manifest).read_text());total=sum(len(item["expressions"]) for item in manifest["objects"])
-    processes=[]
-    for shard in range(args.workers):
-        destination=root/f"shard-{shard}";destination.mkdir(exist_ok=True);device=args.device_offset+shard
-        command=[args.sam_python,"-m","projects.evoseg.temporal_compiler.sam31_candidate_protocol","generate","--manifest",args.manifest,"--run-dir",str(destination),"--checkpoint",args.checkpoint,"--expected-checkpoint-sha256","0567debeec80ba4ac6369540c6c248025283cb3ff2b92827509e57e2b3541cb6","--checkpoint-source","AEmotionStudio/sam3.1-byte-identical-official-sha","--sam3-repo",args.sam_repo,"--device",str(device),"--max-objects",str(len(manifest["objects"])),"--shard-index",str(shard),"--num-shards",str(args.workers),"--max-num-objects","16","--multiplex-count","16","--prompt-methods","groundmore_concept","--no-use-fa3","--no-compile"]
-        handle=(logs/f"worker_{shard}.log").open("a");processes.append(subprocess.Popen(command,cwd=args.repo,stdout=handle,stderr=subprocess.STDOUT))
-    codes=wait(processes,root,"concept_candidate_generation")
-    evaluated=root/"evaluated";additional=[]
-    for shard in range(1,args.workers):additional.extend(["--additional-run-dir",str(root/f"shard-{shard}")])
-    command=[args.sam_python,"-m","projects.evoseg.temporal_compiler.sam31_candidate_protocol","evaluate","--manifest",args.manifest,"--run-dir",str(root/"shard-0"),*additional,"--output-dir",str(evaluated),"--workers","32"]
-    update(root,"concept_candidate_evaluation",generation_return_codes=codes)
-    with (logs/"evaluate.log").open("a") as handle:subprocess.run(command,cwd=args.repo,stdout=handle,stderr=subprocess.STDOUT,check=True)
+    evaluated=root/"evaluated"
+    if not args.report_only:
+        processes=[]
+        for shard in range(args.workers):
+            destination=root/f"shard-{shard}";destination.mkdir(exist_ok=True);device=args.device_offset+shard
+            command=[args.sam_python,"-m","projects.evoseg.temporal_compiler.sam31_candidate_protocol","generate","--manifest",args.manifest,"--run-dir",str(destination),"--checkpoint",args.checkpoint,"--expected-checkpoint-sha256","0567debeec80ba4ac6369540c6c248025283cb3ff2b92827509e57e2b3541cb6","--checkpoint-source","AEmotionStudio/sam3.1-byte-identical-official-sha","--sam3-repo",args.sam_repo,"--device",str(device),"--max-objects",str(len(manifest["objects"])),"--shard-index",str(shard),"--num-shards",str(args.workers),"--max-num-objects","16","--multiplex-count","16","--prompt-methods","groundmore_concept","--no-use-fa3","--no-compile"]
+            handle=(logs/f"worker_{shard}.log").open("a");processes.append(subprocess.Popen(command,cwd=args.repo,stdout=handle,stderr=subprocess.STDOUT))
+        codes=wait(processes,root,"concept_candidate_generation")
+        additional=[]
+        for shard in range(1,args.workers):additional.extend(["--additional-run-dir",str(root/f"shard-{shard}")])
+        command=[args.sam_python,"-m","projects.evoseg.temporal_compiler.sam31_candidate_protocol","evaluate","--manifest",args.manifest,"--run-dir",str(root/"shard-0"),*additional,"--output-dir",str(evaluated),"--workers","32"]
+        update(root,"concept_candidate_evaluation",generation_return_codes=codes)
+        with (logs/"evaluate.log").open("a") as handle:subprocess.run(command,cwd=args.repo,stdout=handle,stderr=subprocess.STDOUT,check=True)
+    else:
+        codes=[0 for _ in range(args.workers)]
     concept=rows(evaluated/"sam31_candidate_metrics.csv");raw=rows(Path(args.raw_metrics))
-    raw=[row for row in raw if row["prompt_method"]=="raw_expression" and row.get("dataset")=="groundmore"]
+    expected={
+        (item["dataset"],item["video_id"],str(item["object_id"]),str(expression["expression_id"]))
+        for item in manifest["objects"] for expression in item["expressions"]
+    }
+    raw=[row for row in raw if row["prompt_method"]=="raw_expression" and (row["dataset"],row["video_id"],str(row["object_id"]),str(row["expression_id"])) in expected]
     summary={"raw_expression":metrics(raw,total),"deterministic_concept":metrics(concept,total),
              "generation_return_codes":codes,"ground_truth_used_for_prompt":False,"prompt_rule":"who/whom/whose => person; explicit subject noun phrase => parsed noun; unresolved => no prompt"}
     atomic(root/"candidate_generation_audit.json",summary)
@@ -78,7 +86,7 @@ Unresolved or failed deterministic prompts: {concept_m['unresolved_or_failed']}.
 def parse_args():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ("manifest","output","repo","sam_python","checkpoint","sam_repo","raw_metrics"):p.add_argument(f"--{name.replace('_','-')}",required=True)
-    p.add_argument("--workers",type=int,default=7);p.add_argument("--device-offset",type=int,default=1);return p.parse_args()
+    p.add_argument("--workers",type=int,default=7);p.add_argument("--device-offset",type=int,default=1);p.add_argument("--report-only",action="store_true");return p.parse_args()
 
 
 if __name__=="__main__":run(parse_args())
