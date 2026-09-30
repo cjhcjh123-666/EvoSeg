@@ -33,6 +33,7 @@ from projects.evoseg.temporal_compiler.sam31_candidate_protocol import (
     candidate_key,
     decode_rle,
     encode_rle,
+    evaluate_record,
     expected_candidate_keys_for_source,
     load_ground_truth,
     select_pilot_objects,
@@ -67,6 +68,8 @@ from projects.evoseg.temporal_compiler.temporal_matcher_prototype import (
     top_confidence_jf,
     uniform_positions,
 )
+
+import json
 
 import numpy as np
 
@@ -467,6 +470,29 @@ def test_candidate_evaluation_preserves_manifest_declared_empty_gt(tmp_path):
     masks = load_ground_truth(item, (5, 7))
     assert masks.shape == (1, 5, 7)
     assert not masks.any()
+
+
+def test_candidate_evaluation_never_assigns_all_empty_gt_as_oracle(tmp_path):
+    track_path=tmp_path/"tracks.json"
+    track_path.write_text(json.dumps({
+        "evaluation_frame_indices":[0],"height":5,"width":7,
+        "tracks":[{"track_id":3,"mean_confidence":0.9,"frames":[encode_rle(np.zeros((5,7),dtype=bool))]}],
+    }))
+    item={
+        "video_id":"v","object_id":"o","evaluation_frame_indices":[0],
+        "evaluation_mask_paths":[str(tmp_path/"intentionally_absent.png")],
+        "evaluation_mask_present":[False],
+    }
+    record={
+        "key":"d/v/o/e/raw_expression","dataset":"d","video_id":"v","object_id":"o",
+        "expression_id":"e","description_type":"sequential","expression":"q",
+        "prompt_method":"raw_expression","prompt":"q","candidate_tracks_path":track_path.name,
+    }
+    result=evaluate_record(record,tmp_path,item)
+    assert result["evaluation_gt_visible"]==0
+    assert result["oracle_track_id"] is None
+    assert result["oracle_J_and_F"]==0.0
+    assert json.loads(result["candidate_metrics"])[0]["J_and_F"]==0.0
 
 
 def test_final_sam31_checkpoint_audit_checks_keys_and_values(tmp_path):

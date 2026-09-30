@@ -63,9 +63,12 @@ def run(args) -> None:
             official_object_id=str(question["obj_id"]);object_ids=[int(value.strip()) for value in official_object_id.split(",")]
             action_start,action_end=official_action_window(video_id,question)
             item_object_id=f"{official_object_id}__exp{expression_id}"
-            mask_paths=[];present=[]
+            mask_paths=[];present=[];stem_fallback_count=0
             for position in positions:
-                source=directory/"masks"/f"frame_{position:06d}.png"
+                canonical=directory/"masks"/f"frame_{position:06d}.png"
+                same_stem=directory/"masks"/f"{frame_names[position]}.png"
+                source=canonical if canonical.is_file() else same_stem
+                if not canonical.is_file() and same_stem.is_file():stem_fallback_count+=1
                 target=binary_root/video_id/item_object_id.replace(",","_")/f"frame_{position:06d}.png"
                 available=action_start<=position<=action_end and source.is_file()
                 if available:
@@ -76,6 +79,7 @@ def run(args) -> None:
                 "expression_id":expression_id,"type":"sequential","text":question["question"],"answer":question["answer"],
                 "official_q_type":question["q_type"],"action_start":question["action_start"],"action_end":question["action_end"],
                 "official_action_start_index":action_start,"official_action_end_index":action_end,
+                "mask_same_stem_fallback_count":stem_fallback_count,
             }
             objects.append({
                 "dataset":"groundmore","split":args.split,"video_id":video_id,"object_id":item_object_id,
@@ -95,11 +99,15 @@ def run(args) -> None:
         "selection": {
             "q_type": "official Sequential only", "manual_or_llm_classification": False,
             "evaluation_frames": "20 uniformly sampled official frames (all when fewer)",
-            "mask_protocol": "official evaluate_groundmore.py: expression-specific 6fps action window and frame_{index:06d}.png; outside/missing masks are zero",
+            "mask_protocol": "official expression-specific 6fps action window; prefer frame_{index:06d}.png, then pair the archive's actual image/mask stem for v2 naming compatibility; outside/missing masks are zero",
             "gt_read_during_candidate_generation": False,
             "official_sequential_expressions":official_sequential_expressions,
             "available_sequential_expressions":len(objects),
             "missing_official_data_expressions":len(failures),
+            "evaluation_gt_visible_expressions":sum(any(item["evaluation_mask_present"]) for item in objects),
+            "evaluation_gt_all_zero_expressions":sum(not any(item["evaluation_mask_present"]) for item in objects),
+            "same_stem_fallback_expressions":sum(item["expressions"][0]["mask_same_stem_fallback_count"]>0 for item in objects),
+            "same_stem_fallback_frames":sum(item["expressions"][0]["mask_same_stem_fallback_count"] for item in objects),
         },
         "objects":objects,"failures":failures,
     }

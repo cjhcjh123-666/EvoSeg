@@ -48,7 +48,15 @@ def file_sha(path:Path):
 
 def combine_manifests(train_path:Path,test_path:Path,output:Path):
     train=json.loads(train_path.read_text());test=json.loads(test_path.read_text())
-    value={"dataset":{**train["dataset"],"split":"trainval+test"},"selection":{"q_type":"official Sequential only","manual_or_llm_classification":False},"objects":train["objects"]+test["objects"]}
+    value={
+        "dataset":{**train["dataset"],"split":"trainval+test"},
+        "selection":{
+            "q_type":"official Sequential only","manual_or_llm_classification":False,
+            "trainval":train["selection"],"test":test["selection"],
+        },
+        "objects":train["objects"]+test["objects"],
+        "failures":train.get("failures",[])+test.get("failures",[]),
+    }
     output.write_text(json.dumps(value,indent=2,ensure_ascii=False)+"\n");return value
 
 

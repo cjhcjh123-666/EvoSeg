@@ -705,13 +705,17 @@ def evaluate_record(record: dict, run_dir: Path, item: dict) -> dict:
         raise AssertionError("candidate/manifest evaluation frames differ")
     shape = (value["height"], value["width"])
     ground_truth = load_ground_truth(item, shape)
+    gt_positive_pixels = int(ground_truth.sum())
     candidates = []
     for track in value["tracks"]:
-        masks = np.stack([decode_rle(frame) for frame in track["frames"]])
-        j_values = db_eval_iou(ground_truth, masks)
-        f_values = db_eval_boundary(ground_truth, masks)
-        j_score = float(np.mean(j_values))
-        f_score = float(np.mean(f_values))
+        if gt_positive_pixels > 0:
+            masks = np.stack([decode_rle(frame) for frame in track["frames"]])
+            j_values = db_eval_iou(ground_truth, masks)
+            f_values = db_eval_boundary(ground_truth, masks)
+            j_score = float(np.mean(j_values))
+            f_score = float(np.mean(f_values))
+        else:
+            j_score=f_score=0.0
         candidates.append(
             {
                 "track_id": track["track_id"],
@@ -721,7 +725,14 @@ def evaluate_record(record: dict, run_dir: Path, item: dict) -> dict:
                 "J_and_F": (j_score + f_score) / 2,
             }
         )
-    best = max(candidates, key=lambda candidate: candidate["J_and_F"], default=None)
+    # An all-zero sampled GT sequence cannot identify a positive candidate.
+    # Treat it as unavailable rather than assigning an empty-looking track a
+    # spuriously perfect empty-vs-empty DAVIS score.
+    best = (
+        max(candidates, key=lambda candidate: candidate["J_and_F"], default=None)
+        if gt_positive_pixels > 0
+        else None
+    )
     return {
         "key": record["key"],
         "dataset": record["dataset"],
@@ -733,6 +744,8 @@ def evaluate_record(record: dict, run_dir: Path, item: dict) -> dict:
         "prompt_method": record["prompt_method"],
         "prompt": record["prompt"],
         "candidate_count": len(candidates),
+        "evaluation_gt_positive_pixels": gt_positive_pixels,
+        "evaluation_gt_visible": int(gt_positive_pixels > 0),
         "oracle_track_id": best["track_id"] if best else None,
         "oracle_J": best["J"] if best else 0.0,
         "oracle_F": best["F"] if best else 0.0,
