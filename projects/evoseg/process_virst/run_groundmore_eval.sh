@@ -21,6 +21,10 @@ if [[ "${MODE}" == "process" ]]; then
     export PROCESS_VIRST_GROUNDMORE_EXACT20=1
     export PROCESS_VIRST_DIAGNOSTICS="${RUN_DIR}/process_diagnostics.jsonl"
     export PROCESS_VIRST_PERMUTATION=reverse
+    if [[ -z "${PROCESS_VIRST_CHECKPOINT:-}" ]]; then
+        echo "PROCESS_VIRST_CHECKPOINT is required in process mode" >&2
+        exit 66
+    fi
 elif [[ "${MODE}" == "baseline" ]]; then
     RUNNER="${EVOSEG_ROOT}/projects/evoseg/process_virst/groundmore_virst_eval.py"
 else

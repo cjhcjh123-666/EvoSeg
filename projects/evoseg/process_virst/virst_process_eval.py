@@ -67,6 +67,11 @@ def main() -> None:
         capture.set_permutation(permutation)
         prompter = core.model.seg_prompter
         assert isinstance(prompter, ProcessAwareSegPrompter)
+        process_checkpoint = os.environ.get("PROCESS_VIRST_CHECKPOINT")
+        if process_checkpoint:
+            state = torch.load(process_checkpoint, map_location="cpu", weights_only=False)
+            prompter.conditioner.load_state_dict(state["process_virst"], strict=True)
+            prompter.fusion_norm.load_state_dict(state["fusion_norm"], strict=True)
 
         def record_diagnostics(module, inputs, output):
             diagnostics = module.last_diagnostics
@@ -100,6 +105,7 @@ def main() -> None:
                     "process_module_params": process_trainable,
                     "wrapped_prompter_trainable_params_before_freeze_policy": trainable,
                     "permutation": permutation,
+                    "process_checkpoint": process_checkpoint,
                 }
             ),
             flush=True,

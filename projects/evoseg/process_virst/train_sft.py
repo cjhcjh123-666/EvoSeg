@@ -32,6 +32,7 @@ from projects.evoseg.process_virst.virst_integration import install_process_virs
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset-root", type=Path, required=True)
+    parser.add_argument("--groundmore-dataset-root", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--seed", type=int, required=True, choices=[11, 23, 42])
     parser.add_argument("--warmup-steps", type=int, default=8)
@@ -162,9 +163,38 @@ def build_model(args: argparse.Namespace):
     return model, core, capture, tokenizer, data_args
 
 
-def build_loader(tokenizer, data_args, steps: int, frames: int):
+def build_loader(
+    tokenizer,
+    data_args,
+    steps: int,
+    frames: int,
+    long_root: Path,
+    groundmore_root: Path | None,
+):
     from data.base_dataset import collate_fn
-    from data.rvos_dataset import RVOSDataset
+    import data.rvos_dataset as rvos_module
+
+    paths = {
+        "mevis_long_train": (
+            str(long_root / "mevis" / "train"),
+            str(long_root / "mevis" / "train" / "meta_expressions.json"),
+        )
+    }
+    dataset_names = ["mevis_long_train"]
+    if groundmore_root is not None:
+        paths["mevis_groundmore_train"] = (
+            str(groundmore_root / "mevis" / "train"),
+            str(groundmore_root / "mevis" / "train" / "meta_expressions.json"),
+        )
+        dataset_names.append("mevis_groundmore_train")
+    original_paths = rvos_module._paths_for_root
+
+    def process_paths(dataset, root):
+        return paths[dataset] if dataset in paths else original_paths(dataset, root)
+
+    rvos_module._DATA_INFO.update(paths)
+    rvos_module._paths_for_root = process_paths
+    RVOSDataset = rvos_module.RVOSDataset
 
     dataset = RVOSDataset(
         tokenizer=tokenizer,
@@ -172,8 +202,8 @@ def build_loader(tokenizer, data_args, steps: int, frames: int):
         num_classes_per_sample=1,
         samples_per_epoch=steps,
         num_frames_sample_range=f"{frames},{frames}",
-        rvos_sample_ratio="1",
-        rvos_seg_data="mevis_train",
+        rvos_sample_ratio="||".join("1" for _ in dataset_names),
+        rvos_seg_data="||".join(dataset_names),
         rvos_sample_policy="uniform",
         rvos_root=str(data_args.rvos_root),
         train=True,
@@ -204,14 +234,23 @@ def main() -> None:
     parameters = [value for value in model.parameters() if value.requires_grad]
     optimizer = AdamW(parameters, lr=args.learning_rate, weight_decay=0.0)
     total_steps = args.warmup_steps + args.ordered_steps
-    loader = build_loader(tokenizer, data_args, total_steps, args.frames)
+    loader = build_loader(
+        tokenizer,
+        data_args,
+        total_steps,
+        args.frames,
+        args.dataset_root,
+        args.groundmore_dataset_root,
+    )
     records = []
 
     for step, batch in enumerate(loader):
         batch = move_to_device(batch, device)
         text = batch["questions"][0]
         is_ordered_stage = step >= args.warmup_steps
-        verified_order = bool(ORDER_PATTERN.search(text))
+        verified_order = text.startswith("mevis_groundmore_train_") or bool(
+            ORDER_PATTERN.search(text)
+        )
         capture.set_permutation(permutation_for(text) if is_ordered_stage and verified_order else None)
         optimizer.zero_grad(set_to_none=True)
         step_start = time.perf_counter()
