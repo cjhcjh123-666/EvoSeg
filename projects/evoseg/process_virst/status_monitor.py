@@ -35,11 +35,13 @@ def jsonl_rows(path: Path) -> int:
         return sum(bool(line.strip()) for line in handle)
 
 
-def snapshot(root: Path, sessions: list[str], planned_steps: int) -> dict:
+def snapshot(
+    root: Path, sessions: list[str], planned_steps: int, output_prefix: str
+) -> dict:
     tasks = []
     for name in sessions:
         seed = name.rsplit("seed", 1)[-1]
-        output = root / f"pilot_train_seed{seed}"
+        output = root / f"{output_prefix}{seed}"
         summary_path = output / "summary.json"
         summary = json.loads(summary_path.read_text()) if summary_path.is_file() else None
         completed = jsonl_rows(output / "training.jsonl")
@@ -89,12 +91,15 @@ def main() -> None:
     parser.add_argument("--run-root", type=Path, required=True)
     parser.add_argument("--session", action="append", required=True)
     parser.add_argument("--planned-steps", type=int, required=True)
+    parser.add_argument("--output-prefix", default="pilot_train_seed")
     parser.add_argument("--interval", type=int, default=1800)
     parser.add_argument("--progress-interval", type=int, default=7200)
     args = parser.parse_args()
     last_progress = 0.0
     while True:
-        value = snapshot(args.run_root, args.session, args.planned_steps)
+        value = snapshot(
+            args.run_root, args.session, args.planned_steps, args.output_prefix
+        )
         atomic_write(args.run_root / "STATUS.json", json.dumps(value, indent=2) + "\n")
         now = time.monotonic()
         if now - last_progress >= args.progress_interval or value["all_finished"]:
