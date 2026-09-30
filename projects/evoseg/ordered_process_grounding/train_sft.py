@@ -357,6 +357,8 @@ def predict_mean(models, rows: list[dict], device: str):
     import torch
 
     result = {}; per_seed = {}
+    if str(device).startswith("cuda"):
+        torch.cuda.synchronize(device); torch.cuda.reset_peak_memory_stats(device)
     started = time.monotonic()
     with torch.inference_mode():
         for row in rows:
@@ -367,7 +369,12 @@ def predict_mean(models, rows: list[dict], device: str):
             else:
                 result[row["identity"]] = np.zeros(0, np.float32)
             per_seed[row["identity"]] = values
-    return result, per_seed, time.monotonic() - started
+    if str(device).startswith("cuda"):
+        torch.cuda.synchronize(device)
+        peak = int(torch.cuda.max_memory_allocated(device))
+    else:
+        peak = 0
+    return result, per_seed, time.monotonic() - started, peak
 
 
 def selected_row(row: dict, method: str, logits: np.ndarray, seed: str = "ensemble") -> dict:
@@ -394,6 +401,8 @@ def summaries(rows: list[dict]) -> list[dict]:
     for kind in ("static", "dynamic", "hybrid", "sequential"):
         for method in sorted({row["method"] for row in rows if row["seed"] == "ensemble"}):
             subset = [row for row in rows if row["seed"] == "ensemble" and row["description_type"] == kind and row["method"] == method]
+            if not subset:
+                continue
             objects = object_weighted(subset, ["selection_correct", "J", "F", "J_and_F"])
             result.append({
                 "description_type": kind, "method": method, "expressions": len(subset),
@@ -539,13 +548,13 @@ def run(args) -> None:
             status(root, "running", "training", completed=len(training), planned=planned, variant=variant, seed=seed)
 
     status(root, "running", "long_rvos_evaluation", expressions=len(evaluation))
-    mean_predictions, mean_seeds, mean_latency = predict_mean(base_models, evaluation, args.device)
+    mean_predictions, mean_seeds, mean_latency, mean_peak = predict_mean(base_models, evaluation, args.device)
     variant_outputs = {}
-    runtime = [{"method": "mean_pool", "latency_seconds": mean_latency, "expressions": len(evaluation)}]
+    runtime = [{"dataset": "long_rvos", "method": "mean_pool", "latency_seconds": mean_latency, "expressions": len(evaluation), "peak_memory_bytes": mean_peak}]
     for variant, models in model_sets.items():
         pred, order, seed_values, latency, peak = predict_variant(models, base_models, evaluation, args.device)
         variant_outputs[variant] = (pred, order, seed_values)
-        runtime.append({"method": variant, "latency_seconds": latency, "expressions": len(evaluation), "peak_memory_bytes": peak})
+        runtime.append({"dataset": "long_rvos", "method": variant, "latency_seconds": latency, "expressions": len(evaluation), "peak_memory_bytes": peak})
 
     rows = []
     for row in evaluation:
@@ -575,15 +584,15 @@ def run(args) -> None:
     write_csv(root / "long_rvos_summary.csv", summary)
     order_rows = order_diagnostics(model_sets, base_models, evaluation, args.device)
     write_csv(root / "order_pairs.csv", order_rows)
-    write_csv(root / "runtime.csv", runtime)
-
     ground_rows=[];ground_summary=[];ground_comparison=None;ground_order_rows=[];ground_order_summary={}
     if ground_evaluation:
         status(root,"running","groundmore_evaluation",expressions=len(ground_evaluation))
-        ground_mean,ground_mean_seeds,ground_mean_latency=predict_mean(base_models,ground_evaluation,args.device)
+        ground_mean,ground_mean_seeds,ground_mean_latency,ground_mean_peak=predict_mean(base_models,ground_evaluation,args.device)
+        runtime.append({"dataset":"groundmore","method":"mean_pool","latency_seconds":ground_mean_latency,"expressions":len(ground_evaluation),"peak_memory_bytes":ground_mean_peak})
         ground_outputs={}
         for variant,models in model_sets.items():
             ground_outputs[variant]=predict_variant(models,base_models,ground_evaluation,args.device)
+            runtime.append({"dataset":"groundmore","method":variant,"latency_seconds":ground_outputs[variant][3],"expressions":len(ground_evaluation),"peak_memory_bytes":ground_outputs[variant][4]})
         for row in ground_evaluation:
             ground_rows.append(selected_row(row,"mean_pool",ground_mean[row["identity"]]))
             for seed,values in zip(args.seeds,ground_mean_seeds[row["identity"]]):ground_rows.append(selected_row(row,"mean_pool",values,str(seed)))
@@ -607,6 +616,7 @@ def run(args) -> None:
                 "reverse_sensitivity_rate":float(np.mean([row["original_minus_reverse"]>0 for row in subset])) if subset else None,
                 "block_swap_sensitivity_rate":float(np.mean([row["original_minus_block_swap"]>0 for row in subset])) if subset else None,
             }
+    write_csv(root / "runtime.csv", runtime)
 
     comparisons = {}
     for kind in ("static", "dynamic", "hybrid"):
