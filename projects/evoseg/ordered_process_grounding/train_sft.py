@@ -540,6 +540,20 @@ def run(args) -> None:
             rows.append(selected_row(row, variant, prediction[row["identity"]]))
             for seed, values in zip(args.seeds, seed_values.get(row["identity"], [])):
                 rows.append(selected_row(row, variant, values, str(seed)))
+    if args.prior_ftsg_results:
+        with Path(args.prior_ftsg_results).open() as handle:
+            for prior in csv.DictReader(handle):
+                if prior["method"] not in {"static_identity","temporal_identity"}: continue
+                rows.append({
+                    "identity":prior["identity"],"dataset":prior["dataset"],"split":prior["split"],
+                    "video_id":prior["video_id"],"object_id":prior["object_id"],"expression_id":prior["expression_id"],
+                    "description_type":prior["description_type"],"expression":prior["expression"],
+                    "order_sensitive":int(is_order_sensitive(prior["expression"])),
+                    "method":"bigru_ftsg" if prior["method"]=="temporal_identity" else "static_identity",
+                    "seed":"ensemble","candidate_hit":int(prior["candidate_hit"]),"candidate_count":int(prior["candidate_count"]),
+                    "oracle_track_id":prior["oracle_track_id"],"selected_track_id":prior["selected_track_id"],
+                    "selection_correct":int(prior["selection_correct"]),"J":float(prior["J"]),"F":float(prior["F"]),"J_and_F":float(prior["J_and_F"]),
+                })
     write_csv(root / "per_expression.csv", rows)
     summary = summaries(rows)
     write_csv(root / "long_rvos_summary.csv", summary)
@@ -626,6 +640,7 @@ def parse_args():
     parser.add_argument("--train-features", required=True); parser.add_argument("--train-metrics", required=True)
     parser.add_argument("--eval-features", required=True); parser.add_argument("--eval-metrics", required=True)
     parser.add_argument("--mean-checkpoints", required=True); parser.add_argument("--output", required=True)
+    parser.add_argument("--prior-ftsg-results")
     parser.add_argument("--ground-train-features"); parser.add_argument("--ground-train-metrics")
     parser.add_argument("--ground-eval-features"); parser.add_argument("--ground-eval-metrics")
     parser.add_argument("--device", default="cuda:1"); parser.add_argument("--seeds", type=int, nargs="+", default=[11,23,42])

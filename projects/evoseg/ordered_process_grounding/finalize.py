@@ -82,6 +82,7 @@ def run(args) -> None:
     summary=json.loads((artifact/"summary.json").read_text());long=summary["summary"];ground=summary["groundmore_summary"]
     comparisons=summary["comparisons"];ground_comparison=summary["groundmore_comparison"];order=summary["groundmore_order_summary"]
     dynamic_mean=lookup(long,"dynamic","mean_pool");dynamic_full=lookup(long,"dynamic","opg_full")
+    dynamic_static=lookup(long,"dynamic","static_identity");dynamic_bigru=lookup(long,"dynamic","bigru_ftsg")
     static_mean=lookup(long,"static","mean_pool");static_full=lookup(long,"static","opg_full")
     ground_mean=lookup(ground,"sequential","mean_pool");ground_no=lookup(ground,"sequential","opg_no_order_loss");ground_full=lookup(ground,"sequential","opg_full")
     reverse=order["opg_full"]["original_minus_reverse"];block=order["opg_full"]["original_minus_block_swap"]
@@ -130,7 +131,9 @@ OPG preserves the frozen order-agnostic multi-frame identity score and adds only
 
 | Method | Dynamic accuracy | J | F | J&F |
 |---|---:|---:|---:|---:|
+| Static identity | {fmt(dynamic_static['selection_accuracy'],100)} | {fmt(dynamic_static['J'],100)} | {fmt(dynamic_static['F'],100)} | {fmt(dynamic_static['J_and_F'],100)} |
 | Mean pool | {fmt(dynamic_mean['selection_accuracy'],100)} | {fmt(dynamic_mean['J'],100)} | {fmt(dynamic_mean['F'],100)} | {fmt(dynamic_mean['J_and_F'],100)} |
+| BiGRU FTSG (reused) | {fmt(dynamic_bigru['selection_accuracy'],100)} | {fmt(dynamic_bigru['J'],100)} | {fmt(dynamic_bigru['F'],100)} | {fmt(dynamic_bigru['J_and_F'],100)} |
 | Full OPG | {fmt(dynamic_full['selection_accuracy'],100)} | {fmt(dynamic_full['J'],100)} | {fmt(dynamic_full['F'],100)} | {fmt(dynamic_full['J_and_F'],100)} |
 
 Full OPG − mean pool Dynamic J&F: {ci(comparisons['dynamic']['J_and_F'],100)} pp. Static J&F changes from {fmt(static_mean['J_and_F'],100)} to {fmt(static_full['J_and_F'],100)} ({fmt(comparisons['static']['J_and_F']['mean'],100)} pp).

@@ -43,7 +43,9 @@ def run(args) -> None:
     }
     candidates = candidate_index(Path(args.candidate_root), args.prompt_method)
     selected_ids = sorted(expressions)
-    selected_ids = [identity for index, identity in enumerate(selected_ids) if index % args.num_shards == args.shard_index]
+    videos=sorted({expressions[identity][0]["video_id"] for identity in selected_ids})
+    selected_videos={video for index,video in enumerate(videos) if index % args.num_shards==args.shard_index}
+    selected_ids=[identity for identity in selected_ids if expressions[identity][0]["video_id"] in selected_videos]
     tokenizer = AutoTokenizer.from_pretrained(args.sa2va_model, trust_remote_code=True)
     embeddings, embedding_audit = frozen_embedding(Path(args.sa2va_model))
     torch.cuda.set_device(args.device)
