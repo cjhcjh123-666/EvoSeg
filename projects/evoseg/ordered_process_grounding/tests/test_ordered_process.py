@@ -62,3 +62,8 @@ def test_batched_region_pool_matches_reference(monkeypatch):
     actual=batch_region_pool(tracks,[0],[0],{0:features},(4,4))[:,0]
     expected=np.stack([region_pool(features,mask,(4,4))[0].numpy() for mask in masks])
     assert np.allclose(actual,expected,atol=1e-6)
+
+
+def test_batched_region_pool_retains_zero_candidate_record():
+    actual=batch_region_pool([],list(range(8)),list(range(8)),{0:torch.zeros(16,7)},(4,4))
+    assert actual.shape==(0,8,7)

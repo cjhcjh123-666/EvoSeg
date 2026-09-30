@@ -52,6 +52,9 @@ def batch_region_pool(tracks: list[dict], positions: list[int], selected: list[i
     import torch
     import torch.nn.functional as functional
 
+    if not tracks:
+        feature_dim = next(iter(frame_features.values())).shape[-1]
+        return np.zeros((0, len(positions), feature_dim), dtype=np.float32)
     by_time=[]
     for position,frame_index in zip(positions,selected):
         masks=np.stack([decode_rle(track["frames"][position]) for track in tracks])
