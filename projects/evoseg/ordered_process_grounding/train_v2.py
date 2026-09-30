@@ -246,7 +246,7 @@ def paired_bootstrap(rows, left, right, kind, field, hit_only=False):
         matches=(row["explicit_order"] if kind=="explicit_order" else row["description_type"]==kind)
         if matches and row["method"] in {left,right} and (not hit_only or row["candidate_hit"]):
             grouped[row["identity"]][row["method"]]=float(row[field]);meta[row["identity"]]=row
-    paired=[{"video_id":meta[key]["video_id"],"object_id":meta[key]["object_id"],left:value[left],right:value[right]}
+    paired=[{"video_id":meta[key]["video_id"],"object_id":meta[key]["object_id"],"description_type":meta[key]["description_type"],left:value[left],right:value[right]}
             for key,value in grouped.items() if left in value and right in value]
     return source_video_bootstrap(paired,left,right)
 
