@@ -44,6 +44,17 @@ def parse_args() -> argparse.Namespace:
         "--alignment-mode", choices=["monotonic", "global"], default="monotonic"
     )
     parser.add_argument("--disable-order-loss", action="store_true")
+    parser.add_argument(
+        "--save-every",
+        type=int,
+        default=32,
+        help="Persist an atomic resumable checkpoint every N completed updates.",
+    )
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        help="Resume from a periodic checkpoint made by this exact configuration.",
+    )
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--sam2-checkpoint", type=Path, required=True)
     parser.add_argument("--videochat-checkpoint", type=Path, required=True)
@@ -56,6 +67,82 @@ def set_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+def rng_state() -> dict:
+    """Capture all RNGs used by the single-worker official data pipeline."""
+
+    return {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.get_rng_state(),
+        "cuda": torch.cuda.get_rng_state_all(),
+    }
+
+
+def restore_rng_state(state: dict) -> None:
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.set_rng_state(state["torch"])
+    torch.cuda.set_rng_state_all(state["cuda"])
+
+
+def atomic_torch_save(value: dict, path: Path) -> None:
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    torch.save(value, temporary)
+    temporary.replace(path)
+
+
+def checkpoint_payload(
+    *,
+    args: argparse.Namespace,
+    prompter,
+    optimizer: AdamW,
+    next_step: int,
+    initial_parameters: dict[str, torch.Tensor],
+) -> dict:
+    return {
+        "format_version": 1,
+        "seed": args.seed,
+        "next_step": next_step,
+        "total_steps": args.warmup_steps + args.ordered_steps,
+        "warmup_steps": args.warmup_steps,
+        "ordered_steps": args.ordered_steps,
+        "frames": args.frames,
+        "learning_rate": args.learning_rate,
+        "process_virst": prompter.conditioner.state_dict(),
+        "fusion_norm": prompter.fusion_norm.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "initial_parameters": initial_parameters,
+        "rng_state": rng_state(),
+        "process_config": {
+            "alignment_mode": args.alignment_mode,
+            "order_loss_enabled": not args.disable_order_loss,
+        },
+    }
+
+
+def validate_resume(args: argparse.Namespace, state: dict) -> None:
+    expected = {
+        "seed": args.seed,
+        "total_steps": args.warmup_steps + args.ordered_steps,
+        "warmup_steps": args.warmup_steps,
+        "ordered_steps": args.ordered_steps,
+        "frames": args.frames,
+        "learning_rate": args.learning_rate,
+    }
+    observed = {key: state.get(key) for key in expected}
+    if observed != expected:
+        raise ValueError(f"resume configuration mismatch: {observed=} {expected=}")
+    expected_process = {
+        "alignment_mode": args.alignment_mode,
+        "order_loss_enabled": not args.disable_order_loss,
+    }
+    if state.get("process_config") != expected_process:
+        raise ValueError(
+            "resume ProcessVIRST configuration mismatch: "
+            f"observed={state.get('process_config')} expected={expected_process}"
+        )
 
 
 def move_to_device(value, device):
@@ -252,17 +339,33 @@ def main() -> None:
     }
     optimizer = AdamW(parameters, lr=args.learning_rate, weight_decay=0.0)
     total_steps = args.warmup_steps + args.ordered_steps
+    next_step = 0
+    resume_state = None
+    if args.resume is not None:
+        resume_state = torch.load(args.resume, map_location="cpu", weights_only=False)
+        validate_resume(args, resume_state)
+        prompter.conditioner.load_state_dict(resume_state["process_virst"], strict=True)
+        prompter.fusion_norm.load_state_dict(resume_state["fusion_norm"], strict=True)
+        optimizer.load_state_dict(resume_state["optimizer"])
+        initial_parameters = resume_state["initial_parameters"]
+        next_step = int(resume_state["next_step"])
+        if not 0 <= next_step <= total_steps:
+            raise ValueError(f"invalid resume next_step {next_step}/{total_steps}")
     loader = build_loader(
         tokenizer,
         data_args,
-        total_steps,
+        total_steps - next_step,
         args.frames,
         args.dataset_root,
         args.groundmore_dataset_root,
     )
+    # Dataset construction may touch RNG state. Restore only after it is fully
+    # built so the first resumed sample is exactly the next random sample.
+    if resume_state is not None:
+        restore_rng_state(resume_state["rng_state"])
     records = []
 
-    for step, batch in enumerate(loader):
+    for step, batch in enumerate(loader, start=next_step):
         batch = move_to_device(batch, device)
         text = batch["questions"][0]
         is_ordered_stage = step >= args.warmup_steps
@@ -338,18 +441,29 @@ def main() -> None:
         with (args.output_dir / "training.jsonl").open("a") as handle:
             handle.write(json.dumps(record) + "\n")
         print(json.dumps(record), flush=True)
+        completed = step + 1
+        if args.save_every > 0 and (
+            completed % args.save_every == 0 or completed == total_steps
+        ):
+            atomic_torch_save(
+                checkpoint_payload(
+                    args=args,
+                    prompter=prompter,
+                    optimizer=optimizer,
+                    next_step=completed,
+                    initial_parameters=initial_parameters,
+                ),
+                args.output_dir / "resume_latest.pt",
+            )
 
-    checkpoint = {
-        "seed": args.seed,
-        "process_virst": prompter.conditioner.state_dict(),
-        "fusion_norm": prompter.fusion_norm.state_dict(),
-        "optimizer": optimizer.state_dict(),
-        "process_config": {
-            "alignment_mode": args.alignment_mode,
-            "order_loss_enabled": not args.disable_order_loss,
-        },
-    }
-    torch.save(checkpoint, args.output_dir / "process_virst_sft.pt")
+    checkpoint = checkpoint_payload(
+        args=args,
+        prompter=prompter,
+        optimizer=optimizer,
+        next_step=total_steps,
+        initial_parameters=initial_parameters,
+    )
+    atomic_torch_save(checkpoint, args.output_dir / "process_virst_sft.pt")
     squared_delta = 0.0
     max_abs_delta = 0.0
     changed_values = 0

@@ -27,6 +27,9 @@ EXTRA_ARGS=(--alignment-mode "${PROCESS_VIRST_ALIGNMENT_MODE:-monotonic}")
 if [[ "${PROCESS_VIRST_DISABLE_ORDER_LOSS:-0}" == "1" ]]; then
     EXTRA_ARGS+=(--disable-order-loss)
 fi
+if [[ -n "${PROCESS_VIRST_RESUME:-}" ]]; then
+    EXTRA_ARGS+=(--resume "${PROCESS_VIRST_RESUME}")
+fi
 
 "${VIRST_ENV}/bin/python" "${EVOSEG_ROOT}/projects/evoseg/process_virst/train_sft.py" \
     --dataset-root "${LONG_ROOT}" \
@@ -37,6 +40,7 @@ fi
     --ordered-steps "${ORDERED_STEPS}" \
     --frames 8 \
     --learning-rate 1e-5 \
+    --save-every "${PROCESS_VIRST_SAVE_EVERY:-32}" \
     "${EXTRA_ARGS[@]}" \
     --checkpoint "${VIRST_REPO}/checkpoints/virst_checkpoint.pt" \
     --sam2-checkpoint "${VIRST_REPO}/checkpoints/sam2.1_hiera_large.pt" \

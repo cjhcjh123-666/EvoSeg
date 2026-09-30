@@ -43,6 +43,24 @@ The implementation now keeps the frozen VIRST/SAM2 model in BF16 while retaining
 
 The preregistered pilot is restarted from scratch in new output directories; no partial BF16 checkpoint is resumed.
 
+## Infrastructure interruption and resumability
+
+On 2026-09-30 at 20:50:13--20:50:16 Asia/Shanghai, all three valid FP32
+pilot jobs, both ablation jobs, the official GroundMoRe baseline, the CPU-only
+data extraction job, and the status monitor terminated at the same time. The
+training logs contain no Python exception or CUDA OOM; their last allocated
+memory was about 19.39 GiB per training worker. Immediately afterward
+`nvidia-smi` could not communicate with the NVIDIA driver. This is recorded as
+an external infrastructure interruption, not a model or data failure. The
+incomplete outputs remain in place and are excluded from scientific metrics.
+
+The trainer now writes an atomic `resume_latest.pt` every 32 completed updates.
+It includes the ProcessVIRST and fusion weights, optimizer state, initial
+weights, next update, and Python/NumPy/Torch/CUDA RNG states. Resume rejects any
+change to the seed, update budget, frame count, learning rate, alignment mode,
+or order-loss condition. This protects future runs from losing the entire
+preregistered trajectory during another external interruption.
+
 ## Preregistered pilot budget
 
 Before viewing pilot results, the three-seed pilot was fixed to 128 identity-warm-up updates followed by 256 ordered-SFT updates per seed. Datasets are sampled 1:1. The learning rate, frame count, loss weights, slot count, and architecture are identical across seeds.
