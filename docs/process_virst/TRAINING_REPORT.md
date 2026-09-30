@@ -71,3 +71,36 @@ If the pilot gate is directionally satisfied, the full fixed budget is one 1,000
 ## Current status
 
 The two-video GroundMoRe protocol check completed for all six expressions. Official VIRST scored 29.31 J&F; the six-step smoke checkpoint scored 29.61 J&F. This +0.30 point difference is only an integration check and is not treated as scientific evidence.
+
+## Completed preregistered pilot training
+
+All three Full seeds and both seed-11 controls completed 128 warm-up plus 256
+ordered-stage updates. No final-validation seed selection was performed.
+
+| Condition | Seed | Updates | beta | Peak allocated GPU memory | Elapsed |
+|---|---:|---:|---:|---:|---:|
+| Full monotonic + order loss | 11 | 384 | 1.00295 | 19.393 GiB | 43.1 min |
+| Full monotonic + order loss | 23 | 384 | 1.00314 | 19.392 GiB | 42.5 min |
+| Full monotonic + order loss | 42 | 384 | 1.00313 | 19.392 GiB | 42.1 min |
+| Monotonic, no order loss | 11 | 384 | 1.00293 | 19.393 GiB | 38.4 min |
+| Global/non-monotonic | 11 | 384 | 1.00297 | 19.393 GiB | 38.2 min |
+
+Trainable parameters: 3,217,666, of which 3,217,154 are in the Process
+Conditioner and 512 are the fusion LayerNorm. Frozen VIRST and SAM2 parameters
+were not updated. The FP32-master check found more than 3.217 million changed
+trainable values for every Full seed.
+
+The final verified-order training margins remained near zero and the order loss
+remained near its initial 0.2 hinge value. This is reported as a negative
+optimization outcome under the fixed pilot budget; no learning-rate, lambda,
+margin, epoch, or seed search was performed.
+
+## Verification
+
+- `git diff --check`: pass.
+- Python compilation of the trainer, pilot summarizer, and plotting code: pass.
+- 18 ProcessVIRST tests invoked directly: pass, including the synthetic
+  monotonic/order tests and resume-configuration tests.
+- The VIRST environment does not contain the `pytest` package
+  (`No module named pytest`), so the required pytest command was attempted but
+  could not collect; no package was installed into the frozen environment.

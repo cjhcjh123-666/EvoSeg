@@ -39,9 +39,10 @@ Dynamic minus Static J&F is **-0.37 percentage points**. The existing 2,000-resa
 source-video cluster bootstrap interval is **[-2.68, +1.83] pp**. This exactly
 matches the prior cross-model audit and passes the prerequisite for ProcessVIRST.
 
-## GroundMoRe baseline status
+## GroundMoRe baseline
 
-The official VIRST repository has no GroundMoRe dataset adapter or evaluator.
-GroundMoRe is therefore not claimed as reproduced in this checkpoint. A separate
-adapter must preserve the official temporal interval and mask protocol before a
-baseline number is valid.
+A separately audited adapter now preserves the official temporal interval,
+instance IDs, and exact 20-frame uniform protocol. Direct official VIRST/SAM2
+evaluation completed 480/480 Sequential test expressions with zero failures:
+J=25.543, F=27.967, and J&F=26.755. The fixed pilot16 subset scored 27.731 J&F.
+See `GROUNDMORE_RESULTS.md` for the ProcessVIRST comparisons.

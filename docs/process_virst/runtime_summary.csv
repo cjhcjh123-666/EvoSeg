@@ -1,0 +1,7 @@
+condition,seed,trainable_params,training_updates,training_minutes,training_peak_allocated_gib,inference_seconds_per_expression,inference_memory_observed_gib
+full,11,3217666,384,43.10,19.393,9.08,34.1
+full,23,3217666,384,42.51,19.392,8.13,30.7
+full,42,3217666,384,42.09,19.392,8.23,30.7
+no_order,11,3217666,384,38.44,19.393,7.18,30.7
+global,11,3217666,384,38.25,19.393,7.20,30.7
+official_virst,NA,0,0,0,NA,7.40,NA

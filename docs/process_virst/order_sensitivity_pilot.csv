@@ -1,0 +1,11 @@
+condition,seed,permutation,margin,ci_low,ci_high,expressions,source_videos
+full,11,reverse,0.00234785,-0.00039073,0.00492762,47,16
+full,11,block_swap,0.00298618,0.00051308,0.00536030,47,16
+full,23,reverse,-0.00039344,-0.00174801,0.00100035,47,16
+full,23,block_swap,0.00006887,-0.00145760,0.00160760,47,16
+full,42,reverse,-0.00402572,-0.00632004,-0.00147897,47,16
+full,42,block_swap,-0.00310817,-0.00481758,-0.00147063,47,16
+no_order,11,reverse,0.00001737,-0.00102239,0.00116817,47,16
+no_order,11,block_swap,-0.00055191,-0.00195496,0.00081954,47,16
+global,11,reverse,0,0,0,47,16
+global,11,block_swap,0,0,0,47,16
