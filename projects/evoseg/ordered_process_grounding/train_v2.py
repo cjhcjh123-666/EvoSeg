@@ -189,6 +189,25 @@ def selected_row(row, method: str, logits: np.ndarray):
     }
 
 
+def load_result_rows(path: Path) -> list[dict]:
+    with path.open() as handle: values=list(csv.DictReader(handle))
+    for row in values:
+        for key in ("explicit_order","candidate_hit","candidate_count","selection_correct"):
+            row[key]=int(float(row[key]))
+        for key in ("J","F","J_and_F"):
+            row[key]=float(row[key])
+    return values
+
+
+def complete_result_cache(path: Path, expressions: int) -> list[dict] | None:
+    expected={"mean_pool","opg_v1","opg_v2_order_only","opg_v2_delta_only","opg_v2_full",*VARIANTS.keys()}
+    if not path.is_file():return None
+    rows=load_result_rows(path)
+    methods={row["method"] for row in rows};identities={row["identity"] for row in rows}
+    if methods!=expected or len(identities)!=expressions or len(rows)!=expressions*len(expected):return None
+    return rows
+
+
 def add_prior_v1(rows: list[dict], path: Path, dataset: str):
     if not path.is_file(): return
     with path.open() as handle:
@@ -330,9 +349,13 @@ def run(args):
                 values=ensemble_logits(model_sets[variant],base_models,row,args.device) if row["tracks"].shape[0] else {"fused":np.zeros(0)}
                 rows.append(selected_row(row,variant,values["fused"]))
         return rows,time.monotonic()-started
-    long_rows,long_latency=evaluate(long_eval,"long_rvos");ground_rows,ground_latency=evaluate(ground_eval,"groundmore")
-    add_prior_v1(long_rows,Path(args.v1_long_results),"long_rvos");add_prior_v1(ground_rows,Path(args.v1_ground_results),"groundmore")
-    write_csv(root/"per_expression.csv",long_rows);write_csv(root/"groundmore_sequential.csv",ground_rows)
+    long_rows=complete_result_cache(root/"per_expression.csv",len(long_eval));ground_rows=complete_result_cache(root/"groundmore_sequential.csv",len(ground_eval))
+    if long_rows is None:
+        long_rows,long_latency=evaluate(long_eval,"long_rvos");add_prior_v1(long_rows,Path(args.v1_long_results),"long_rvos");write_csv(root/"per_expression.csv",long_rows)
+    else:long_latency=0.0
+    if ground_rows is None:
+        ground_rows,ground_latency=evaluate(ground_eval,"groundmore");add_prior_v1(ground_rows,Path(args.v1_ground_results),"groundmore");write_csv(root/"groundmore_sequential.csv",ground_rows)
+    else:ground_latency=0.0
     long_summary=sum((summarize(long_rows,kind) for kind in ("static","dynamic","hybrid","explicit_order")),[])
     ground_summary=summarize(ground_rows,"sequential")+summarize(ground_rows,"sequential",True)
     write_csv(root/"long_summary.csv",long_summary);write_csv(root/"ground_summary.csv",ground_summary)
