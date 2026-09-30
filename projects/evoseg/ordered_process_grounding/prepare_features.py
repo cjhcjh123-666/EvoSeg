@@ -130,6 +130,7 @@ def run(args) -> None:
                 for index, feature in zip(indices, hidden):
                     frame_features[index] = feature
 
+            pooled_track_cache = {}
             for identity in keys:
                 source = source_payload[identity]
                 record = records[identity]
@@ -143,15 +144,20 @@ def run(args) -> None:
                 if identity in track_payloads:
                     tracks = track_payloads[identity]
                     positions, selected = selected_by_key[identity]
-                    for track in tracks["tracks"]:
-                        values = []
-                        for position, frame_index in zip(positions, selected):
-                            pooled, _ = region_pool(
-                                frame_features[frame_index], decode_rle(track["frames"][position]), (grid, grid)
-                            )
-                            values.append(pooled.numpy())
-                        candidate_features.append(np.stack(values))
-                        candidate_ids.append(int(track["track_id"]))
+                    cache_key = (record.get("candidate_tracks_path"), tuple(positions))
+                    if cache_key in pooled_track_cache:
+                        candidate_features, candidate_ids = pooled_track_cache[cache_key]
+                    else:
+                        for track in tracks["tracks"]:
+                            values = []
+                            for position, frame_index in zip(positions, selected):
+                                pooled, _ = region_pool(
+                                    frame_features[frame_index], decode_rle(track["frames"][position]), (grid, grid)
+                                )
+                                values.append(pooled.numpy())
+                            candidate_features.append(np.stack(values))
+                            candidate_ids.append(int(track["track_id"]))
+                        pooled_track_cache[cache_key] = (candidate_features, candidate_ids)
                 track_array = (
                     np.stack(candidate_features).astype(np.float16)
                     if candidate_features else np.zeros((0, args.track_steps, config.hidden_size), np.float16)
