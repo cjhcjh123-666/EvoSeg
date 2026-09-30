@@ -42,7 +42,8 @@ def run(args) -> int:
     root = Path(args.run_dir).resolve()
     logs = root / "logs"
     logs.mkdir(parents=True, exist_ok=True)
-    pending = list(range(args.num_shards))
+    pending = list(args.shards) if args.shards else list(range(args.num_shards))
+    recovery_shards = tuple(pending)
     running: dict[int, tuple[int, subprocess.Popen, object]] = {}
     returncodes: dict[int, int] = {}
     started = time.monotonic()
@@ -81,7 +82,7 @@ def run(args) -> int:
             "running",
             active,
             recovery_shards_complete=len(returncodes),
-            recovery_shards_planned=args.num_shards,
+            recovery_shards_planned=len(recovery_shards),
             recovery_elapsed_seconds=time.monotonic() - started,
             sam31_workers_per_gpu=1,
         )
@@ -150,6 +151,7 @@ def parse_args():
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--gpus", nargs="+", type=int, default=[2, 3, 4, 5, 6, 7])
     parser.add_argument("--num-shards", type=int, default=8)
+    parser.add_argument("--shards", nargs="+", type=int)
     parser.add_argument("--poll-seconds", type=int, default=30)
     return parser.parse_args()
 
