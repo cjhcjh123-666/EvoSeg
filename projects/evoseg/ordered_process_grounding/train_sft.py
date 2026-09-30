@@ -520,7 +520,7 @@ def run(args) -> None:
     write_csv(root / "order_pairs.csv", order_rows)
     write_csv(root / "runtime.csv", runtime)
 
-    ground_rows=[];ground_summary=[];ground_comparison=None;ground_order_rows=[]
+    ground_rows=[];ground_summary=[];ground_comparison=None;ground_order_rows=[];ground_order_summary={}
     if ground_evaluation:
         status(root,"running","groundmore_evaluation",expressions=len(ground_evaluation))
         ground_mean,ground_mean_seeds,ground_mean_latency=predict_mean(base_models,ground_evaluation,args.device)
@@ -541,6 +541,15 @@ def run(args) -> None:
         }
         ground_order_rows=order_diagnostics(model_sets,base_models,ground_evaluation,args.device)
         write_csv(root/"groundmore_order_pairs.csv",ground_order_rows)
+        for method in ("mean_pool","opg_no_order_loss","opg_full"):
+            subset=[row for row in ground_order_rows if row["method"]==method]
+            ground_order_summary[method]={
+                "samples":len(subset),
+                "original_minus_reverse":source_video_bootstrap(subset,"target_original_score","target_reverse_score"),
+                "original_minus_block_swap":source_video_bootstrap(subset,"target_original_score","target_block_swap_score"),
+                "reverse_sensitivity_rate":float(np.mean([row["original_minus_reverse"]>0 for row in subset])) if subset else None,
+                "block_swap_sensitivity_rate":float(np.mean([row["original_minus_block_swap"]>0 for row in subset])) if subset else None,
+            }
 
     comparisons = {}
     for kind in ("static", "dynamic", "hybrid"):
@@ -568,6 +577,7 @@ def run(args) -> None:
         "groundmore_train_expressions":len(ground_train_all),"groundmore_train_candidate_hits":len(ground_train_hits),
         "groundmore_eval_expressions":len(ground_evaluation),"groundmore_summary":ground_summary,
         "groundmore_comparison":ground_comparison,"groundmore_base_training":ground_base_audits,
+        "groundmore_order_summary":ground_order_summary,
         "ground_truth_used_for_inference": False,
         "trainable_parameters": count_trainable_parameters(model_sets["opg_full"][0]),
         "margin": args.margin, "lambda_order": 1.0, "seeds": args.seeds,

@@ -66,7 +66,14 @@ def run(args) -> None:
     identities = sorted(source_payload)
     if args.max_expressions:
         identities = identities[: args.max_expressions]
-    identities = [value for index, value in enumerate(identities) if index % args.num_shards == args.shard_index]
+    # Shard by source video so image encoding is never redundantly repeated
+    # across workers merely because one video has many expressions.
+    all_videos = sorted({records[value]["video_id"] for value in identities})
+    selected_videos = {
+        value for index, value in enumerate(all_videos)
+        if index % args.num_shards == args.shard_index
+    }
+    identities = [value for value in identities if records[value]["video_id"] in selected_videos]
 
     model_root = Path(args.sa2va_model)
     tokenizer = AutoTokenizer.from_pretrained(model_root, trust_remote_code=True)
@@ -180,6 +187,7 @@ def run(args) -> None:
         "vision_audit": vision_audit,
         "shard_index": args.shard_index,
         "num_shards": args.num_shards,
+        "sharding_unit": "source_video",
         "records": output_records,
     }, indent=2, ensure_ascii=False) + "\n")
 
@@ -203,4 +211,3 @@ def parse_args():
 
 if __name__ == "__main__":
     run(parse_args())
-
