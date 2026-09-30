@@ -5,6 +5,28 @@ import torch
 from torch import nn
 
 
+_MONOTONIC_SELECTOR_CACHE: dict[
+    tuple[int, int, str, int | None, torch.dtype], torch.Tensor
+] = {}
+
+
+def _monotonic_selector(
+    slots: int, steps: int, device: torch.device, dtype: torch.dtype
+) -> torch.Tensor:
+    """Return a cached matrix that sums every strictly ordered alignment."""
+    key = (slots, steps, device.type, device.index, dtype)
+    selector = _MONOTONIC_SELECTOR_CACHE.get(key)
+    if selector is None:
+        paths = torch.combinations(torch.arange(steps, device=device), r=slots)
+        selector = torch.zeros(
+            len(paths), slots * steps, device=device, dtype=dtype
+        )
+        columns = torch.arange(slots, device=device)[None, :] * steps + paths
+        selector[torch.arange(len(paths), device=device)[:, None], columns] = 1
+        _MONOTONIC_SELECTOR_CACHE[key] = selector
+    return selector
+
+
 def monotonic_logsumexp(scores: torch.Tensor) -> torch.Tensor:
     """Soft score of all strictly monotonic alignments.
 
@@ -21,9 +43,8 @@ def monotonic_logsumexp(scores: torch.Tensor) -> torch.Tensor:
     # M=4,T=8 has only 70 legal paths.  Explicitly enumerating those paths is
     # mathematically the same log-sum-exp DP, while avoiding undefined
     # gradients from all-``-inf`` impossible prefix states.
-    paths = torch.combinations(torch.arange(steps, device=scores.device), r=slots)
-    slot_indices = torch.arange(slots, device=scores.device)[:, None]
-    path_values = scores[..., slot_indices, paths.T].sum(dim=-2)
+    selector = _monotonic_selector(slots, steps, scores.device, scores.dtype)
+    path_values = scores.flatten(-2) @ selector.transpose(0, 1)
     return torch.logsumexp(path_values, dim=-1)
 
 
