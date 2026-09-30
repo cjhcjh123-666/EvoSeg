@@ -9,9 +9,12 @@ from pathlib import Path
 
 import numpy as np
 
-from projects.evoseg.ordered_process_grounding.prepare_features import frozen_embedding, sha256
+from projects.evoseg.ordered_process_grounding.prepare_features import (
+    batch_region_pool,
+    frozen_embedding,
+)
 from projects.evoseg.temporal_compiler.temporal_matcher_prototype import (
-    decode_rle, load_siglip_vision_model, region_pool,
+    load_siglip_vision_model,
 )
 
 
@@ -81,12 +84,11 @@ def run(args) -> None:
                 features=[];track_ids=[];selected=[]
                 if identity in tracks_by_id:
                     tracks=tracks_by_id[identity]; p=positions[identity];selected=[tracks["evaluation_frame_indices"][x] for x in p]
-                    for track in tracks["tracks"]:
-                        sequence=[]
-                        for position,frame_index in zip(p,selected):
-                            pooled,_=region_pool(frame_features[frame_index],decode_rle(track["frames"][position]),(grid,grid));sequence.append(pooled.numpy())
-                        features.append(np.stack(sequence));track_ids.append(int(track["track_id"]))
-                array=np.stack(features).astype(np.float16) if features else np.zeros((0,args.track_steps,config.hidden_size),np.float16)
+                    features=batch_region_pool(
+                        tracks["tracks"],p,selected,frame_features,(grid,grid)
+                    )
+                    track_ids=[int(track["track_id"]) for track in tracks["tracks"]]
+                array=features.astype(np.float16) if len(features) else np.zeros((0,args.track_steps,config.hidden_size),np.float16)
                 payload.append({"identity":identity,"query_tokens":query_tokens,"tracks":torch.from_numpy(array)})
                 records.append({
                     "identity":identity,"dataset":item["dataset"],"split":item["split"],"video_id":item["video_id"],
