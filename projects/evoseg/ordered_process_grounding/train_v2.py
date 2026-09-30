@@ -195,7 +195,12 @@ def add_prior_v1(rows: list[dict], path: Path, dataset: str):
         for value in csv.DictReader(handle):
             if value["method"]!="opg_full" or value.get("seed")!="ensemble": continue
             if value.get("dataset")!=dataset: continue
-            copy=dict(value); copy["method"]="opg_v1"; copy["explicit_order"]=int(is_order_sensitive(value["expression"]) or dataset=="groundmore")
+            copy={key:value[key] for key in (
+                "identity","dataset","split","video_id","object_id","expression_id",
+                "description_type","expression","candidate_hit","candidate_count",
+                "oracle_track_id","selected_track_id","selection_correct","J","F","J_and_F",
+            )}
+            copy["method"]="opg_v1"; copy["explicit_order"]=int(is_order_sensitive(value["expression"]) or dataset=="groundmore")
             for key in ("candidate_hit","candidate_count","selection_correct"): copy[key]=int(float(copy[key]))
             for key in ("J","F","J_and_F"): copy[key]=float(copy[key])
             rows.append(copy)
