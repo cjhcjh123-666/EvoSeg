@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -19,54 +18,71 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
+def time_str_to_seconds(value: str) -> int:
+    """Exact time conversion used by the official GroundMoRe evaluator."""
+    parts=[int(part) for part in value.split(":")]
+    if len(parts)==2:return parts[0]*60+parts[1]
+    if len(parts)==3:return parts[0]*3600+parts[1]*60+parts[2]
+    raise ValueError(f"unsupported official GroundMoRe time: {value}")
+
+
+def official_action_window(video_id: str, question: dict) -> tuple[float,float]:
+    clip_code=video_id[-9:].split("_")[0]
+    clip_start=time_str_to_seconds(clip_code[:2]+":"+clip_code[2:])
+    return (
+        float((time_str_to_seconds(question["action_start"])-clip_start)*6),
+        float((time_str_to_seconds(question["action_end"])-clip_start)*6-1),
+    )
+
+
 def run(args) -> None:
     metadata_path = Path(args.metadata).resolve()
     videos = json.loads(metadata_path.read_text())["videos"]
     data_root = Path(args.data_root).resolve()
     image_root = data_root / "annotations"
     binary_root = Path(args.binary_mask_root).resolve() / args.split
-    grouped = defaultdict(list)
-    for video_id, video in videos.items():
-        for expression_id, question in video["questions"].items():
-            if question["q_type"].lower() != "sequential":
-                continue
-            grouped[(video_id, str(question["obj_id"]))].append({
-                "expression_id": str(expression_id), "type": "sequential",
-                "text": question["question"], "answer": question["answer"],
-                "official_q_type": question["q_type"],
-                "action_start": question["action_start"], "action_end": question["action_end"],
-            })
-    objects = []
-    for (video_id, object_id), expressions in sorted(grouped.items()):
+    objects=[];failures=[];official_sequential_expressions=0
+    for video_id,video in sorted(videos.items()):
+        sequential=[(str(expression_id),question) for expression_id,question in video["questions"].items() if question["q_type"].lower()=="sequential"]
+        if not sequential:continue
+        official_sequential_expressions+=len(sequential)
         directory = image_root / video_id
-        frames = sorted((directory / "images").glob("frame_*.jpg"))
+        frames=sorted(path for path in (directory/"images").iterdir() if path.suffix.lower() in {".jpg",".jpeg",".png"}) if (directory/"images").is_dir() else []
         if not frames:
-            raise FileNotFoundError(f"official GroundMoRe frames missing: {directory}")
+            failures.extend({
+                "status":"missing_official_frames","split":args.split,"video_id":video_id,
+                "object_id":str(question["obj_id"]),"expression_id":expression_id,
+                "expression":question["question"],"expected_directory":str(directory/"images"),
+            } for expression_id,question in sequential)
+            continue
+        if any(path.suffix.lower()!=".jpg" for path in frames):
+            raise RuntimeError(f"SAM3.1 adapter currently requires official JPG frames: {directory}")
         frame_names = [path.stem for path in frames]
         positions = np.linspace(0, len(frames) - 1, num=min(args.evaluation_frames, len(frames)), dtype=int).tolist()
-        mask_paths = []
-        present = []
-        object_ids = [int(value.strip()) for value in object_id.split(",")]
-        for position in positions:
-            source = directory / "masks" / f"{frame_names[position]}.png"
-            target = binary_root / video_id / object_id.replace(",", "_") / f"{frame_names[position]}.png"
-            if source.is_file():
-                mask = np.asarray(Image.open(source))
-                binary = np.isin(mask, object_ids).astype(np.uint8) * 255
-                target.parent.mkdir(parents=True, exist_ok=True)
-                Image.fromarray(binary).save(target)
-                present.append(True)
-            else:
-                present.append(False)
-            mask_paths.append(str(target))
-        objects.append({
-            "dataset": "groundmore", "split": args.split, "video_id": video_id,
-            "object_id": object_id, "frame_count": len(frames), "frame_names": frame_names,
-            "evaluation_frame_indices": positions,
-            "evaluation_frame_names": [frame_names[index] for index in positions],
-            "evaluation_mask_paths": mask_paths, "evaluation_mask_present": present,
-            "expressions": sorted(expressions, key=lambda value: int(value["expression_id"])),
-        })
+        for expression_id,question in sorted(sequential,key=lambda value:int(value[0])):
+            official_object_id=str(question["obj_id"]);object_ids=[int(value.strip()) for value in official_object_id.split(",")]
+            action_start,action_end=official_action_window(video_id,question)
+            item_object_id=f"{official_object_id}__exp{expression_id}"
+            mask_paths=[];present=[]
+            for position in positions:
+                source=directory/"masks"/f"frame_{position:06d}.png"
+                target=binary_root/video_id/item_object_id.replace(",","_")/f"frame_{position:06d}.png"
+                available=action_start<=position<=action_end and source.is_file()
+                if available:
+                    mask=np.asarray(Image.open(source).convert("P"));binary=np.isin(mask,object_ids).astype(np.uint8)*255
+                    target.parent.mkdir(parents=True,exist_ok=True);Image.fromarray(binary).save(target)
+                present.append(available);mask_paths.append(str(target))
+            expression={
+                "expression_id":expression_id,"type":"sequential","text":question["question"],"answer":question["answer"],
+                "official_q_type":question["q_type"],"action_start":question["action_start"],"action_end":question["action_end"],
+                "official_action_start_index":action_start,"official_action_end_index":action_end,
+            }
+            objects.append({
+                "dataset":"groundmore","split":args.split,"video_id":video_id,"object_id":item_object_id,
+                "official_object_id":official_object_id,"frame_count":len(frames),"frame_names":frame_names,
+                "evaluation_frame_indices":positions,"evaluation_frame_names":[frame_names[index] for index in positions],
+                "evaluation_mask_paths":mask_paths,"evaluation_mask_present":present,"expressions":[expression],
+            })
     manifest = {
         "dataset": {
             "name": "GroundMoRe", "version": "v2", "split": args.split,
@@ -79,15 +95,19 @@ def run(args) -> None:
         "selection": {
             "q_type": "official Sequential only", "manual_or_llm_classification": False,
             "evaluation_frames": "20 uniformly sampled official frames (all when fewer)",
+            "mask_protocol": "official evaluate_groundmore.py: expression-specific 6fps action window and frame_{index:06d}.png; outside/missing masks are zero",
             "gt_read_during_candidate_generation": False,
+            "official_sequential_expressions":official_sequential_expressions,
+            "available_sequential_expressions":len(objects),
+            "missing_official_data_expressions":len(failures),
         },
-        "objects": objects,
+        "objects":objects,"failures":failures,
     }
     output = Path(args.output); output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     print(json.dumps({
         "objects": len(objects), "expressions": sum(len(item["expressions"]) for item in objects),
-        "videos": len({item["video_id"] for item in objects}), "output": str(output),
+        "videos": len({item["video_id"] for item in objects}),"failures":len(failures),"output":str(output),
     }))
 
 
@@ -101,4 +121,3 @@ def parse_args():
 
 if __name__ == "__main__":
     run(parse_args())
-

@@ -119,6 +119,9 @@ def qualitative(root: Path, docs: Path, manifest_path: Path, rows: list[dict], o
 def run(args) -> None:
     artifact=Path(args.artifact).resolve();docs=Path(args.docs).resolve();docs.mkdir(parents=True,exist_ok=True);(docs/"figures").mkdir(exist_ok=True)
     summary=json.loads((artifact/"summary.json").read_text());long=summary["summary"];ground=summary["groundmore_summary"]
+    ground_train_manifest=json.loads((artifact/"groundmore_trainval_sequential_manifest.json").read_text())
+    ground_test_manifest=json.loads((artifact/"groundmore_test_sequential_manifest.json").read_text())
+    ground_train_failures=ground_train_manifest.get("failures",[]);ground_test_failures=ground_test_manifest.get("failures",[])
     comparisons=summary["comparisons"];ground_comparison=summary["groundmore_comparison"];order=summary["groundmore_order_summary"]
     dynamic_mean=lookup(long,"dynamic","mean_pool");dynamic_full=lookup(long,"dynamic","opg_full")
     dynamic_static=lookup(long,"dynamic","static_identity");dynamic_bigru=lookup(long,"dynamic","bigru_ftsg")
@@ -166,7 +169,7 @@ OPG preserves the frozen order-agnostic multi-frame identity score and adds only
 
 - Long-RVOS official-train cache: {summary['train_expressions']} expressions, {summary['train_candidate_hits']} candidate hits; deterministic connector filter yields {summary['order_fit_expressions']} fitting expressions over {summary['order_fit_videos']} videos.
 - Long-RVOS paired validation: {summary['evaluation_expressions']} expressions; {summary['evaluation_order_expressions']} deterministic order-word hits.
-- GroundMoRe source: official author repository commit `d5074ab920a86a7ea92ecc69902109f6887f3e10` and official v2 metadata. Trainval Sequential: {summary['groundmore_train_expressions']} expressions; held-out official test Sequential: {summary['groundmore_eval_expressions']} expressions.
+- GroundMoRe source: official author repository commit `d5074ab920a86a7ea92ecc69902109f6887f3e10` and official v2 metadata. Trainval has {ground_train_manifest['selection']['official_sequential_expressions']} official Sequential expressions: {summary['groundmore_train_expressions']} available and {len(ground_train_failures)} explicitly retained metadata/archive failures. Held-out official test has {ground_test_manifest['selection']['official_sequential_expressions']} expressions: {summary['groundmore_eval_expressions']} available and {len(ground_test_failures)} failures.
 - Classification uses only GroundMoRe's official `q_type=Sequential` or the preregistered Long-RVOS connector regex. No LLM/manual event labels, new queries, or pseudo labels were used.
 - GT is used only for candidate-to-target assignment and evaluation, never candidate generation or inference scoring.
 """)
@@ -232,6 +235,8 @@ Counts below follow fixed rules over every ensemble result; no cases were droppe
 | GroundMoRe Sequential | {ground_transitions['paired']} | {ground_transitions['candidate_miss']} | {ground_transitions['opg_fixes_mean']} | {ground_transitions['opg_damages_mean']} | {ground_transitions['both_correct']} | {ground_transitions['both_wrong']} |
 
 For verified GroundMoRe target tracks, Full OPG scores original above reverse in {positive_reverse}/{len(full_order)} cases and above block-swap in {positive_block}/{len(full_order)} cases. Candidate misses remain an executor ceiling and are always scored as failures. `figures/qualitative_order_cases/` contains deterministic success, bag-of-frames failure, static-cue, and candidate-miss examples rather than success-only curation.
+
+Official metadata/archive availability failures are retained separately: trainval {len(ground_train_failures)}, test {len(ground_test_failures)}. They are not converted into positive candidates or silently counted as successful training samples.
 """)
     (docs/"FINAL_SFT_GO_NOGO.md").write_text(f"""# Final SFT decision: {decision}
 

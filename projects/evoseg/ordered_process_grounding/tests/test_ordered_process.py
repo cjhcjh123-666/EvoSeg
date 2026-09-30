@@ -12,6 +12,10 @@ from projects.evoseg.ordered_process_grounding.protocol import (
 )
 from projects.evoseg.ordered_process_grounding.prepare_features import batch_region_pool
 from projects.evoseg.ordered_process_grounding.train_sft import base_logits, order_inputs
+from projects.evoseg.ordered_process_grounding.build_groundmore_manifest import (
+    official_action_window,
+    time_str_to_seconds,
+)
 from projects.evoseg.temporal_compiler.temporal_matcher_prototype import region_pool
 
 
@@ -95,3 +99,11 @@ def test_frozen_inputs_and_base_logits_are_cached_without_changing_values():
     first=base_logits(model,row,"cpu");second=base_logits(model,row,"cpu")
     assert model.calls==1
     assert torch.equal(first,second)
+
+
+def test_groundmore_action_window_matches_official_six_fps_protocol():
+    assert time_str_to_seconds("11:03")==663
+    start,end=official_action_window(
+        "1eaD62TRpZ0_1103_1113",{"action_start":"11:03","action_end":"11:07"}
+    )
+    assert (start,end)==(0.0,23.0)
