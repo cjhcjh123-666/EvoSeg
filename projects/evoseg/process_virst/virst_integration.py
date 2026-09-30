@@ -189,7 +189,9 @@ class QueryStateCapture:
                 offset = expanded_length - original_length
                 start = max(0, original_start + offset)
                 stop = max(start + 1, min(expanded_length, original_stop + offset))
-            states.append(hidden[row, start:stop])
+            # The VLM is frozen in ProcessVIRST SFT. Detaching here prevents the
+            # order/segmentation losses from retaining its large activation graph.
+            states.append(hidden[row, start:stop].detach())
         max_length = max(item.shape[0] for item in states)
         padded = hidden.new_zeros((len(states), max_length, hidden.shape[-1]))
         padding = torch.ones((len(states), max_length), dtype=torch.bool, device=hidden.device)

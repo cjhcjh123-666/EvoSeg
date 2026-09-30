@@ -48,6 +48,12 @@ def _find_core(model: torch.nn.Module) -> torch.nn.Module:
 def main() -> None:
     diagnostic_path = Path(os.environ["PROCESS_VIRST_DIAGNOSTICS"])
     official_eval = os.environ.get("VIRST_OFFICIAL_EVAL_PATH", "eval.py")
+    if os.environ.get("PROCESS_VIRST_GROUNDMORE_EXACT20") == "1":
+        from projects.evoseg.process_virst.groundmore_virst_eval import (
+            install_exact_20_frame_sampling,
+        )
+
+        install_exact_20_frame_sampling()
 
     import model.builder as builder
 
