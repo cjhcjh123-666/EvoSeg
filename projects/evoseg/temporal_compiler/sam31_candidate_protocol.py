@@ -478,6 +478,13 @@ def run_generation(args) -> int:
     )
     for item in objects:
         video_path = Path(manifest["dataset"]["image_root"]) / item["video_id"]
+        # GroundMoRe's official archive nests RGB frames under ``images/``;
+        # Long-RVOS stores them directly under the video directory.  This is a
+        # path-layout adapter only and does not alter candidate generation.
+        if not (video_path / f"{item['frame_names'][0]}.jpg").is_file() and (
+            video_path / "images" / f"{item['frame_names'][0]}.jpg"
+        ).is_file():
+            video_path = video_path / "images"
         with Image.open(video_path / f"{item['frame_names'][0]}.jpg") as image:
             image_shape = (image.height, image.width)
         for expression in item["expressions"]:
