@@ -253,7 +253,7 @@ def order_diagnostics(models,base_models,rows,device):
             for name,permuted in (("reverse",np.mean(reverses,axis=0)),("block_swap",np.mean(blocks,axis=0))):
                 delta=original-permuted;rank_original=int((-original).argsort().tolist().index(target)+1);rank_permuted=int((-permuted).argsort().tolist().index(target)+1)
                 output.append({"identity":row["identity"],"dataset":row["dataset"],"video_id":row["video_id"],"object_id":row["object_id"],
-                               "expression_id":row["expression_id"],"permutation":name,
+                               "expression_id":row["expression_id"],"description_type":row["description_type"],"permutation":name,
                                "self_order_margin":float(original[target]-permuted[target]),
                                "candidate_margin":float(original[target]-best_other(original,target)),
                                "relative_order_margin":float(delta[target]-best_other(delta,target)),
@@ -271,7 +271,7 @@ def diagnostic_summary(rows):
             values={}
             for field in ("self_order_margin","candidate_margin","relative_order_margin","rank_degradation"):
                 left=f"{field}_left";right=f"{field}_right"
-                pairs=[{"video_id":row["video_id"],left:float(row[field]),right:0.0} for row in subset]
+                pairs=[{"video_id":row["video_id"],"object_id":row["object_id"],"description_type":row["description_type"],left:float(row[field]),right:0.0} for row in subset]
                 values[field]=source_video_bootstrap(pairs,left,right)
             result[dataset][permutation]={"samples":len(subset),**values}
     return result
