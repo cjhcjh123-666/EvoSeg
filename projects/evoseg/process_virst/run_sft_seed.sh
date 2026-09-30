@@ -23,6 +23,10 @@ export CUDA_VISIBLE_DEVICES="${GPU_INDEX}"
 export PYTHONUNBUFFERED=1
 export TOKENIZERS_PARALLELISM=false
 export PYTHONPATH="${EVOSEG_ROOT}:${VIRST_REPO}${PYTHONPATH:+:${PYTHONPATH}}"
+EXTRA_ARGS=(--alignment-mode "${PROCESS_VIRST_ALIGNMENT_MODE:-monotonic}")
+if [[ "${PROCESS_VIRST_DISABLE_ORDER_LOSS:-0}" == "1" ]]; then
+    EXTRA_ARGS+=(--disable-order-loss)
+fi
 
 "${VIRST_ENV}/bin/python" "${EVOSEG_ROOT}/projects/evoseg/process_virst/train_sft.py" \
     --dataset-root "${LONG_ROOT}" \
@@ -33,6 +37,7 @@ export PYTHONPATH="${EVOSEG_ROOT}:${VIRST_REPO}${PYTHONPATH:+:${PYTHONPATH}}"
     --ordered-steps "${ORDERED_STEPS}" \
     --frames 8 \
     --learning-rate 1e-5 \
+    "${EXTRA_ARGS[@]}" \
     --checkpoint "${VIRST_REPO}/checkpoints/virst_checkpoint.pt" \
     --sam2-checkpoint "${VIRST_REPO}/checkpoints/sam2.1_hiera_large.pt" \
     --videochat-checkpoint "${VIRST_REPO}/checkpoints/videochat" \

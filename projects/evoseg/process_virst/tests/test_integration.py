@@ -2,6 +2,7 @@ import torch
 from torch import nn
 
 from projects.evoseg.process_virst.virst_integration import ProcessAwareSegPrompter, QueryStateCapture
+from projects.evoseg.process_virst.process_module import ProcessConditioner
 
 
 class _Layer(nn.Module):
@@ -55,3 +56,20 @@ def test_videochat_nested_output_hidden_state_is_extracted():
 
     expected = Output.last_hidden_state
     assert QueryStateCapture._last_hidden_state((Output(), torch.ones(1, 3))) is expected
+
+
+def test_global_alignment_control_is_frame_permutation_invariant():
+    torch.manual_seed(3)
+    module = ProcessConditioner(
+        query_dim=16,
+        vision_dim=256,
+        process_dim=8,
+        slots=4,
+        heads=2,
+        alignment_mode="global",
+    )
+    query = torch.randn(1, 5, 16)
+    video = torch.randn(1, 6, 256, 32, 32)
+    original = module(query, video).alignment_score
+    reversed_score = module(query, video.flip(1)).alignment_score
+    assert torch.allclose(original, reversed_score, atol=1e-5)

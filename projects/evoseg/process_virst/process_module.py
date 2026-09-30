@@ -65,8 +65,12 @@ class ProcessConditioner(nn.Module):
         process_dim: int = 256,
         slots: int = 4,
         heads: int = 8,
+        alignment_mode: str = "monotonic",
     ) -> None:
         super().__init__()
+        if alignment_mode not in {"monotonic", "global"}:
+            raise ValueError(f"unsupported alignment mode: {alignment_mode}")
+        self.alignment_mode = alignment_mode
         self.compiler = ProcessCompiler(query_dim, process_dim, slots, heads)
         self.spatial_down = nn.Sequential(
             nn.Conv2d(vision_dim, process_dim, 3, stride=2, padding=1),
@@ -112,15 +116,23 @@ class ProcessConditioner(nn.Module):
         spatial_attention = spatial_logits.softmax(dim=-1)
         event_frame = torch.einsum("bmts,btsd->bmtd", spatial_attention, spatial)
         compatibility = torch.einsum("bmd,bmtd->bmt", q, event_frame) / math.sqrt(q.shape[-1])
-        aligned = self.aligner(compatibility, validity)
-        frame_context = torch.einsum("bmt,bmtd->btd", aligned.posterior, event_frame)
+        if self.alignment_mode == "monotonic":
+            aligned = self.aligner(compatibility, validity)
+            alignment = aligned.posterior
+            alignment_score = aligned.score
+        else:
+            alignment = compatibility.softmax(dim=-1) * validity.unsqueeze(-1)
+            alignment_score = (
+                validity * torch.logsumexp(compatibility, dim=-1)
+            ).sum(dim=-1)
+        frame_context = torch.einsum("bmt,bmtd->btd", alignment, event_frame)
         frame_states = self.beta * self.adapter(frame_context)
         return ProcessConditionerOutput(
             frame_states=frame_states,
             process_slots=slots,
             validity=validity,
             compatibility=compatibility,
-            alignment=aligned.posterior,
-            alignment_score=aligned.score,
+            alignment=alignment,
+            alignment_score=alignment_score,
             beta=self.beta,
         )

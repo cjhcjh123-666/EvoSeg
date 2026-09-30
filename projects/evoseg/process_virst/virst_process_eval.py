@@ -65,7 +65,16 @@ def main() -> None:
     def process_load(model, checkpoint):
         loaded = original_load(model, checkpoint)
         core = _find_core(loaded)
-        capture = install_process_virst(core)
+        process_checkpoint = os.environ.get("PROCESS_VIRST_CHECKPOINT")
+        state = (
+            torch.load(process_checkpoint, map_location="cpu", weights_only=False)
+            if process_checkpoint
+            else None
+        )
+        process_config = state.get("process_config", {}) if state is not None else {}
+        capture = install_process_virst(
+            core, alignment_mode=process_config.get("alignment_mode", "monotonic")
+        )
         permutation_values = os.environ.get(
             "PROCESS_VIRST_PERMUTATIONS",
             os.environ.get("PROCESS_VIRST_PERMUTATION", ""),
@@ -74,9 +83,7 @@ def main() -> None:
         capture.set_permutations(permutations)
         prompter = core.model.seg_prompter
         assert isinstance(prompter, ProcessAwareSegPrompter)
-        process_checkpoint = os.environ.get("PROCESS_VIRST_CHECKPOINT")
-        if process_checkpoint:
-            state = torch.load(process_checkpoint, map_location="cpu", weights_only=False)
+        if state is not None:
             prompter.conditioner.load_state_dict(state["process_virst"], strict=True)
             prompter.fusion_norm.load_state_dict(state["fusion_norm"], strict=True)
 
@@ -119,6 +126,7 @@ def main() -> None:
                     "wrapped_prompter_trainable_params_before_freeze_policy": trainable,
                     "permutations": permutations,
                     "process_checkpoint": process_checkpoint,
+                    "process_config": process_config,
                 }
             ),
             flush=True,

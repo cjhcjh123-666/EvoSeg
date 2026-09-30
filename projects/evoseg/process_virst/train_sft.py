@@ -40,6 +40,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frames", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=1e-5)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
+    parser.add_argument(
+        "--alignment-mode", choices=["monotonic", "global"], default="monotonic"
+    )
+    parser.add_argument("--disable-order-loss", action="store_true")
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--sam2-checkpoint", type=Path, required=True)
     parser.add_argument("--videochat-checkpoint", type=Path, required=True)
@@ -153,7 +157,7 @@ def build_model(args: argparse.Namespace):
     if len(core_matches) != 1:
         raise RuntimeError(f"expected exactly one VIRST core, found {len(core_matches)}")
     core = core_matches[0]
-    capture = install_process_virst(core)
+    capture = install_process_virst(core, alignment_mode=args.alignment_mode)
     for parameter in model.parameters():
         parameter.requires_grad_(False)
     for parameter in core.model.seg_prompter.conditioner.parameters():
@@ -265,7 +269,10 @@ def main() -> None:
         verified_order = text.startswith("mevis_groundmore_train_") or bool(
             ORDER_PATTERN.search(text)
         )
-        capture.set_permutation(permutation_for(text) if is_ordered_stage and verified_order else None)
+        order_loss_enabled = (
+            is_ordered_stage and verified_order and not args.disable_order_loss
+        )
+        capture.set_permutation(permutation_for(text) if order_loss_enabled else None)
         optimizer.zero_grad(set_to_none=True)
         step_start = time.perf_counter()
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
@@ -286,7 +293,7 @@ def main() -> None:
             diagnostics = prompter.last_diagnostics
             if diagnostics is None:
                 raise RuntimeError("missing ProcessVIRST diagnostics")
-            if is_ordered_stage and verified_order:
+            if order_loss_enabled:
                 if len(diagnostics.permuted) != 1:
                     raise RuntimeError("ordered sample did not compute its fixed permutation")
                 permuted = next(iter(diagnostics.permuted.values()))
@@ -324,6 +331,8 @@ def main() -> None:
             "seconds": time.perf_counter() - step_start,
             "peak_memory_gib": torch.cuda.max_memory_allocated(device) / 2**30,
             "trainable_dtype": trainable_dtypes[0],
+            "alignment_mode": args.alignment_mode,
+            "order_loss_enabled": not args.disable_order_loss,
         }
         records.append(record)
         with (args.output_dir / "training.jsonl").open("a") as handle:
@@ -335,6 +344,10 @@ def main() -> None:
         "process_virst": prompter.conditioner.state_dict(),
         "fusion_norm": prompter.fusion_norm.state_dict(),
         "optimizer": optimizer.state_dict(),
+        "process_config": {
+            "alignment_mode": args.alignment_mode,
+            "order_loss_enabled": not args.disable_order_loss,
+        },
     }
     torch.save(checkpoint, args.output_dir / "process_virst_sft.pt")
     squared_delta = 0.0
@@ -357,6 +370,8 @@ def main() -> None:
         "trainable_parameter_delta_l2": squared_delta**0.5,
         "trainable_parameter_delta_max_abs": max_abs_delta,
         "changed_trainable_values": changed_values,
+        "alignment_mode": args.alignment_mode,
+        "order_loss_enabled": not args.disable_order_loss,
         "elapsed_seconds": time.perf_counter() - start,
     }
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")

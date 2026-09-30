@@ -29,7 +29,13 @@ class ProcessDiagnostics:
 class ProcessAwareSegPrompter(nn.Module):
     """Reuse official SegPrompter weights, adding process states pre-decoder."""
 
-    def __init__(self, official: nn.Module, query_dim: int, slots: int = 4) -> None:
+    def __init__(
+        self,
+        official: nn.Module,
+        query_dim: int,
+        slots: int = 4,
+        alignment_mode: str = "monotonic",
+    ) -> None:
         super().__init__()
         self.official = official
         self.token_dim = official.token_dim
@@ -42,6 +48,7 @@ class ProcessAwareSegPrompter(nn.Module):
             process_dim=official.token_dim,
             slots=slots,
             heads=official.nhead,
+            alignment_mode=alignment_mode,
         )
         self.fusion_norm = nn.LayerNorm(official.token_dim)
         self._query_states: Tensor | None = None
@@ -224,11 +231,18 @@ class QueryStateCapture:
         raise TypeError(f"cannot extract last_hidden_state from {type(output)!r}")
 
 
-def install_process_virst(model: nn.Module, slots: int = 4) -> QueryStateCapture:
+def install_process_virst(
+    model: nn.Module, slots: int = 4, alignment_mode: str = "monotonic"
+) -> QueryStateCapture:
     """Install ProcessVIRST on an initialized official model and return its hook."""
     if isinstance(model.model.seg_prompter, ProcessAwareSegPrompter):
         raise RuntimeError("ProcessVIRST is already installed")
     official = model.model.seg_prompter
-    wrapper = ProcessAwareSegPrompter(official, query_dim=model.config.hidden_size, slots=slots)
+    wrapper = ProcessAwareSegPrompter(
+        official,
+        query_dim=model.config.hidden_size,
+        slots=slots,
+        alignment_mode=alignment_mode,
+    )
     model.model.seg_prompter = wrapper
     return QueryStateCapture(model, model.model, wrapper, model.seg_token_idx)
