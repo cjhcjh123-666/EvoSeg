@@ -93,6 +93,7 @@ def run(args) -> None:
     output_records = []
     with torch.inference_mode():
         for video_number, (video_id, keys) in enumerate(sorted(grouped.items()), 1):
+            print(f"video_start {video_number}/{len(grouped)} {video_id} expressions={len(keys)}", flush=True)
             item = object_index[video_id]
             track_payloads = {}
             required = set()
@@ -129,6 +130,7 @@ def run(args) -> None:
                 ].float().cpu()
                 for index, feature in zip(indices, hidden):
                     frame_features[index] = feature
+            print(f"video_encoded {video_number}/{len(grouped)} {video_id} frames={len(frame_features)}", flush=True)
 
             pooled_track_cache = {}
             for identity in keys:
