@@ -1,0 +1,74 @@
+[
+  {
+    "category": "order_success",
+    "identity": "long_rvos/9bc92f09e0/1/1",
+    "selection_rule": "fixed deterministic extreme/rank rule",
+    "path": "figures/qualitative_order_cases/order_success__long_rvos__9bc92f09e0__1__1.png"
+  },
+  {
+    "category": "order_success",
+    "identity": "long_rvos/cc132d2e39/1/5",
+    "selection_rule": "fixed deterministic extreme/rank rule",
+    "path": "figures/qualitative_order_cases/order_success__long_rvos__cc132d2e39__1__5.png"
+  },
+  {
+    "category": "order_success",
+    "identity": "long_rvos/cc132d2e39/1/1",
+    "selection_rule": "fixed deterministic extreme/rank rule",
+    "path": "figures/qualitative_order_cases/order_success__long_rvos__cc132d2e39__1__1.png"
+  },
+  {
+    "category": "bag_of_frames_failure",
+    "identity": "long_rvos/8847e5550e/1/1",
+    "selection_rule": "fixed deterministic extreme/rank rule",
+    "path": "figures/qualitative_order_cases/bag_of_frames_failure__long_rvos__8847e5550e__1__1.png"
+  },
+  {
+    "category": "bag_of_frames_failure",
+    "identity": "long_rvos/40d66b2614/2/5",
+    "selection_rule": "fixed deterministic extreme/rank rule",
+    "path": "figures/qualitative_order_cases/bag_of_frames_failure__long_rvos__40d66b2614__2__5.png"
+  },
+  {
+    "category": "bag_of_frames_failure",
+    "identity": "long_rvos/40d66b2614/2/7",
+    "selection_rule": "fixed deterministic extreme/rank rule",
+    "path": "figures/qualitative_order_cases/bag_of_frames_failure__long_rvos__40d66b2614__2__7.png"
+  },
+  {
+    "category": "static_cue",
+    "identity": "long_rvos/0102096b4c/1/1",
+    "selection_rule": "fixed deterministic extreme/rank rule",
+    "path": "figures/qualitative_order_cases/static_cue__long_rvos__0102096b4c__1__1.png"
+  },
+  {
+    "category": "static_cue",
+    "identity": "long_rvos/0102096b4c/2/3",
+    "selection_rule": "fixed deterministic extreme/rank rule",
+    "path": "figures/qualitative_order_cases/static_cue__long_rvos__0102096b4c__2__3.png"
+  },
+  {
+    "category": "static_cue",
+    "identity": "long_rvos/0102096b4c/2/5",
+    "selection_rule": "fixed deterministic extreme/rank rule",
+    "path": "figures/qualitative_order_cases/static_cue__long_rvos__0102096b4c__2__5.png"
+  },
+  {
+    "category": "candidate_generation_failure",
+    "identity": "long_rvos/0102096b4c/1/0",
+    "selection_rule": "fixed deterministic extreme/rank rule",
+    "path": "figures/qualitative_order_cases/candidate_generation_failure__long_rvos__0102096b4c__1__0.png"
+  },
+  {
+    "category": "candidate_generation_failure",
+    "identity": "long_rvos/0310d3743b/2/5",
+    "selection_rule": "fixed deterministic extreme/rank rule",
+    "path": "figures/qualitative_order_cases/candidate_generation_failure__long_rvos__0310d3743b__2__5.png"
+  },
+  {
+    "category": "candidate_generation_failure",
+    "identity": "long_rvos/0560401ea3/1/2",
+    "selection_rule": "fixed deterministic extreme/rank rule",
+    "path": "figures/qualitative_order_cases/candidate_generation_failure__long_rvos__0560401ea3__1__2.png"
+  }
+]

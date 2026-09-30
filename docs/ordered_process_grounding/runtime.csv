@@ -1,0 +1,11 @@
+dataset,method,latency_seconds,expressions,peak_memory_bytes
+long_rvos,frozen_input_preparation,63.99907734245062,1188,747343360
+long_rvos,mean_pool,0.08854082226753235,1188,746203136
+long_rvos,opg_no_monotonic,2.540214702486992,1188,748076032
+long_rvos,opg_no_order_loss,2.6575883999466896,1188,748076032
+long_rvos,opg_full,2.6702264323830605,1188,748076032
+groundmore,frozen_input_preparation,0.796515591442585,480,766704128
+groundmore,mean_pool,0.008158914744853973,480,765442048
+groundmore,opg_no_monotonic,0.20480592548847198,480,766862848
+groundmore,opg_no_order_loss,0.21098526567220688,480,766862848
+groundmore,opg_full,0.21613625437021255,480,766862848
