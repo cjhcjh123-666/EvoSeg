@@ -1,0 +1,7 @@
+component,params_per_head,ensemble_size,params_total_loaded,latency_seconds_per_query,peak_memory_bytes
+sam31_concept_candidate_generation,frozen,1,frozen,82.34450590401133,36874136064
+static_identity_selector_ensemble,288257,3,864771,0.010959851521032828,33500672
+temporal_identity_selector_ensemble,288257,3,864771,0.004183532086887745,33503744
+temporal_order_shuffle_ensemble,288257,3,864771,0.004326146478554616,33503744
+temporal_mean_pool_ensemble,287777,3,863331,0.0038915985649583314,20343808
+ftsg_total_candidate_plus_selector,288257,3,864771,82.34868943609821,36874136064

@@ -1,0 +1,6 @@
+{
+  "temporal_correction": 3,
+  "both_correct": 3,
+  "temporal_damage": 3,
+  "candidate_miss": 3
+}
