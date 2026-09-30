@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 import traceback
+import re
 import uuid
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -177,6 +178,36 @@ class SpacyConceptParser:
             "spacy_version": self.spacy_version,
             "spacy_model": self.model_name,
         }
+
+
+def groundmore_question_concept(expression: str, parser: SpacyConceptParser) -> dict:
+    """GT-free deterministic concept for official question-form expressions.
+
+    Interrogative ``who/whom/whose`` cannot name the answer class without
+    looking at annotations, so the preregistered broad concept is ``person``.
+    Other questions use the existing subject noun-phrase parser.  Bare
+    interrogative pronouns are unresolved instead of being guessed.
+    """
+    normalized = expression.strip().lower()
+    first = normalized.split(maxsplit=1)[0].strip("?!.,;:") if normalized else ""
+    person_interrogative = re.match(r"^(?:who|whom|whose)\b|^(?:with|to|from)\s+whom\b", normalized)
+    if person_interrogative:
+        return {
+            "concept": "person", "selected_span": first, "root": first,
+            "root_pos": "PRON", "root_dependency": "interrogative",
+            "parser": "groundmore_question_rule_v1", "resolved": True,
+            "rule": "person_interrogative_to_broad_person",
+        }
+    parsed = parser(expression)
+    concept = parsed["concept"].strip().lower()
+    unresolved = concept in {"who", "whom", "whose", "what", "which"}
+    return {
+        **parsed,
+        "parser": "groundmore_question_rule_v1+spacy_subject_noun_chunk_v1",
+        "resolved": not unresolved,
+        "rule": "explicit_subject_noun_phrase" if not unresolved else "unresolved_interrogative",
+        "concept": parsed["concept"] if not unresolved else "",
+    }
 
 
 def encode_rle(mask: np.ndarray) -> dict:
@@ -493,11 +524,18 @@ def run_generation(args) -> int:
                 "raw_expression": expression["text"],
                 "concept": concept["concept"],
             }
+            groundmore_concept = groundmore_question_concept(expression["text"], parser)
+            if groundmore_concept["resolved"]:
+                available_prompts["groundmore_concept"] = groundmore_concept["concept"]
             if qwen_concepts_path is not None:
                 available_prompts["qwen_concept"] = qwen_concepts[
                     expression_key(item, expression)
                 ]["concept"]
-            prompts = [(method, available_prompts[method]) for method in args.prompt_methods]
+            prompts = [
+                (method, available_prompts[method])
+                for method in args.prompt_methods
+                if method in available_prompts
+            ]
             for prompt_method, prompt in prompts:
                 key = candidate_key(item, expression, prompt_method)
                 if key in done:
@@ -513,6 +551,9 @@ def run_generation(args) -> int:
                     "prompt_method": prompt_method,
                     "prompt": prompt,
                     "concept_parse": concept if prompt_method == "concept" else None,
+                    "groundmore_concept_parse": groundmore_concept
+                    if prompt_method == "groundmore_concept"
+                    else None,
                     "qwen_concept_source_key": expression_key(item, expression)
                     if prompt_method == "qwen_concept"
                     else None,
@@ -1282,7 +1323,7 @@ def parse_args():
     generation.add_argument(
         "--prompt-methods",
         nargs="+",
-        choices=("raw_expression", "concept", "qwen_concept"),
+        choices=("raw_expression", "concept", "qwen_concept", "groundmore_concept"),
         default=["raw_expression", "concept"],
     )
     generation.add_argument("--use-fa3", action=argparse.BooleanOptionalAction, default=False)

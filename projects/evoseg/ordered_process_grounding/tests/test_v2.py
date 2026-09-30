@@ -6,6 +6,7 @@ from projects.evoseg.ordered_process_grounding.model_v2 import (
     DiscriminativeOrderedHead,
     candidate_standardize,
 )
+from projects.evoseg.temporal_compiler.sam31_candidate_protocol import groundmore_question_concept
 
 
 def test_candidate_standardize_has_unit_candidate_scale():
@@ -40,3 +41,14 @@ def test_v2_forward_backpropagates_through_original_and_permutation():
     (final.sum() + audit["delta"].sum()).backward()
     assert model.track_projection[1].weight.grad is not None
     assert torch.isfinite(model.track_projection[1].weight.grad).all()
+
+
+def test_groundmore_who_rule_is_broad_and_gt_free():
+    class Parser:
+        def __call__(self, value):
+            return {"concept": "object", "selected_span": "object", "root": "object", "root_pos": "NOUN", "root_dependency": "nsubj"}
+    actual = groundmore_question_concept("Who opens the door after sitting?", Parser())
+    assert actual["concept"] == "person"
+    assert actual["resolved"] is True
+    explicit = groundmore_question_concept("Which dog runs after the cat?", Parser())
+    assert explicit["concept"] == "object"
