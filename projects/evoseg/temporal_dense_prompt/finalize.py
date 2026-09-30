@@ -31,7 +31,8 @@ def decode(rle):
 
 
 def run(args):
- root=Path(args.run_dir);docs=Path(args.docs);docs.mkdir(parents=True,exist_ok=True);(docs/'figures/qualitative_cases').mkdir(parents=True,exist_ok=True)
+ root=Path(args.run_dir);docs=Path(args.docs);docs.mkdir(parents=True,exist_ok=True);qualitative_dir=docs/'figures/qualitative_cases';qualitative_dir.mkdir(parents=True,exist_ok=True)
+ for path in qualitative_dir.glob('*.png'):path.unlink()
  pilot=json.loads((root/'pilot64/summary/summary.json').read_text());confirm_path=root/'confirm210/summary/summary.json';confirm=json.loads(confirm_path.read_text()) if confirm_path.is_file() else None;final=confirm or pilot
  dense_paths=sorted((root/'pilot64/dense').glob('dense_results.shard*.jsonl'))+sorted((root/'confirm210/dense').glob('dense_results.shard*.jsonl'));pixel_paths=sorted((root/'pilot64/pixel').glob('pixel_results.shard*.jsonl'))+sorted((root/'confirm210/pixel').glob('pixel_results.shard*.jsonl'));dense=read_jsonl(dense_paths);pixel=read_jsonl(pixel_paths)
  write_csv(docs/'dense_prompt_results.csv',dense);write_csv(docs/'final_segmentation_results.csv',pixel)
@@ -49,7 +50,7 @@ Frozen Sa2VA cumulative or anchor-only state is combined with the frozen officia
  (docs/'PILOT64_RESULTS.md').write_text(phase_report('Pilot64 results',pilot))
  if confirm:(docs/'CONFIRM210_RESULTS.md').write_text(phase_report('Confirmatory 210-object results',confirm))
  loss=final['pixel_losses'];(docs/'PIXEL_LOSS_DECOMPOSITION.md').write_text(f"# Pixel loss decomposition\n\nDynamic Temporal-DSP P8 mean dense-to-initialization loss: {100*loss['dense_to_init']:+.2f} pp. Mean initialization-to-final loss: {100*loss['init_to_final']:+.2f} pp. These signs use `upstream J&F - downstream J&F`; negative values mean the downstream stage improved.\n")
- failures=[x for x in dense+pixel if x.get('status')!='success'];(docs/'FAILURE_ANALYSIS.md').write_text(f"# Failure analysis\n\n- Retained failed records: {len(failures)}.\n- Successful dense stage records: {sum(x.get('status')=='success' for x in dense)}.\n- Successful final segmentation records: {sum(x.get('status')=='success' for x in pixel)}.\n- Qualitative selection is deterministic from Dynamic Temporal-P8 minus Static-P8 and includes success, near-zero, and damage cases.\n")
+ failures=[x for x in dense+pixel if x.get('status')!='success'];coverage=pilot['pixel_coverage'];(docs/'FAILURE_ANALYSIS.md').write_text(f"# Failure analysis\n\n- Retained historical failed attempts: {len(failures)}; these were CUDA OOM attempts and were not silently dropped.\n- The failed pairs were retried with one SAM3.1 worker per GPU, followed by exclusive targeted retries for the final four pairs.\n- Final successful identity/condition pairs: {coverage['successful_identity_condition_pairs']}/{coverage['expected_identity_condition_pairs']}; missing: {coverage['missing_identity_condition_pairs']}.\n- Successful dense stage records: {sum(x.get('status')=='success' for x in dense)}.\n- Qualitative selection is deterministic from Dynamic Temporal-P8 minus Static-P8 and includes success, near-zero, and damage cases.\n")
  decision=final['decision'];recommendation={'GO':'Proceed only after review toward the fixed TDSP direction.','MIXED':'Keep the frozen VLM and dense head; next isolate pixel memory/executor loss.','NO-GO':'Stop TDSP and do not add Transformer/Agent/RL capacity.','GO_TO_CONFIRM210':'Confirmatory evaluation is still required.','INCOMPLETE':'Do not interpret the gate until all required identity/condition pairs finish successfully.'}[decision]
  (docs/'FINAL_GO_NOGO.md').write_text(f"# Final decision\n\n**{decision}**\n\n{recommendation}\n")
  snapshot=root/'MORNING_SNAPSHOT.md';(docs/'MORNING_SNAPSHOT.md').write_text(snapshot.read_text() if snapshot.is_file() else '# Morning snapshot\n\nRun completed before the 08:00 snapshot deadline.\n')
@@ -76,15 +77,18 @@ Frozen Sa2VA cumulative or anchor-only state is combined with the frozen officia
    used.add(key);selected.append((label,delta,key,pair));count+=1
    if count==3:break
  for label,delta,key,pair in selected:
-  base='/'.join(key.split('/')[:3]);item=item_index[base];frame_index=item['evaluation_frame_indices'][-1];frame_name=item['frame_names'][frame_index]
-  image=np.asarray(Image.open(Path(manifest['dataset']['image_root'])/item['video_id']/f'{frame_name}.jpg').convert('RGB'));gt=np.asarray(Image.open(item['evaluation_mask_paths'][-1]).convert('L'))>0
+  base='/'.join(key.split('/')[:3]);item=item_index[base]
+  available=[i for i,path in enumerate(item['evaluation_mask_paths']) if Path(path).is_file()]
+  if not available:continue
+  evaluation_position=available[-1];frame_index=item['evaluation_frame_indices'][evaluation_position];frame_name=item['frame_names'][frame_index]
+  image=np.asarray(Image.open(Path(manifest['dataset']['image_root'])/item['video_id']/f'{frame_name}.jpg').convert('RGB'));gt=np.asarray(Image.open(item['evaluation_mask_paths'][evaluation_position]).convert('L'))>0
   masks={};heats={}
   for condition in ('static_p8','temporal_p8'):
-   payload=json.loads(Path(pair[condition]['mask_path']).read_text());masks[condition]=decode(payload['masks'][-1]);stage=pair[condition]['plan'][-1];heats[condition]=np.load(stage['heatmap_path'])['probability']
+   payload=json.loads(Path(pair[condition]['mask_path']).read_text());masks[condition]=decode(payload['masks'][evaluation_position]);stage=pair[condition]['plan'][-1];heats[condition]=np.load(stage['heatmap_path'])['probability']
   fig,axes=plt.subplots(1,6,figsize=(15,3));values=[image,gt,heats['static_p8'],heats['temporal_p8'],masks['static_p8'],masks['temporal_p8']];titles=['Frame','GT','Static heatmap','Temporal heatmap','Static final','Temporal final']
   for ax,value,title in zip(axes,values,titles):ax.imshow(value,cmap=None if value.ndim==3 else 'viridis');ax.set_title(title);ax.axis('off')
-  fig.suptitle(f"{label}: delta {100*delta:+.2f} pp | {pair['temporal_p8']['expression']}",fontsize=9);fig.tight_layout();fig.savefig(docs/'figures/qualitative_cases'/f"{label}__{key.replace('/','__')}.png",dpi=130);plt.close(fig)
-  return 0
+  fig.suptitle(f"{label}: delta {100*delta:+.2f} pp | {pair['temporal_p8']['expression']}",fontsize=9);fig.tight_layout();fig.savefig(qualitative_dir/f"{label}__{key.replace('/','__')}.png",dpi=130);plt.close(fig)
+ return 0
 
 
 def parse_args():
