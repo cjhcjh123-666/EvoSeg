@@ -273,10 +273,11 @@ def main() -> None:
             if diagnostics is None:
                 raise RuntimeError("missing ProcessVIRST diagnostics")
             if is_ordered_stage and verified_order:
-                if diagnostics.permuted_score is None:
+                if len(diagnostics.permuted) != 1:
                     raise RuntimeError("ordered sample did not compute its fixed permutation")
+                permuted = next(iter(diagnostics.permuted.values()))
                 order_loss = torch.relu(
-                    0.2 - diagnostics.original.alignment_score + diagnostics.permuted_score
+                    0.2 - diagnostics.original.alignment_score + permuted.alignment_score
                 ).mean()
             else:
                 order_loss = segmentation_loss.new_zeros(())
@@ -289,14 +290,19 @@ def main() -> None:
             "step": step,
             "stage": "ordered_sft" if is_ordered_stage else "identity_warmup",
             "verified_order": verified_order,
-            "permutation": diagnostics.permutation,
+            "permutation": diagnostics.permutations[0] if diagnostics.permutations else None,
             "loss": float(loss.detach()),
             "segmentation_loss": float(segmentation_loss.detach()),
             "mask_loss": float(output["mask_loss"].detach()),
             "order_loss": float(order_loss.detach()),
             "order_margin": (
-                float((diagnostics.original.alignment_score - diagnostics.permuted_score).mean().detach())
-                if diagnostics.permuted_score is not None
+                float(
+                    (
+                        diagnostics.original.alignment_score
+                        - next(iter(diagnostics.permuted.values())).alignment_score
+                    ).mean().detach()
+                )
+                if diagnostics.permuted
                 else None
             ),
             "beta": float(diagnostics.original.beta.detach()),

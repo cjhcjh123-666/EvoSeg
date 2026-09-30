@@ -19,8 +19,11 @@ from .process_module import ProcessConditioner, ProcessConditionerOutput
 @dataclass
 class ProcessDiagnostics:
     original: ProcessConditionerOutput
-    permuted_score: Tensor | None
-    permutation: str | None
+    permuted: dict[str, ProcessConditionerOutput]
+
+    @property
+    def permutations(self) -> tuple[str, ...]:
+        return tuple(self.permuted)
 
 
 class ProcessAwareSegPrompter(nn.Module):
@@ -43,18 +46,24 @@ class ProcessAwareSegPrompter(nn.Module):
         self.fusion_norm = nn.LayerNorm(official.token_dim)
         self._query_states: Tensor | None = None
         self._query_padding_mask: Tensor | None = None
-        self._permutation: str | None = None
+        self._permutations: tuple[str, ...] = ()
         self.last_diagnostics: ProcessDiagnostics | None = None
 
     def set_query_context(
         self,
         states: Tensor,
         padding_mask: Tensor | None = None,
-        permutation: str | None = None,
+        permutations: tuple[str, ...] = (),
     ) -> None:
         self._query_states = states
         self._query_padding_mask = padding_mask
-        self._permutation = permutation
+        self._permutations = permutations
+
+    def set_permutations(self, permutations: tuple[str, ...]) -> None:
+        unsupported = set(permutations) - {"reverse", "block_swap"}
+        if unsupported:
+            raise ValueError(f"unsupported temporal permutations: {sorted(unsupported)}")
+        self._permutations = permutations
 
     @staticmethod
     def _permute_video(video: Tensor, kind: str) -> Tensor:
@@ -87,15 +96,14 @@ class ProcessAwareSegPrompter(nn.Module):
             image_token,
             self._query_padding_mask,
         )
-        permuted_score = None
-        if self._permutation is not None:
-            permuted = self.conditioner(
+        permuted = {}
+        for permutation in self._permutations:
+            permuted[permutation] = self.conditioner(
                 self._query_states,
-                self._permute_video(image_token, self._permutation),
+                self._permute_video(image_token, permutation),
                 self._query_padding_mask,
             )
-            permuted_score = permuted.alignment_score
-        self.last_diagnostics = ProcessDiagnostics(process, permuted_score, self._permutation)
+        self.last_diagnostics = ProcessDiagnostics(process, permuted)
 
         x = image_token.reshape(num_conv * frames, channels, height, width)
         x = self.official.spatial_down(x)
@@ -150,7 +158,7 @@ class QueryStateCapture:
         self.seg_token_idx = seg_token_idx
         self.original_ids: Tensor | None = None
         self.original_attention: Tensor | None = None
-        self.permutation: str | None = None
+        self.permutations: tuple[str, ...] = ()
         self._pre = outer_model.register_forward_pre_hook(self._capture_inputs, with_kwargs=True)
         self._post = inner_model.register_forward_hook(self._capture_hidden, with_kwargs=True)
 
@@ -159,7 +167,11 @@ class QueryStateCapture:
         self._post.remove()
 
     def set_permutation(self, permutation: str | None) -> None:
-        self.permutation = permutation
+        self.set_permutations(() if permutation is None else (permutation,))
+
+    def set_permutations(self, permutations: tuple[str, ...]) -> None:
+        self.permutations = permutations
+        self.prompter.set_permutations(permutations)
 
     def _capture_inputs(self, module: nn.Module, args: tuple[Any, ...], kwargs: dict[str, Any]):
         self.original_ids = kwargs.get("input_ids")
@@ -198,7 +210,7 @@ class QueryStateCapture:
         for row, value in enumerate(states):
             padded[row, : value.shape[0]] = value
             padding[row, : value.shape[0]] = False
-        self.prompter.set_query_context(padded, padding, self.permutation)
+        self.prompter.set_query_context(padded, padding, self.permutations)
 
     @staticmethod
     def _last_hidden_state(output: Any) -> Tensor:

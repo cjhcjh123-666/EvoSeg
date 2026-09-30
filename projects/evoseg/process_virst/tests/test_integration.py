@@ -33,7 +33,9 @@ class _Official(nn.Module):
 
 def test_wrapper_produces_frame_specific_prompts_and_order_diagnostics():
     wrapper = ProcessAwareSegPrompter(_Official(), query_dim=16)
-    wrapper.set_query_context(torch.randn(1, 5, 16), permutation="reverse")
+    wrapper.set_query_context(
+        torch.randn(1, 5, 16), permutations=("reverse", "block_swap")
+    )
     decoded, frame_score = wrapper(
         seg_token=torch.randn(1, 1, 16),
         image_token=torch.randn(1, 6, 256, 32, 32),
@@ -43,7 +45,8 @@ def test_wrapper_produces_frame_specific_prompts_and_order_diagnostics():
     assert frame_score.shape == (1, 6)
     assert wrapper.last_diagnostics is not None
     assert wrapper.last_diagnostics.original.alignment.shape == (1, 4, 6)
-    assert wrapper.last_diagnostics.permuted_score is not None
+    assert set(wrapper.last_diagnostics.permuted) == {"reverse", "block_swap"}
+    assert wrapper.last_diagnostics.permuted["reverse"].alignment.shape == (1, 4, 6)
 
 
 def test_videochat_nested_output_hidden_state_is_extracted():

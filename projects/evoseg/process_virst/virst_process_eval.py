@@ -47,7 +47,10 @@ def _find_core(model: torch.nn.Module) -> torch.nn.Module:
 
 def main() -> None:
     diagnostic_path = Path(os.environ["PROCESS_VIRST_DIAGNOSTICS"])
-    official_eval = os.environ.get("VIRST_OFFICIAL_EVAL_PATH", "eval.py")
+    official_eval = os.environ.get(
+        "PROCESS_VIRST_OFFICIAL_EVAL_PATH",
+        os.environ.get("VIRST_OFFICIAL_EVAL_PATH", "eval.py"),
+    )
     if os.environ.get("PROCESS_VIRST_GROUNDMORE_EXACT20") == "1":
         from projects.evoseg.process_virst.groundmore_virst_eval import (
             install_exact_20_frame_sampling,
@@ -63,8 +66,12 @@ def main() -> None:
         loaded = original_load(model, checkpoint)
         core = _find_core(loaded)
         capture = install_process_virst(core)
-        permutation = os.environ.get("PROCESS_VIRST_PERMUTATION") or None
-        capture.set_permutation(permutation)
+        permutation_values = os.environ.get(
+            "PROCESS_VIRST_PERMUTATIONS",
+            os.environ.get("PROCESS_VIRST_PERMUTATION", ""),
+        )
+        permutations = tuple(value for value in permutation_values.split(",") if value)
+        capture.set_permutations(permutations)
         prompter = core.model.seg_prompter
         assert isinstance(prompter, ProcessAwareSegPrompter)
         process_checkpoint = os.environ.get("PROCESS_VIRST_CHECKPOINT")
@@ -86,12 +93,18 @@ def main() -> None:
                     "alignment": original.alignment.detach().float().cpu().tolist(),
                     "frame_state_norm": original.frame_states.detach().float().norm(dim=-1).cpu().tolist(),
                     "beta": float(original.beta.detach().float().cpu()),
-                    "permutation": diagnostics.permutation,
-                    "permuted_alignment_score": (
-                        diagnostics.permuted_score.detach().float().cpu().tolist()
-                        if diagnostics.permuted_score is not None
-                        else None
-                    ),
+                    "permutations": {
+                        name: {
+                            "alignment_score": value.alignment_score.detach().float().cpu().tolist(),
+                            "alignment": value.alignment.detach().float().cpu().tolist(),
+                            "frame_state_norm": value.frame_states.detach().float().norm(dim=-1).cpu().tolist(),
+                            "frame_state_response_l2": (
+                                original.frame_states.detach().float()
+                                - value.frame_states.detach().float()
+                            ).norm(dim=-1).cpu().tolist(),
+                        }
+                        for name, value in diagnostics.permuted.items()
+                    },
                 },
             )
 
@@ -104,7 +117,7 @@ def main() -> None:
                     "process_virst_installed": True,
                     "process_module_params": process_trainable,
                     "wrapped_prompter_trainable_params_before_freeze_policy": trainable,
-                    "permutation": permutation,
+                    "permutations": permutations,
                     "process_checkpoint": process_checkpoint,
                 }
             ),
