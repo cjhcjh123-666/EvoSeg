@@ -67,9 +67,13 @@ def run(args):
     update(root,"verify_groundmore_archive")
     actual=file_sha(archive)
     if actual!=EXPECTED_ARCHIVE_SHA:raise RuntimeError(f"GroundMoRe archive SHA mismatch: {actual}")
-    annotations=data/"annotations"
-    if not annotations.is_dir():
+    extraction_marker=data/f".groundmore_v2_extracted_{EXPECTED_ARCHIVE_SHA}.json"
+    if not extraction_marker.is_file():
         run_logged(["tar","-xf",str(archive),"-C",str(data)],logs/"groundmore_extract.log",repo,root,"extract_groundmore")
+        atomic(extraction_marker,{
+            "archive":str(archive),"sha256":actual,"bytes":archive.stat().st_size,
+            "completed_at":time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        })
 
     train_manifest=root/"groundmore_trainval_sequential_manifest.json";test_manifest=root/"groundmore_test_sequential_manifest.json"
     python=args.python
