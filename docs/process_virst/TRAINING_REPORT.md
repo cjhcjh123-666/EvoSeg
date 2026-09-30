@@ -45,14 +45,14 @@ The preregistered pilot is restarted from scratch in new output directories; no 
 
 ## Infrastructure interruption and resumability
 
-On 2026-09-30 at 20:50:13--20:50:16 Asia/Shanghai, all three valid FP32
-pilot jobs, both ablation jobs, the official GroundMoRe baseline, the CPU-only
-data extraction job, and the status monitor terminated at the same time. The
-training logs contain no Python exception or CUDA OOM; their last allocated
-memory was about 19.39 GiB per training worker. Immediately afterward
-`nvidia-smi` could not communicate with the NVIDIA driver. This is recorded as
-an external infrastructure interruption, not a model or data failure. The
-incomplete outputs remain in place and are excluded from scientific metrics.
+All three valid FP32 pilot seeds completed 384/384 updates successfully on
+2026-09-30 at 20:56--20:57 Asia/Shanghai. Their final beta values are 1.00295,
+1.00314, and 1.00313 for seeds 11, 23, and 42; peak allocated memory was about
+19.39 GiB per worker. Both ablation jobs, the official GroundMoRe full baseline,
+the data extraction job, and the status monitor subsequently stopped without
+an application traceback, and `nvidia-smi` could no longer communicate with
+the NVIDIA driver. Those incomplete peripheral outputs remain in place and are
+excluded from scientific metrics until resumed or rerun.
 
 The trainer now writes an atomic `resume_latest.pt` every 32 completed updates.
 It includes the ProcessVIRST and fusion weights, optimizer state, initial
