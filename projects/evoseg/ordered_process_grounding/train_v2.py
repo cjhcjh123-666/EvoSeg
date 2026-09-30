@@ -296,6 +296,19 @@ def diagnostic_summary(rows):
     return result
 
 
+def load_order_rows(path: Path) -> list[dict] | None:
+    if not path.is_file():return None
+    with path.open() as handle:rows=list(csv.DictReader(handle))
+    required={"description_type","self_order_margin","candidate_margin","relative_order_margin","rank_degradation"}
+    if not rows or not required.issubset(rows[0]):return None
+    for row in rows:
+        for key in ("self_order_margin","candidate_margin","relative_order_margin","rank_degradation"):
+            row[key]=float(row[key])
+        for key in ("target_rank_original","target_rank_permuted"):
+            row[key]=int(float(row[key]))
+    return rows
+
+
 def transition_counts(rows, kind):
     grouped=defaultdict(dict)
     for row in rows:
@@ -359,7 +372,9 @@ def run(args):
     long_summary=sum((summarize(long_rows,kind) for kind in ("static","dynamic","hybrid","explicit_order")),[])
     ground_summary=summarize(ground_rows,"sequential")+summarize(ground_rows,"sequential",True)
     write_csv(root/"long_summary.csv",long_summary);write_csv(root/"ground_summary.csv",ground_summary)
-    order_rows=order_diagnostics(model_sets["opg_v2_full"],base_models,long_eval+ground_eval,args.device);write_csv(root/"order_diagnostics.csv",order_rows)
+    order_rows=load_order_rows(root/"order_diagnostics.csv")
+    if order_rows is None:
+        order_rows=order_diagnostics(model_sets["opg_v2_full"],base_models,long_eval+ground_eval,args.device);write_csv(root/"order_diagnostics.csv",order_rows)
     diagnostics=diagnostic_summary(order_rows)
     comparisons={kind:{field:paired_bootstrap(long_rows,"opg_v2_full","mean_pool",kind,field) for field in ("selection_correct","J_and_F")} for kind in ("static","dynamic","hybrid","explicit_order")}
     ground_comparison={field:paired_bootstrap(ground_rows,"opg_v2_full","mean_pool","sequential",field,True) for field in ("selection_correct","J_and_F")}
