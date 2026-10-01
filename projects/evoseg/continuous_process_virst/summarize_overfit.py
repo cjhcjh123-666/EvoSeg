@@ -26,6 +26,14 @@ def summarize(rows: list[dict], planned: int) -> dict:
     early_seg = mean([row["segmentation_loss"] for row in joint[:window]])
     late_seg = mean([row["segmentation_loss"] for row in joint[-window:]])
     seg_change = late_seg - early_seg if early_seg is not None and late_seg is not None else None
+    per_question: dict[str, list[float]] = {}
+    for row in joint:
+        per_question.setdefault(row["question"], []).append(row["segmentation_loss"])
+    paired_changes = [
+        values[-1] - values[0] for values in per_question.values() if len(values) >= 2
+    ]
+    paired_seg_change = mean(paired_changes)
+    paired_seg_decrease_rate = mean([float(value < 0) for value in paired_changes])
     last = last_by_question(rows)
     ordered = [row for row in last if row["verified_order"] and row["order_margin"] is not None]
     objects = [row for row in last if row["object_correct"] is not None]
@@ -35,7 +43,9 @@ def summarize(rows: list[dict], planned: int) -> dict:
     duration = mean([row["mean_state_duration"] for row in last])
     entropy = mean([row["posterior_entropy"] for row in last])
     gates = {
-        "segmentation_loss_decreased": seg_change is not None and seg_change < 0,
+        "segmentation_loss_decreased": (
+            paired_seg_change is not None and paired_seg_change < 0
+        ),
         "interval_localization_improved": False,
         "original_gt_reverse_rate_at_least_90pct": order_rate is not None and order_rate >= 0.90,
         "target_gt_distractor_rate_at_least_85pct": object_rate is not None and object_rate >= 0.85,
@@ -54,6 +64,9 @@ def summarize(rows: list[dict], planned: int) -> dict:
         "segmentation_loss_early": early_seg,
         "segmentation_loss_late": late_seg,
         "segmentation_loss_change": seg_change,
+        "segmentation_paired_questions": len(paired_changes),
+        "segmentation_paired_mean_change": paired_seg_change,
+        "segmentation_paired_decrease_rate": paired_seg_decrease_rate,
         "order_unique_samples": len(ordered),
         "original_gt_reverse_rate": order_rate,
         "object_unique_samples": len(objects),
@@ -81,6 +94,7 @@ Status: **{value['overfit_gate']}** ({value['completed_updates']}/{value['planne
 ## Measurements
 
 - Segmentation loss, early → late: `{value['segmentation_loss_early']}` → `{value['segmentation_loss_late']}` (delta `{value['segmentation_loss_change']}`)
+- Per-question first → last segmentation loss: mean delta `{value['segmentation_paired_mean_change']}`, decrease rate `{value['segmentation_paired_decrease_rate']}` over `{value['segmentation_paired_questions']}` repeated questions
 - Original > fixed permutation rate: `{value['original_gt_reverse_rate']}` over `{value['order_unique_samples']}` unique verified-order samples
 - Target > best distractor rate: `{value['target_gt_distractor_rate']}` over `{value['object_unique_samples']}` unique samples with official distractor masks
 - Interval localization: `N/A`; GroundMoRe's official interval is the whole queried-process/mask-validity span, not an unambiguous target-clause label
