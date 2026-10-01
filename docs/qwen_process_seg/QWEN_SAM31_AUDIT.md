@@ -16,6 +16,10 @@ Qwen image/video tokens enter the language sequence as visual placeholder positi
 
 QwenProcessSeg encodes 16 uniformly sampled frames as 16 ordered image items. This deliberately preserves one `image_grid_thw` row and one contiguous `<|image_pad|>` run per frame. `frame_protocol.recover_frame_token_spans` validates the exact count and stores `[start,end)` spans plus source frame indices. The final Qwen hidden state can then provide both the full spatial token sequence `V_t` and its per-frame summary `f_t`; no all-frame mean pooling is used.
 
+A real A800 audit of the local 4B checkpoint used exactly 16 frames and recovered 16 spans, 81 tokens per frame and 1,296 visual tokens in total. The frame-summary cross-frame standard deviation was 0.9043. The run used FlashAttention 2 and selected exactly the 24 `q/k/v/o` projections in language layers 30--35. Raw measurements are stored in `audits/qwen_frame_audit.json` under the artifact run.
+
+The isolated environment is `/9950backfile/chenjiahui/evo_artifacts/envs/qwen_process_seg`. It contains `flash-attn 2.8.3.post1` from the official Dao-AILab wheel; an A800 numerical smoke against PyTorch SDPA was finite with maximum absolute difference `9.77e-4`. No shared environment was modified.
+
 ## B. SAM wrapper and release status
 
 The repository's `third_parts/sam3` is a slim, pre-Multiplex tracker subset. It has no Object Multiplex implementation and therefore is not SAM3.1, despite newer config names containing `sam3`. The actual SAM3.1 implementation is the separate official checkout listed above. Meta's March 27, 2026 release introduces Object Multiplex and new checkpoints; the official code identifies `build_sam3_multiplex_video_predictor` as the recommended public predictor entry point. See [Meta SAM3 repository](https://github.com/facebookresearch/sam3) and [SAM3.1 release notes](https://github.com/facebookresearch/sam3/blob/main/RELEASE_SAM3p1.md).

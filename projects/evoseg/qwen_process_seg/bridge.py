@@ -9,15 +9,15 @@ from torch import nn
 class FrameQueryFusion(nn.Module):
     """QwenSeg-SAM31 baseline fusion with no process reasoning."""
 
-    def __init__(self, hidden_dim: int) -> None:
+    def __init__(self, hidden_dim: int, bottleneck_dim: int = 512) -> None:
         super().__init__()
         self.norm = nn.LayerNorm(hidden_dim * 2)
-        self.gate = nn.Linear(hidden_dim * 2, hidden_dim)
-        self.update = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),
+        self.condition = nn.Sequential(
+            nn.Linear(hidden_dim * 2, bottleneck_dim),
             nn.GELU(),
-            nn.Linear(hidden_dim, hidden_dim),
         )
+        self.gate = nn.Linear(bottleneck_dim, 1)
+        self.update = nn.Linear(bottleneck_dim, hidden_dim)
 
     def forward(
         self, frame_summaries: torch.Tensor, query_global: torch.Tensor
@@ -27,19 +27,25 @@ class FrameQueryFusion(nn.Module):
         if query_global.shape[0] == 1:
             query_global = query_global.expand(frame_summaries.shape[0], -1)
         joined = self.norm(torch.cat([frame_summaries, query_global], dim=-1))
-        return frame_summaries + torch.sigmoid(self.gate(joined)) * self.update(joined)
+        condition = self.condition(joined)
+        return frame_summaries + torch.sigmoid(self.gate(condition)) * self.update(condition)
 
 
 class QwenToSAM31Bridge(nn.Module):
     """Representation translator; it never predicts masks or pixel logits."""
 
-    def __init__(self, qwen_dim: int = 2560, sam_prompt_dim: int = 256) -> None:
+    def __init__(
+        self,
+        qwen_dim: int = 2560,
+        sam_prompt_dim: int = 256,
+        bottleneck_dim: int = 512,
+    ) -> None:
         super().__init__()
         self.layers = nn.Sequential(
             nn.LayerNorm(qwen_dim),
-            nn.Linear(qwen_dim, qwen_dim // 2),
+            nn.Linear(qwen_dim, bottleneck_dim),
             nn.GELU(),
-            nn.Linear(qwen_dim // 2, sam_prompt_dim),
+            nn.Linear(bottleneck_dim, sam_prompt_dim),
         )
 
     def forward(self, grounding_states: torch.Tensor) -> torch.Tensor:
