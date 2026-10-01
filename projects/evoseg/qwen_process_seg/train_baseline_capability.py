@@ -105,6 +105,7 @@ def run(args: argparse.Namespace) -> dict:
     logs: list[dict] = []
     epoch_losses: list[list[float]] = []
     latest_gradients: dict[str, float] = {}
+    sam_feature_cache: dict[int, dict[str, list[torch.Tensor]]] = {}
     for epoch in range(args.epochs):
         losses = []
         order = torch.randperm(len(dataset), generator=torch.Generator().manual_seed(args.seed + epoch)).tolist()
@@ -112,8 +113,21 @@ def run(args: argparse.Namespace) -> dict:
             sample = dataset[sample_index]
             optimizer.zero_grad(set_to_none=True)
             before = time.perf_counter()
+            cached_visual = None
+            if args.cache_sam_features:
+                cached_visual = sam_feature_cache.get(sample_index)
+                if cached_visual is None:
+                    cached_visual = model.executor.extract_grounding_features(
+                        sample["frames"], device
+                    )
+                    sam_feature_cache[sample_index] = cached_visual
             with torch.autocast("cuda", dtype=torch.bfloat16):
-                output = model(sample["frames"], sample["expression"], sample["masks"])
+                output = model(
+                    sample["frames"],
+                    sample["expression"],
+                    sample["masks"],
+                    sam_visual_features=cached_visual,
+                )
             output["loss"].backward()
             latest_gradients = {name: _grad_norm(parameters) for name, parameters in groups.items()}
             sam_grad_parameters = sum(
@@ -137,6 +151,7 @@ def run(args: argparse.Namespace) -> dict:
                 "loss": loss,
                 "loss_bce": output["loss_bce"].detach().float().item(),
                 "loss_dice": output["loss_dice"].detach().float().item(),
+                "loss_selection": output["loss_selection"].detach().float().item(),
                 "mask_empty_fraction": output["mask_empty_fraction"].detach().float().item(),
                 "mask_full_fraction": output["mask_full_fraction"].detach().float().item(),
                 "prompt_cross_frame_std": output["prompt_cross_frame_std"].detach().float().item(),
@@ -240,6 +255,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lora-lr", type=float, default=2e-5)
     parser.add_argument("--bridge-lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=0.01)
+    parser.add_argument("--cache-sam-features", action="store_true")
     parser.add_argument(
         "--qwen-checkpoint", type=Path,
         default=Path("/9950backfile/chenjiahui/evo_artifacts/models/Qwen3-VL-4B-Instruct"),

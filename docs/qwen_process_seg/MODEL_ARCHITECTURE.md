@@ -4,7 +4,7 @@
 
 Sixteen uniformly sampled, full-range video frames and the official query are encoded by frozen Qwen3-VL-4B plus LoRA on the last six language layers. Visual token runs are recovered exactly for each frame. A gated residual combines frame summary `f_t` with the full-query summary `q_global`, and a small `LN-Linear-GELU-Linear` bridge maps 2560 dimensions to the official SAM3.1 256-dimensional object-token space.
 
-For each anchor frame, the bridge output is added as a residual to SAM3.1's checkpointed valid-object embedding in one stable multiplex object slot. Other slots retain the checkpointed invalid-object embedding. The frozen official Multiplex mask decoder produces all mask logits. There is no custom mask head.
+For each anchor frame, the bridge output enters the official SAM3.1 image-grounding encoder through its learned `visual_prompt_embed` token input. The frozen official vision-language encoder, object-query decoder, and segmentation head produce mask logits. During SFT, standard one-target object-query assignment supplies mask BCE+Dice and query-ranking supervision; at inference, SAM3.1's own predicted grounding score selects the query. GT never constructs a prompt or selects an inference result. There is no custom mask head.
 
 ## Process model
 

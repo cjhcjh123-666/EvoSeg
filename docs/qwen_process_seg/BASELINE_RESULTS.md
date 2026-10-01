@@ -22,4 +22,6 @@ Raw result: `/9950backfile/chenjiahui/evo_artifacts/results/qwen_process_seg/202
 
 ## Pending gate
 
-The process module remains blocked until the preregistered 64-sample QwenSeg-SAM31 capability run passes. No process SFT, pilot, or RL has started.
+The first 64-sample run used the late Multiplex object-token residual. It failed the fixed 1% gate: four epochs/256 updates changed mean loss from 1.093123 to 1.091063 (−0.188%). A stronger one-sample/100-update audit also failed its 10% overfit threshold (1.058177 to 1.045150, −1.23%). Both negative results are retained under `baseline_capability64/` and `baseline_interface_one_sample/`.
+
+That failure localized the issue to the late residual prompt interface. The corrected official grounding-token path (`Sam3Image.visual_prompt_embed`) passed a two-update real-mask smoke with a 13.12% decrease. The 64-sample capability gate must now be rerun on this corrected interface. No process SFT, pilot, or RL has started.

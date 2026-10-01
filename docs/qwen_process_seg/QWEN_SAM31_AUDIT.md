@@ -26,7 +26,9 @@ The repository's `third_parts/sam3` is a slim, pre-Multiplex tracker subset. It 
 
 The public predictor supports session-based video inference, text and geometric prompt handling, memory, propagation, identity management, and multiplexed objects. It does **not** expose an arbitrary learned language embedding in its public request API.
 
-Internally, the official checkpointed `MultiplexMaskDecoder` exposes `extra_per_object_embeddings: [num_buckets,multiplex_count,256]`, which is added to per-object mask tokens before pixel decoding. This is the only verified differentiable learned object-conditioning input suitable for the bridge. It is an official internal model interface, not a stable public wrapper contract; QwenProcessSeg must isolate it behind a tested adapter.
+Internally, the official checkpointed `MultiplexMaskDecoder` exposes `extra_per_object_embeddings: [num_buckets,multiplex_count,256]`, which is added to per-object mask tokens before pixel decoding. It provided the minimal mandatory gradient audit, but a 100-update one-sample overfit showed that this late residual path was too weak for the actual baseline (only 1.23% loss reduction).
+
+The official image grounding model has the earlier and materially stronger `Sam3Image._encode_prompt(..., visual_prompt_embed=...)` interface. It concatenates the learned token with official text/geometric prompt tokens before the official vision-language encoder, object-query decoder, and segmentation head. QwenProcessSeg uses this route. The wrapper remains internal rather than a stable public request API, so it is isolated and tested. A two-update real-mask smoke reduced loss by 13.12% while SAM3.1 stayed fully frozen.
 
 ## C. Existing Qwen-to-SAM route
 
@@ -42,4 +44,4 @@ The required replacement is:
 
 ## D. Gradient path
 
-The official visual backbone can run under `torch.no_grad`, while the frozen Multiplex mask decoder remains differentiable with respect to `extra_per_object_embeddings`. The real-checkpoint audit passed; full measurements are in `SAM31_GRADIENT_AUDIT.md`. This establishes the required mask-loss-to-bridge direction without training a custom segmentation head.
+The official visual backbone can run under `torch.no_grad`, while both audited frozen prompt-conditioned paths remain differentiable with respect to the injected representation. The minimal real-checkpoint gradient audit and the stronger end-to-end grounding smoke passed; full measurements are in `SAM31_GRADIENT_AUDIT.md`. This establishes the required mask-loss-to-bridge direction without training a custom segmentation head.

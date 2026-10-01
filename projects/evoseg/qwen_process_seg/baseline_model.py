@@ -108,27 +108,61 @@ class QwenSegSAM31(nn.Module):
         }
         return prompts, diagnostics
 
-    def forward(self, frames: Sequence[Image.Image], query: str, masks: torch.Tensor) -> dict:
+    def forward(
+        self,
+        frames: Sequence[Image.Image],
+        query: str,
+        masks: torch.Tensor,
+        sam_visual_features: dict[str, list[torch.Tensor]] | None = None,
+    ) -> dict:
         prompts, diagnostics = self.encode_qwen(frames, query)
-        visual = self.executor.extract_visual_features(frames, prompts.device)
-        logits = self.executor.decode(prompts, visual)
+        visual = sam_visual_features or self.executor.extract_grounding_features(
+            frames, prompts.device
+        )
+        all_logits, scores = self.executor.decode_grounding_prompts(
+            prompts, visual, return_all_queries=True
+        )
         target = F.interpolate(
-            masks[:, None].to(logits.device),
-            size=logits.shape[-2:],
+            masks[:, None].to(all_logits.device),
+            size=all_logits.shape[-2:],
             mode="nearest",
         )[:, 0]
+        expanded_target = target[:, None].expand_as(all_logits)
+        per_query_bce = F.binary_cross_entropy_with_logits(
+            all_logits.float(), expanded_target.float(), reduction="none"
+        ).flatten(2).mean(-1)
+        probability = all_logits.float().sigmoid()
+        per_query_dice = 1 - (
+            2 * (probability * expanded_target).flatten(2).sum(-1) + 1
+        ) / (
+            probability.flatten(2).sum(-1)
+            + expanded_target.flatten(2).sum(-1)
+            + 1
+        )
+        # Standard training-only bipartite assignment for one target per frame.
+        # GT chooses the supervised official object query, never an inference prompt.
+        matched_query = (per_query_bce + per_query_dice).detach().argmin(dim=-1)
+        rows = torch.arange(all_logits.shape[0], device=all_logits.device)
+        logits = all_logits[rows, matched_query]
         bce = F.binary_cross_entropy_with_logits(logits.float(), target.float())
         dice = soft_dice_loss(logits.float(), target.float())
+        selection = F.cross_entropy(scores.float(), matched_query)
+        predicted_query = scores.argmax(dim=-1)
+        predicted_logits = all_logits[rows, predicted_query]
         diagnostics.update(
             {
                 "loss_bce": bce,
                 "loss_dice": dice,
-                "mask_empty_fraction": (logits.sigmoid() < 0.5).all(dim=-1).all(dim=-1).float().mean(),
-                "mask_full_fraction": (logits.sigmoid() >= 0.5).all(dim=-1).all(dim=-1).float().mean(),
-                "mask_logits": logits,
+                "loss_selection": selection,
+                "mask_empty_fraction": (predicted_logits.sigmoid() < 0.5).all(dim=-1).all(dim=-1).float().mean(),
+                "mask_full_fraction": (predicted_logits.sigmoid() >= 0.5).all(dim=-1).all(dim=-1).float().mean(),
+                "matched_mask_logits": logits,
+                "predicted_mask_logits": predicted_logits,
+                "matched_query": matched_query,
+                "predicted_query": predicted_query,
             }
         )
-        diagnostics["loss"] = bce + dice
+        diagnostics["loss"] = bce + dice + 0.1 * selection
         return diagnostics
 
     def parameter_groups(self) -> dict[str, list[nn.Parameter]]:

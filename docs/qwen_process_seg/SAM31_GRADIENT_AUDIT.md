@@ -27,4 +27,12 @@ The important distinction is that this is an official **internal object-token co
 
 Raw result: `/9950backfile/chenjiahui/evo_artifacts/results/qwen_process_seg/20261001_qps_v1/audits/sam31_gradient_audit.json`.
 
-The gate authorizes the frame-aware QwenSeg-SAM31 baseline. It does not yet establish tracking continuity or baseline segmentation quality; those remain separate gates.
+This first gate authorized investigating the frame-aware QwenSeg-SAM31 baseline. It did not by itself establish interface learning capacity: the late object-token residual reduced a one-sample loss by only 1.23% after 100 updates and was rejected for baseline SFT.
+
+## Grounding-token training path
+
+The production baseline instead injects the 256-dimensional bridge token through the official `Sam3Image._encode_prompt` `visual_prompt_embed` argument. The token then passes through the frozen official vision-language encoder, object-query decoder, and segmentation head. Visual features remain precomputable under `no_grad`.
+
+On a real Long-RVOS expression with 16 full-range frames, two consecutive optimization updates changed the final official-mask loss from 0.838632 to 0.728584 (−13.12%). Final gradient norms were 0.1375 (Qwen LoRA), 0.1002 (frame/query fusion), and 1.4397 (bridge); SAM3.1 had zero trainable parameters and zero parameter gradients. Peak allocation was 27.69 GiB. Training uses standard one-target object-query assignment; inference uses only SAM3.1's predicted grounding scores.
+
+Raw result: `/9950backfile/chenjiahui/evo_artifacts/results/qwen_process_seg/20261001_qps_v1/detector_prompt_matched_smoke/result.json`.
