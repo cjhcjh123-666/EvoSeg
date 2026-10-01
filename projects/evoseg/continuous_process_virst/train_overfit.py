@@ -33,6 +33,7 @@ from projects.evoseg.continuous_process_virst.groundmore_parser import (
 from projects.evoseg.continuous_process_virst.training_objects import (
     GroundMoReTrainingObjects,
 )
+from projects.evoseg.continuous_process_virst.serialization import json_safe
 from projects.evoseg.continuous_process_virst.virst_integration import (
     install_continuous_process_virst,
 )
@@ -265,7 +266,8 @@ def main() -> None:
         verified_order = (
             parse_sequential_query(surface_question).resolved if is_groundmore else True
         )
-        capture.set_permutation(permutation_for(question) if verified_order else None)
+        permutation = permutation_for(question) if verified_order else None
+        capture.set_permutation(permutation)
         optimizer.zero_grad(set_to_none=True)
         step_start = time.perf_counter()
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
@@ -310,6 +312,7 @@ def main() -> None:
                 object_scores = prompter.score_training_object_masks(object_masks)
                 object_loss = object_discrimination_loss(object_scores, target)
                 object_correct = bool((object_scores.argmax(-1) == target).item())
+                object_score_values = object_scores.detach().float().cpu().tolist()[0]
                 object_margin = float(
                     (
                         object_scores[0, target.item()]
@@ -319,6 +322,7 @@ def main() -> None:
             else:
                 object_loss = result["loss"].new_zeros(())
                 object_correct = None
+                object_score_values = None
                 object_margin = None
             length_loss = termination_entropy_regularizer(
                 diagnostics.original.alignment.terminal_prior
@@ -337,20 +341,32 @@ def main() -> None:
             "step": step,
             "stage": "warmup" if warmup else "joint_sft",
             "question": question,
+            "expression_id": batch["exp_id"][0] if batch["exp_id"] else None,
+            "sampled_frame_indices": json_safe(batch["frame_ids"]),
             "loss": float(loss.detach()),
             "segmentation_loss": float(segmentation_loss.detach()),
             "mask_loss": float(result["mask_loss"].detach()),
             "object_loss": float(object_loss.detach()),
             "object_correct": object_correct,
+            "object_scores": object_score_values,
+            "object_candidate_count": (
+                len(object_score_values) if object_score_values is not None else None
+            ),
             "target_distractor_margin": object_margin,
             "verified_order": verified_order,
+            "permutation": permutation,
             "interval_loss": None,
             "interval_supervision": "disabled: official interval is process-span, not clause-span",
             "order_loss": float(order_loss.detach()),
             "order_margin": order_margin,
             "expected_process_length": float(alignment.expected_length.mean().detach()),
+            "state_expected_duration": alignment.expected_duration.detach().float().cpu().tolist()[0],
             "mean_state_duration": float(alignment.expected_duration.mean().detach()),
             "posterior_entropy": float(alignment.posterior_entropy.mean().detach()),
+            "terminal_prior": alignment.terminal_prior.detach().float().cpu().tolist()[0],
+            "terminal_posterior": alignment.terminal_posterior.detach().float().cpu().tolist()[0],
+            "process_posterior": alignment.posterior.detach().float().cpu().tolist()[0],
+            "process_compatibility": diagnostics.original.compatibility.detach().float().cpu().tolist()[0],
             "beta": float(diagnostics.original.beta.detach()),
             "grad_norm": float(grad_norm),
             "seconds": time.perf_counter() - step_start,

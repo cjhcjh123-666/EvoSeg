@@ -16,6 +16,7 @@ from projects.evoseg.continuous_process_virst.summarize_overfit import summarize
 from projects.evoseg.continuous_process_virst.training_objects import (
     GroundMoReTrainingObjects,
 )
+from projects.evoseg.continuous_process_virst.serialization import json_safe
 
 
 def test_object_discrimination_loss():
@@ -137,3 +138,9 @@ def test_training_objects_normalize_eval_text_and_zero_missing_frames():
         assert masks.shape == (1, 2, 2, 6, 7)
         assert target.item() == 0
         assert masks[:, :, 1].sum() == 0
+
+
+def test_training_log_frame_indices_are_json_safe():
+    value = json_safe([[np.int64(2), np.int64(7)]])
+    assert value == [[2, 7]]
+    json.dumps(value)

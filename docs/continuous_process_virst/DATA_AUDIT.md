@@ -9,6 +9,11 @@ The capability set is fixed before training by sorting
 - No validation/test example is included.
 - Subset manifests retain every source expression, object/annotation ID, source
   metadata checksum, and source root.
+- One capability epoch is an exact deterministic interleave
+  `Long[0], Ground[0], ..., Long[31], Ground[31]`; expression selection is not
+  with replacement. Official VIRST random-within-bin frame sampling remains
+  active, so repeated epochs expose the same expression to different legal
+  frame samples without changing the fixed example pool.
 
 GroundMoRe official train metadata contains 1,173 Sequential expressions from
 414 videos. The deterministic single-connective parser resolves 1,112 and marks
