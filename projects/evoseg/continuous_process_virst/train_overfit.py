@@ -19,6 +19,7 @@ import numpy as np
 import torch
 from peft import LoraConfig, TaskType, get_peft_model
 from torch.optim import AdamW
+from torch.utils.data import ConcatDataset, DataLoader
 from transformers import AutoConfig, AutoTokenizer
 
 from projects.evoseg.continuous_process_virst.losses import (
@@ -35,7 +36,7 @@ from projects.evoseg.continuous_process_virst.training_objects import (
 from projects.evoseg.continuous_process_virst.virst_integration import (
     install_continuous_process_virst,
 )
-from projects.evoseg.process_virst.train_sft import build_loader, move_to_device
+from projects.evoseg.process_virst.train_sft import move_to_device
 
 
 def arguments() -> argparse.Namespace:
@@ -161,6 +162,67 @@ def build_model(args: argparse.Namespace):
     return model, core, capture, tokenizer, data_args
 
 
+def build_exact_loader(tokenizer, data_args, frames: int, long_root: Path, ground_root: Path):
+    """One deterministic epoch over each of the fixed 32+32 expressions.
+
+    We use the official RVOS evaluation indexing only to make expression choice
+    exact; images, masks, transforms, question formatting, and random-within-bin
+    frame sampling remain the official VIRST dataset implementation.
+    """
+
+    from functools import partial
+
+    from data.base_dataset import collate_fn
+    import data.rvos_dataset as rvos_module
+
+    paths = {
+        "mevis_cpg_long": (
+            str(long_root / "mevis" / "train"),
+            str(long_root / "mevis" / "train" / "meta_expressions.json"),
+        ),
+        "mevis_cpg_groundmore": (
+            str(ground_root / "mevis" / "train"),
+            str(ground_root / "mevis" / "train" / "meta_expressions.json"),
+        ),
+    }
+    original_paths = rvos_module._paths_for_root
+
+    def process_paths(dataset, root):
+        return paths[dataset] if dataset in paths else original_paths(dataset, root)
+
+    rvos_module._DATA_INFO.update(paths)
+    rvos_module._paths_for_root = process_paths
+
+    def dataset(name: str):
+        return rvos_module.RVOSDataset(
+            tokenizer=tokenizer,
+            data_args=data_args,
+            num_classes_per_sample=1,
+            num_frames_sample_range=f"{frames},{frames}",
+            rvos_sample_ratio="1",
+            rvos_seg_data=name,
+            rvos_sample_policy="uniform",
+            rvos_root=str(data_args.rvos_root),
+            train=False,
+        )
+
+    long_dataset = dataset("mevis_cpg_long")
+    ground_dataset = dataset("mevis_cpg_groundmore")
+    if len(long_dataset) != 32 or len(ground_dataset) != 32:
+        raise RuntimeError(
+            f"fixed overfit pool changed: long={len(long_dataset)}, ground={len(ground_dataset)}"
+        )
+    combined = ConcatDataset([long_dataset, ground_dataset])
+    interleaved = [value for index in range(32) for value in (index, 32 + index)]
+    return DataLoader(
+        combined,
+        batch_size=1,
+        sampler=interleaved,
+        num_workers=0,
+        collate_fn=partial(collate_fn, tokenizer=tokenizer),
+    )
+
+
 def main() -> None:
     args = arguments()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -180,20 +242,25 @@ def main() -> None:
         raise RuntimeError("all trainable CPG parameters must retain FP32 masters")
     optimizer = AdamW(parameters, lr=args.learning_rate, weight_decay=0.0)
     total_steps = args.warmup_steps + args.joint_steps
-    loader = build_loader(
+    loader = build_exact_loader(
         tokenizer,
         data_args,
-        total_steps,
         args.frames,
         args.long_root,
         args.groundmore_root,
     )
     objects = GroundMoReTrainingObjects(args.groundmore_source, args.groundmore_metadata)
     records = []
-    for step, batch in enumerate(loader):
+    step = 0
+    while step < total_steps:
+      for batch in loader:
+        if step >= total_steps:
+            break
         batch = move_to_device(batch, device)
         question = batch["questions"][0]
-        is_groundmore = question.startswith("mevis_groundmore_train_")
+        is_groundmore = question.startswith(
+            ("mevis_groundmore_train_", "mevis_cpg_groundmore_")
+        )
         surface_question = GroundMoReTrainingObjects._question(question)
         verified_order = (
             parse_sequential_query(surface_question).resolved if is_groundmore else True
@@ -292,6 +359,7 @@ def main() -> None:
         with (args.output_dir / "training.jsonl").open("a") as handle:
             handle.write(json.dumps(record) + "\n")
         print(json.dumps(record), flush=True)
+        step += 1
     checkpoint = {
         "format_version": 1,
         "seed": args.seed,

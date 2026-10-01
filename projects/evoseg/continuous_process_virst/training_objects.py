@@ -27,12 +27,17 @@ class GroundMoReTrainingObjects:
                 target_ids = tuple(
                     int(value.strip()) for value in str(item["obj_id"]).split(",")
                 )
-                self.lookup[(video_id, item["question"].strip())] = target_ids
+                normalized = " ".join(item["question"].strip().lower().split())
+                self.lookup[(video_id, normalized)] = target_ids
 
     @staticmethod
     def _question(value: str) -> str:
-        prefix = "mevis_groundmore_train_"
-        return value[len(prefix) :] if value.startswith(prefix) else value
+        prefixes = ("mevis_groundmore_train_", "mevis_cpg_groundmore_")
+        for prefix in prefixes:
+            if value.startswith(prefix):
+                value = value[len(prefix) :]
+                break
+        return " ".join(value.strip().lower().split())
 
     def load(
         self,
@@ -44,11 +49,11 @@ class GroundMoReTrainingObjects:
         if not paths:
             return None
         video_id = paths[0].parent.name
-        key = (video_id, self._question(question).strip())
+        key = (video_id, self._question(question))
         target_ids = self.lookup.get(key)
         if target_ids is None or len(target_ids) != 1:
             return None
-        raw_frames = []
+        raw_frames: list[np.ndarray | None] = []
         for path in paths:
             mask_path = (
                 self.dataset_root
@@ -57,10 +62,21 @@ class GroundMoReTrainingObjects:
                 / "masks"
                 / f"{path.stem}.png"
             )
-            if not mask_path.is_file():
-                return None
-            with Image.open(mask_path) as image:
-                raw_frames.append(np.asarray(image.convert("P"), dtype=np.int64))
+            if mask_path.is_file():
+                with Image.open(mask_path) as image:
+                    raw_frames.append(np.asarray(image.convert("P"), dtype=np.int64))
+            else:
+                # GroundMoRe intentionally omits masks outside the annotated
+                # action/process window. Preserve those sampled frames as
+                # all-background rather than dropping the trajectory.
+                raw_frames.append(None)
+        shape = next((frame.shape for frame in raw_frames if frame is not None), None)
+        if shape is None:
+            return None
+        raw_frames = [
+            frame if frame is not None else np.zeros(shape, dtype=np.int64)
+            for frame in raw_frames
+        ]
         ids = sorted(
             set(np.unique(np.stack(raw_frames)).tolist()) - {0}
         )

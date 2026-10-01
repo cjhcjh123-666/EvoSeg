@@ -1,6 +1,11 @@
 import inspect
+import json
+import tempfile
+from pathlib import Path
 
+import numpy as np
 import torch
+from PIL import Image
 from torch import nn
 
 from projects.evoseg.continuous_process_virst.groundmore_parser import parse_sequential_query
@@ -8,6 +13,9 @@ from projects.evoseg.continuous_process_virst.losses import object_discriminatio
 from projects.evoseg.continuous_process_virst.virst_integration import QueryStateCapture
 from projects.evoseg.continuous_process_virst.process_module import ContinuousProcessConditioner
 from projects.evoseg.continuous_process_virst.summarize_overfit import summarize
+from projects.evoseg.continuous_process_virst.training_objects import (
+    GroundMoReTrainingObjects,
+)
 
 
 def test_object_discrimination_loss():
@@ -85,3 +93,47 @@ def test_overfit_gate_never_passes_without_interval_supervision():
     assert not value["gates"]["interval_localization_improved"]
     assert value["overfit_gate"] == "FAIL"
     assert not value["pilot_authorized"]
+
+
+def test_training_objects_normalize_eval_text_and_zero_missing_frames():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        video = "clip"
+        mask_dir = root / "annotations" / video / "masks"
+        image_dir = root / "images" / video
+        mask_dir.mkdir(parents=True)
+        image_dir.mkdir(parents=True)
+        raw = np.zeros((6, 7), dtype=np.uint8)
+        raw[:3] = 1
+        raw[3:] = 2
+        Image.fromarray(raw).save(mask_dir / "frame_000000.png")
+        metadata = root / "meta.json"
+        metadata.write_text(
+            json.dumps(
+                {
+                    "videos": {
+                        video: {
+                            "questions": {
+                                "0": {
+                                    "q_type": "Sequential",
+                                    "question": "Who moves before stopping?",
+                                    "obj_id": "1",
+                                }
+                            }
+                        }
+                    }
+                }
+            )
+        )
+        paths = [image_dir / "frame_000000.jpg", image_dir / "frame_000001.jpg"]
+        loader = GroundMoReTrainingObjects(root, metadata)
+        value = loader.load(
+            ",".join(str(path) for path in paths),
+            "mevis_cpg_groundmore_who moves before stopping?",
+            torch.device("cpu"),
+        )
+        assert value is not None
+        masks, target = value
+        assert masks.shape == (1, 2, 2, 6, 7)
+        assert target.item() == 0
+        assert masks[:, :, 1].sum() == 0
