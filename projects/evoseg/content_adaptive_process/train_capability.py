@@ -260,7 +260,24 @@ def main() -> None:
             }
             with (args.output_dir / "training.jsonl").open("a") as handle:
                 handle.write(json.dumps(record) + "\n")
-            print(json.dumps(record), flush=True)
+            print(
+                json.dumps(
+                    {
+                        "step": step,
+                        "stage": record["stage"],
+                        "mode": args.transition_mode,
+                        "loss": record["loss"],
+                        "segmentation_loss": record["segmentation_loss"],
+                        "order_margin": order_margin,
+                        "envelope_tiou": envelope_tiou,
+                        "object_correct": object_correct,
+                        "expected_N": record["expected_process_length"],
+                        "beta": record["beta"],
+                        "seconds": record["seconds"],
+                    }
+                ),
+                flush=True,
+            )
             step += 1
     checkpoint = {
         "format_version": 2,

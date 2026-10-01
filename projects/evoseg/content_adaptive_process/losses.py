@@ -17,10 +17,12 @@ def soft_dice_loss(prediction: Tensor, target: Tensor, eps: float = 1e-6) -> Ten
 def process_envelope_loss(occupancy: Tensor, target: Tensor) -> Tensor:
     if occupancy.shape != target.shape:
         raise ValueError("occupancy and process envelope must have identical shape")
-    bce = torch.nn.functional.binary_cross_entropy(
-        occupancy.clamp(1e-6, 1.0 - 1e-6), target.float()
-    )
-    return bce + soft_dice_loss(occupancy, target)
+    probability = occupancy.float().clamp(1e-6, 1.0 - 1e-6)
+    truth = target.float()
+    # Explicit probability-space BCE is autocast-safe; the standard BCE
+    # wrapper intentionally rejects autocast even after an explicit FP32 cast.
+    bce = -(truth * probability.log() + (1.0 - truth) * (1.0 - probability).log()).mean()
+    return bce + soft_dice_loss(probability, truth)
 
 
 def temporal_iou(occupancy: Tensor, target: Tensor, threshold: float = 0.5) -> Tensor:
