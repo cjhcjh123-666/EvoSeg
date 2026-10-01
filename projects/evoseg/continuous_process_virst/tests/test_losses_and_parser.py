@@ -7,6 +7,7 @@ from projects.evoseg.continuous_process_virst.groundmore_parser import parse_seq
 from projects.evoseg.continuous_process_virst.losses import object_discrimination_loss
 from projects.evoseg.continuous_process_virst.virst_integration import QueryStateCapture
 from projects.evoseg.continuous_process_virst.process_module import ContinuousProcessConditioner
+from projects.evoseg.continuous_process_virst.summarize_overfit import summarize
 
 
 def test_object_discrimination_loss():
@@ -61,3 +62,26 @@ def test_training_object_mask_scores_have_candidate_axis():
     scores.sum().backward()
     assert module.process_projection.weight.grad is not None
     assert torch.isfinite(module.process_projection.weight.grad).all()
+
+
+def test_overfit_gate_never_passes_without_interval_supervision():
+    rows = []
+    for step in range(8):
+        rows.append(
+            {
+                "step": step,
+                "stage": "joint_sft",
+                "question": f"q{step}",
+                "segmentation_loss": 2.0 - step * 0.1,
+                "verified_order": True,
+                "order_margin": 1.0,
+                "object_correct": True,
+                "expected_process_length": 3.0,
+                "mean_state_duration": 2.0,
+                "posterior_entropy": 1.0,
+            }
+        )
+    value = summarize(rows, planned=8)
+    assert not value["gates"]["interval_localization_improved"]
+    assert value["overfit_gate"] == "FAIL"
+    assert not value["pilot_authorized"]
