@@ -96,6 +96,28 @@ def test_overfit_gate_never_passes_without_interval_supervision():
     assert not value["pilot_authorized"]
 
 
+def test_overfit_summary_keeps_scalar_mean_state_duration():
+    rows = []
+    for step in range(2):
+        rows.append(
+            {
+                "step": step,
+                "stage": "joint_sft",
+                "question": "q",
+                "segmentation_loss": 2.0 - step,
+                "verified_order": True,
+                "order_margin": 1.0,
+                "object_correct": True,
+                "expected_process_length": 2.0,
+                "mean_state_duration": 1.5,
+                "posterior_entropy": 0.5,
+                "process_posterior": [[1.0, 0.0], [0.5, 0.5]],
+            }
+        )
+    value = summarize(rows, planned=2)
+    assert value["mean_state_duration"] == 1.5
+
+
 def test_training_objects_normalize_eval_text_and_zero_missing_frames():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

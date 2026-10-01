@@ -53,7 +53,11 @@ def main() -> None:
         )
     args.csv.parent.mkdir(parents=True, exist_ok=True)
     with args.csv.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(records[0]))
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=list(records[0]),
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerows(records)
 

@@ -54,8 +54,13 @@ def summarize(rows: list[dict], planned: int) -> dict:
         monotonic_values.append(
             float(all(right + 1e-5 >= left for left, right in zip(expected_state, expected_state[1:])))
         )
-        duration = [sum(frame[state] for frame in posterior) for state in range(len(posterior[0]))]
-        noncollapse_values.append(float(max(duration) / len(posterior) < 0.90))
+        state_durations = [
+            sum(frame[state] for frame in posterior)
+            for state in range(len(posterior[0]))
+        ]
+        noncollapse_values.append(
+            float(max(state_durations) / len(posterior) < 0.90)
+        )
     posterior_monotonic_rate = mean(monotonic_values)
     posterior_noncollapse_rate = mean(noncollapse_values)
     gates = {
