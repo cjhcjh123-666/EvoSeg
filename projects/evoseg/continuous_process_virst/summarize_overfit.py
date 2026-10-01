@@ -42,6 +42,22 @@ def summarize(rows: list[dict], planned: int) -> dict:
     expected_length = mean([row["expected_process_length"] for row in last])
     duration = mean([row["mean_state_duration"] for row in last])
     entropy = mean([row["posterior_entropy"] for row in last])
+    posterior_rows = [row for row in last if row.get("process_posterior")]
+    monotonic_values = []
+    noncollapse_values = []
+    for row in posterior_rows:
+        posterior = row["process_posterior"]
+        expected_state = [
+            sum((state + 1) * probability for state, probability in enumerate(frame))
+            for frame in posterior
+        ]
+        monotonic_values.append(
+            float(all(right + 1e-5 >= left for left, right in zip(expected_state, expected_state[1:])))
+        )
+        duration = [sum(frame[state] for frame in posterior) for state in range(len(posterior[0]))]
+        noncollapse_values.append(float(max(duration) / len(posterior) < 0.90))
+    posterior_monotonic_rate = mean(monotonic_values)
+    posterior_noncollapse_rate = mean(noncollapse_values)
     gates = {
         "segmentation_loss_decreased": (
             paired_seg_change is not None and paired_seg_change < 0
@@ -52,8 +68,12 @@ def summarize(rows: list[dict], planned: int) -> dict:
         "posterior_non_degenerate": (
             expected_length is not None
             and entropy is not None
+            and posterior_monotonic_rate is not None
+            and posterior_noncollapse_rate is not None
             and expected_length > 1.5
             and 0.05 < entropy < math.log(6.0) - 0.01
+            and posterior_monotonic_rate >= 0.95
+            and posterior_noncollapse_rate >= 0.90
         ),
     }
     complete = len(rows) == planned
@@ -76,6 +96,9 @@ def summarize(rows: list[dict], planned: int) -> dict:
         "expected_process_length": expected_length,
         "mean_state_duration": duration,
         "posterior_entropy": entropy,
+        "posterior_samples": len(posterior_rows),
+        "posterior_monotonic_rate": posterior_monotonic_rate,
+        "posterior_noncollapse_rate": posterior_noncollapse_rate,
         "gates": gates,
         "overfit_gate": "PASS" if complete and all(gates.values()) else "FAIL",
         "pilot_authorized": complete and all(gates.values()),
@@ -101,6 +124,8 @@ Status: **{value['overfit_gate']}** ({value['completed_updates']}/{value['planne
 - Expected process length: `{value['expected_process_length']}`
 - Mean state duration: `{value['mean_state_duration']}` frames
 - Posterior entropy: `{value['posterior_entropy']}`
+- Posterior expected-state monotonic rate: `{value['posterior_monotonic_rate']}`
+- Posterior non-single-state-collapse rate: `{value['posterior_noncollapse_rate']}`
 
 ## Preregistered checks
 
