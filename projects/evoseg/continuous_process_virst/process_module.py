@@ -19,6 +19,8 @@ class ContinuousProcessOutput:
     alignment: SegmentalAlignmentOutput
     process_confidence: Tensor
     beta: Tensor
+    termination_logits: Tensor
+    spatial_map: Tensor
 
 
 class ProcessChainCompiler(nn.Module):
@@ -106,9 +108,16 @@ class ContinuousProcessConditioner(nn.Module):
         spatial = self.spatial_down(
             video_features.reshape(batch * frames, channels, height, width)
         )
+        spatial_height, spatial_width = spatial.shape[-2:]
+        spatial_map = spatial.reshape(
+            batch, frames, spatial.shape[1], spatial_height, spatial_width
+        )
         spatial = spatial.flatten(2).transpose(1, 2)
         spatial = spatial.reshape(batch, frames, spatial.shape[1], spatial.shape[2])
         spatial = self.spatial_norm(spatial)
+        spatial_map = spatial.transpose(2, 3).reshape(
+            batch, frames, spatial.shape[-1], spatial_height, spatial_width
+        )
         query = self.process_projection(process)
         visual = self.visual_projection(spatial)
         logits = torch.einsum("bmd,btsd->bmts", query, visual) / math.sqrt(query.shape[-1])
@@ -132,4 +141,44 @@ class ContinuousProcessConditioner(nn.Module):
             alignment=alignment,
             process_confidence=confidence,
             beta=self.beta,
+            termination_logits=termination_logits,
+            spatial_map=spatial_map,
         )
+
+    def score_training_object_masks(
+        self,
+        output: ContinuousProcessOutput,
+        object_masks: Tensor,
+    ) -> Tensor:
+        """Score training-only object trajectories pooled from official masks.
+
+        ``object_masks`` has shape ``[batch, objects, frames, H, W]``.  This
+        method is never invoked by the inference wrapper: GT is used only to
+        construct auxiliary object trajectories on official training splits.
+        """
+
+        if object_masks.ndim != 5:
+            raise ValueError("object_masks must have shape [batch, objects, frames, H, W]")
+        batch, objects, frames, height, width = object_masks.shape
+        spatial = output.spatial_map
+        if spatial.shape[:2] != (batch, frames):
+            raise ValueError("object mask batch/frame axes do not match visual features")
+        target_hw = spatial.shape[-2:]
+        masks = torch.nn.functional.interpolate(
+            object_masks.reshape(batch * objects * frames, 1, height, width).float(),
+            size=target_hw,
+            mode="nearest",
+        ).reshape(batch, objects, frames, 1, *target_hw)
+        feature = spatial.unsqueeze(1)
+        denominator = masks.sum(dim=(-1, -2)).clamp_min(1.0)
+        trajectory = (feature * masks).sum(dim=(-1, -2)) / denominator
+        trajectory = self.visual_projection(trajectory)
+        process = self.process_projection(output.process_states)
+        emissions = torch.einsum("bmd,bktd->bkmt", process, trajectory) / math.sqrt(
+            process.shape[-1]
+        )
+        flattened = emissions.reshape(batch * objects, self.alignment.max_states, frames)
+        termination = output.termination_logits.unsqueeze(1).expand(
+            batch, objects, -1
+        ).reshape(batch * objects, -1)
+        return self.alignment(flattened, termination).score.reshape(batch, objects)

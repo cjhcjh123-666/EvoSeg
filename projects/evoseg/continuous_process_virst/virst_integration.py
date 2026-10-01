@@ -48,6 +48,16 @@ class ContinuousProcessSegPrompter(nn.Module):
             raise ValueError(f"unsupported temporal permutations: {sorted(unsupported)}")
         self._permutations = values
 
+    def score_training_object_masks(self, object_masks: Tensor) -> Tensor:
+        """Training-only auxiliary scorer; deliberately absent from inference."""
+
+        if self.last_diagnostics is None:
+            raise RuntimeError("run the VIRST forward before scoring training objects")
+        return self.conditioner.score_training_object_masks(
+            self.last_diagnostics.original,
+            object_masks,
+        )
+
     @staticmethod
     def _permute_video(video: Tensor, kind: str) -> Tensor:
         if kind == "reverse":
@@ -150,6 +160,12 @@ class QueryStateCapture:
     def close(self) -> None:
         self._pre.remove()
         self._post.remove()
+
+    def set_permutation(self, value: str | None) -> None:
+        self.set_permutations(() if value is None else (value,))
+
+    def set_permutations(self, values: tuple[str, ...]) -> None:
+        self.prompter.set_permutations(values)
 
     def _capture_inputs(
         self, module: nn.Module, args: tuple[Any, ...], kwargs: dict[str, Any]

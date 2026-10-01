@@ -1,10 +1,12 @@
 import inspect
 
 import torch
+from torch import nn
 
 from projects.evoseg.continuous_process_virst.groundmore_parser import parse_sequential_query
 from projects.evoseg.continuous_process_virst.losses import object_discrimination_loss
 from projects.evoseg.continuous_process_virst.virst_integration import QueryStateCapture
+from projects.evoseg.continuous_process_virst.process_module import ContinuousProcessConditioner
 
 
 def test_object_discrimination_loss():
@@ -37,3 +39,25 @@ def test_no_gt_in_inference_capture_signature():
     parameters = inspect.signature(QueryStateCapture._capture_inputs).parameters
     forbidden = {"gt_masks", "object_id", "action_start", "action_end"}
     assert forbidden.isdisjoint(parameters)
+
+
+def test_training_object_mask_scores_have_candidate_axis():
+    torch.manual_seed(3)
+    module = ContinuousProcessConditioner(
+        query_dim=16,
+        vision_dim=8,
+        process_dim=16,
+        max_states=3,
+        heads=4,
+    )
+    query = torch.randn(1, 5, 16)
+    video = torch.randn(1, 4, 8, 16, 16)
+    output = module(query, video)
+    masks = torch.zeros(1, 2, 4, 16, 16)
+    masks[:, 0, :, :8, :8] = 1
+    masks[:, 1, :, 8:, 8:] = 1
+    scores = module.score_training_object_masks(output, masks)
+    assert scores.shape == (1, 2)
+    scores.sum().backward()
+    assert module.process_projection.weight.grad is not None
+    assert torch.isfinite(module.process_projection.weight.grad).all()
