@@ -1,0 +1,117 @@
+{
+  "metadata": "/9950backfile/chenjiahui/evo_artifacts/datasets/GroundMoRe-official/trainval_v2.json",
+  "metadata_sha256": "df44c8ebd4b9ec6389bdde33aaf58fe176668357a4f231f162ec6fac402f904e",
+  "sequential_expressions": 1173,
+  "source_videos": 414,
+  "language_parse_resolved": 1112,
+  "language_parse_unresolved": 61,
+  "connective_counts": {
+    "after": 666,
+    "before": 443,
+    "then": 3,
+    "unresolved": 61
+  },
+  "unique_annotated_intervals": 468,
+  "shared_interval_groups": 461,
+  "shared_interval_groups_with_different_target_clauses": 442,
+  "shared_interval_groups_with_before_and_after": 122,
+  "interval_semantics": "whole queried process / official mask-validity interval",
+  "clause_interval_supervision_safe": false,
+  "decision": "Do not use action_start/action_end as a target-clause interval. It is shared by distinct questions/answer clauses over the same process.",
+  "examples": [
+    [
+      {
+        "question": "Who shoots the ball after dribbling the ball?",
+        "target_clause": "Who shoots the ball",
+        "connective": "after",
+        "action_start": "4:15",
+        "action_end": "4:23"
+      },
+      {
+        "question": "What does the man in white shoot after dribbling?",
+        "target_clause": "What does the man in white shoot",
+        "connective": "after",
+        "action_start": "4:15",
+        "action_end": "4:23"
+      },
+      {
+        "question": "Who dribbles the ball before scoring a point?",
+        "target_clause": "Who dribbles the ball",
+        "connective": "before",
+        "action_start": "4:15",
+        "action_end": "4:23"
+      },
+      {
+        "question": "What does the man in white dribble before scoring a point?",
+        "target_clause": "What does the man in white dribble",
+        "connective": "before",
+        "action_start": "4:15",
+        "action_end": "4:23"
+      }
+    ],
+    [
+      {
+        "question": "Who shoots the ball after dribbling it?",
+        "target_clause": "Who shoots the ball",
+        "connective": "after",
+        "action_start": "4:58",
+        "action_end": "5:03"
+      },
+      {
+        "question": "What does the man in black shoot after dribbling?",
+        "target_clause": "What does the man in black shoot",
+        "connective": "after",
+        "action_start": "4:58",
+        "action_end": "5:03"
+      }
+    ],
+    [
+      {
+        "question": "Who gets rid of the defense from the man in white before he shoots the basketball?",
+        "target_clause": "Who gets rid of the defense from the man in white",
+        "connective": "before",
+        "action_start": "5:09",
+        "action_end": "5:12"
+      },
+      {
+        "question": "Who does the man in black get rid of the defense from before he shoots the basketball?",
+        "target_clause": "Who does the man in black get rid of the defense from",
+        "connective": "before",
+        "action_start": "5:09",
+        "action_end": "5:12"
+      }
+    ],
+    [
+      {
+        "question": "Who grabs the basketball after it is dropped?",
+        "target_clause": "Who grabs the basketball",
+        "connective": "after",
+        "action_start": "5:17",
+        "action_end": "5:22"
+      },
+      {
+        "question": "What does the man in black grab after he drops it?",
+        "target_clause": "What does the man in black grab",
+        "connective": "after",
+        "action_start": "5:17",
+        "action_end": "5:22"
+      }
+    ],
+    [
+      {
+        "question": "Who shoots the basketball after picking it up?",
+        "target_clause": "Who shoots the basketball",
+        "connective": "after",
+        "action_start": "5:17",
+        "action_end": "5:25"
+      },
+      {
+        "question": "What does the man in black shoot after he picks it up?",
+        "target_clause": "What does the man in black shoot",
+        "connective": "after",
+        "action_start": "5:17",
+        "action_end": "5:25"
+      }
+    ]
+  ]
+}
