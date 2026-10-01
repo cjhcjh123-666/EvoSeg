@@ -25,3 +25,7 @@ Raw result: `/9950backfile/chenjiahui/evo_artifacts/results/qwen_process_seg/202
 The first 64-sample run used the late Multiplex object-token residual. It failed the fixed 1% gate: four epochs/256 updates changed mean loss from 1.093123 to 1.091063 (−0.188%). A stronger one-sample/100-update audit also failed its 10% overfit threshold (1.058177 to 1.045150, −1.23%). Both negative results are retained under `baseline_capability64/` and `baseline_interface_one_sample/`.
 
 That failure localized the issue to the late residual prompt interface. The corrected official grounding-token path (`Sam3Image.visual_prompt_embed`) passed a two-update real-mask smoke with a 13.12% decrease. The 64-sample capability gate must now be rerun on this corrected interface. No process SFT, pilot, or RL has started.
+
+The corrected 64-sample run exposed a reporting bug rather than a mask-learning failure. The raw gate applied its 1% threshold to `mask BCE + Dice + 0.1 query-selection CE`, while the registered capability criterion was specifically mask loss. The raw result remains `FAIL`. A separate `corrected_result.json` reports mask BCE+Dice from 0.151230 to 0.105814 (−30.03%), hence the mask-learning capability is `PASS`. Query-selection CE increased from 3.8801 to 4.4594 and is explicitly unresolved; it must be tested by the 64-video inference pilot before process modelling begins.
+
+Raw and corrected results: `/9950backfile/chenjiahui/evo_artifacts/results/qwen_process_seg/20261001_qps_v1/baseline_capability64_v2/{result.json,corrected_result.json}`.

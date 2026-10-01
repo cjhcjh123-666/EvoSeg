@@ -149,11 +149,17 @@ class QwenSegSAM31(nn.Module):
         selection = F.cross_entropy(scores.float(), matched_query)
         predicted_query = scores.argmax(dim=-1)
         predicted_logits = all_logits[rows, predicted_query]
+        predicted_bce = F.binary_cross_entropy_with_logits(
+            predicted_logits.float(), target.float()
+        )
+        predicted_dice = soft_dice_loss(predicted_logits.float(), target.float())
         diagnostics.update(
             {
                 "loss_bce": bce,
                 "loss_dice": dice,
                 "loss_selection": selection,
+                "matched_mask_loss": bce + dice,
+                "predicted_mask_loss": predicted_bce + predicted_dice,
                 "mask_empty_fraction": (predicted_logits.sigmoid() < 0.5).all(dim=-1).all(dim=-1).float().mean(),
                 "mask_full_fraction": (predicted_logits.sigmoid() >= 0.5).all(dim=-1).all(dim=-1).float().mean(),
                 "matched_mask_logits": logits,

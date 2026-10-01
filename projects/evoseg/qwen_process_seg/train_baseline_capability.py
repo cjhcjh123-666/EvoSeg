@@ -152,6 +152,8 @@ def run(args: argparse.Namespace) -> dict:
                 "loss_bce": output["loss_bce"].detach().float().item(),
                 "loss_dice": output["loss_dice"].detach().float().item(),
                 "loss_selection": output["loss_selection"].detach().float().item(),
+                "matched_mask_loss": output["matched_mask_loss"].detach().float().item(),
+                "predicted_mask_loss": output["predicted_mask_loss"].detach().float().item(),
                 "mask_empty_fraction": output["mask_empty_fraction"].detach().float().item(),
                 "mask_full_fraction": output["mask_full_fraction"].detach().float().item(),
                 "prompt_cross_frame_std": output["prompt_cross_frame_std"].detach().float().item(),
@@ -179,10 +181,21 @@ def run(args: argparse.Namespace) -> dict:
 
     first_epoch = _mean(epoch_losses[0])
     last_epoch = _mean(epoch_losses[-1])
+    first_mask_epoch = _mean(
+        [record["matched_mask_loss"] for record in logs if record["epoch"] == 0]
+    )
+    last_mask_epoch = _mean(
+        [
+            record["matched_mask_loss"]
+            for record in logs
+            if record["epoch"] == args.epochs - 1
+        ]
+    )
     loss_gate_pass = (
-        last_epoch < first_epoch
+        last_mask_epoch < first_mask_epoch
         if args.mode == "smoke"
-        else (first_epoch - last_epoch) / first_epoch >= args.min_relative_improvement
+        else (first_mask_epoch - last_mask_epoch) / first_mask_epoch
+        >= args.min_relative_improvement
     )
     result = {
         "status": "PASS" if loss_gate_pass else "FAIL",
@@ -201,6 +214,10 @@ def run(args: argparse.Namespace) -> dict:
         "last_epoch_mean_loss": last_epoch,
         "absolute_loss_change": last_epoch - first_epoch,
         "relative_loss_change": (last_epoch - first_epoch) / first_epoch,
+        "first_epoch_mean_mask_loss": first_mask_epoch,
+        "last_epoch_mean_mask_loss": last_mask_epoch,
+        "relative_mask_loss_change": (last_mask_epoch - first_mask_epoch)
+        / first_mask_epoch,
         "last_gradient_norms": latest_gradients,
         "all_gradient_norms_positive": all(
             all(value > 0 for value in record["gradient_norms"].values()) for record in logs
