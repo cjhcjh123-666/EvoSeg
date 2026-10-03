@@ -30,6 +30,9 @@ fusion module, inactive controls, and the old bridge remain frozen.
 - `python -m projects.evoseg.ftg.train_pilot`: train/evaluate one variant.
 - `python -m projects.evoseg.ftg.summarize_pilot`: compare completed FTG and
   Frame Prompt runs against the preregistered pilot gate.
+- `python -m projects.evoseg.ftg.evaluate_checkpoint`: separate actual
+  SAM3.1 query-selected masks from training-only matched-query masks and run
+  temporal-order diagnostics on a saved lightweight checkpoint.
 - `projects/evoseg/ftg/public_video_data.py`: deterministic public-data manifest
   and loaders.
 - `projects/evoseg/ftg/metrics.py`: region J, boundary F, J&F, and absent-frame

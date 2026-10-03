@@ -70,7 +70,19 @@ def _aggregate(records: list[dict]) -> dict:
             **{
                 metric: sum(value[metric] for value in values) / len(values)
                 for metric in (
-                    "j", "f", "jf", "present_jf", "false_accept", "false_reject"
+                    "j",
+                    "f",
+                    "jf",
+                    "present_jf",
+                    "false_accept",
+                    "false_reject",
+                    "oracle_j",
+                    "oracle_f",
+                    "oracle_jf",
+                    "oracle_present_jf",
+                    "query_selection_accuracy",
+                    "matched_mask_loss",
+                    "predicted_mask_loss",
                 )
             },
         }
@@ -135,6 +147,11 @@ def evaluate(
             output = model(frames, sample["expression"], masks)
         prediction = logits_to_masks(output["predicted_mask_logits"], masks)
         metrics = evaluate_masks(masks, prediction)
+        oracle_prediction = logits_to_masks(output["matched_mask_logits"], masks)
+        oracle_metrics = {
+            f"oracle_{name}": value
+            for name, value in evaluate_masks(masks, oracle_prediction).items()
+        }
         if visual_dir is not None and index < visualize_count:
             filename = (
                 f'{index:03d}_{sample["dataset"]}_{sample["expression_type"]}_'
@@ -149,7 +166,13 @@ def evaluate(
                 "expression_type": sample["expression_type"],
                 "order": order,
                 **metrics,
+                **oracle_metrics,
+                "query_selection_accuracy": (
+                    output["predicted_query"] == output["matched_query"]
+                ).float().mean().item(),
                 "loss": output["loss"].float().item(),
+                "matched_mask_loss": output["matched_mask_loss"].float().item(),
+                "predicted_mask_loss": output["predicted_mask_loss"].float().item(),
                 "gate_mean": output["gate_mean"].float().item(),
                 "gate_std": output["gate_std"].float().item(),
                 "prompt_cross_frame_std": output["prompt_cross_frame_std"].float().item(),
