@@ -10,6 +10,9 @@ controlled variants. FTG first obtains one identity state from the query and the
 mean video context. Each frame state is then transformed while conditioned on
 that same identity. Separate projections map identity and state to SAM3.1's
 256-dimensional prompt space, and a vector gate controls the dynamic residual.
+The final dynamic-state projection is zero-initialized, so FTG begins exactly at
+the persistent Identity Only solution and learns temporal corrections from mask
+supervision instead of injecting a random state perturbation at initialization.
 
 The resulting prompt enters official SAM3.1 through
 `Sam3Image._encode_prompt(..., visual_prompt_embed=...)`. The official frozen

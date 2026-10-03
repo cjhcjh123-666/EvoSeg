@@ -29,10 +29,24 @@ def test_persistent_controls_are_constant_and_temporal_controls_vary():
         module = FactorizedTemporalGrounding(10, 6, 8, variant)
         prompts, _ = module(frames, query)
         assert torch.equal(prompts, prompts[:1].expand_as(prompts))
-    for variant in ("frame_prompt", "state_only", "id_state_no_gate", "ftg"):
+    for variant in ("frame_prompt", "state_only"):
         module = FactorizedTemporalGrounding(10, 6, 8, variant)
         prompts, _ = module(frames, query)
         assert prompts.float().std(dim=0).mean() > 0
+
+
+def test_factorized_residual_starts_at_identity_only_prompt():
+    torch.manual_seed(9)
+    module = FactorizedTemporalGrounding(10, 6, 8, "identity_only")
+    frames = torch.randn(4, 10)
+    query = torch.randn(10)
+    identity_prompts, _ = module(frames, query)
+    module.variant = "id_state_no_gate"
+    ungated_prompts, _ = module(frames, query)
+    module.variant = "ftg"
+    gated_prompts, _ = module(frames, query)
+    torch.testing.assert_close(identity_prompts, ungated_prompts)
+    torch.testing.assert_close(identity_prompts, gated_prompts)
 
 
 def test_ftg_is_frame_permutation_equivariant_with_invariant_identity():

@@ -99,6 +99,19 @@ class FactorizedTemporalGrounding(nn.Module):
             nn.LayerNorm(hidden_dim * 2),
             nn.Linear(hidden_dim * 2, prompt_dim),
         )
+        # FTG is explicitly an identity base plus a learned residual. Starting
+        # that residual at zero makes the initial factorized prompt exactly the
+        # identity-only prompt, so a random dynamic branch cannot cause identity
+        # drift before it receives supervision.
+        nn.init.zeros_(self.state_projection.net[-1].weight)
+        nn.init.zeros_(self.state_projection.net[-1].bias)
+
+        # State Only is an independent control, not a residual, and therefore
+        # keeps a normally initialized projection of its own. Registering it
+        # after the gate preserves initialization of every pre-existing branch.
+        self.state_only_projection = PromptProjection(
+            hidden_dim, prompt_dim, bottleneck_dim
+        )
 
     @staticmethod
     def _expand(state: torch.Tensor, length: int) -> torch.Tensor:
@@ -132,7 +145,7 @@ class FactorizedTemporalGrounding(nn.Module):
         identity_prompt = self.identity_projection(identity)
         identity_prompts = self._expand(identity_prompt, length)
         state_prompts = self.state_projection(dynamic_state)
-        independent_state_prompts = self.state_projection(independent_state)
+        independent_state_prompts = self.state_only_projection(independent_state)
         gate = torch.sigmoid(
             self.gate(torch.cat([identity_frames, dynamic_state], dim=-1))
         )
@@ -182,7 +195,7 @@ class FactorizedTemporalGrounding(nn.Module):
             "global_prompt": ("global_encoder", "monolithic_projection"),
             "frame_prompt": ("frame_encoder", "monolithic_projection"),
             "identity_only": ("identity_encoder", "identity_projection"),
-            "state_only": ("state_only_encoder", "state_projection"),
+            "state_only": ("state_only_encoder", "state_only_projection"),
             "id_state_no_gate": (
                 "identity_encoder", "state_encoder",
                 "identity_projection", "state_projection",
