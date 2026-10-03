@@ -36,8 +36,18 @@ def summarize(root: Path, selective_gain: float, static_floor: float) -> dict:
         + deltas["mevis_v2/motion"]
     ) / 3
     passed = dynamic_mean >= selective_gain and deltas["long_rvos/static"] >= static_floor
+    dynamic_groups = (
+        "long_rvos/dynamic", "long_rvos/hybrid", "mevis_v2/motion"
+    )
+    direction_consistent = all(deltas[group] > 0 for group in dynamic_groups)
+    selective_over_static = dynamic_mean > deltas["long_rvos/static"]
+    counts = {
+        group: ftg["validation"]["original"][group]["count"] for group in groups
+    }
+    claim_ready = passed and direction_consistent and selective_over_static
     summary = {
         "decision": "GO" if passed else "NO-GO",
+        "claim_status": "SUPPORTED" if claim_ready else "MIXED",
         "comparison": "ftg_minus_frame_prompt",
         "manifest_sha256": ftg["manifest_sha256"],
         "thresholds": {
@@ -46,6 +56,10 @@ def summarize(root: Path, selective_gain: float, static_floor: float) -> dict:
         },
         "deltas": deltas,
         "dynamic_motion_mean_delta": dynamic_mean,
+        "direction_consistent": direction_consistent,
+        "selective_over_static": selective_over_static,
+        "validation_counts": counts,
+        "small_group_warning": any(count < 5 for count in counts.values()),
         "available_variants": sorted(results),
     }
     (root / "controlled_summary.json").write_text(json.dumps(summary, indent=2) + "\n")

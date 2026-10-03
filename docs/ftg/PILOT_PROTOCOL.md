@@ -32,6 +32,13 @@ evidence. If it fails, inspect identity drift, mask/query selection, and
 qualitative predictions before altering the method. Do not silently change the
 threshold or story after observing results.
 
+Passing the numerical gate is necessary but not sufficient to claim the
+hypothesis is supported. The summary separately flags whether all three
+motion-sensitive groups improve in the same direction, whether their mean gain
+exceeds the Static gain, and whether any validation group has fewer than five
+examples. Mixed directions or tiny groups require a larger replication before
+full training even when the preregistered arithmetic gate says `GO`.
+
 Temporal order (Original/Shuffle/Reverse) and T=8/16/32 are diagnostics after the
 primary controlled run; they are not substitutes for the primary contrast.
 
