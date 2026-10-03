@@ -1,0 +1,10 @@
+{
+  "base_main_sha": "f1a39a105d35670d8b7845fda38d213e0b4c0664",
+  "branch": "research/qwen-process-seg-vlm",
+  "branch_start_sha": "f1a39a105d35670d8b7845fda38d213e0b4c0664",
+  "official_sam31_commit": "2345a4ad109ac29c569da749c91d84f10dc08c40",
+  "sam31_checkpoint_sha256": "0567debeec80ba4ac6369540c6c248025283cb3ff2b92827509e57e2b3541cb6",
+  "qwen_checkpoint": "/9950backfile/chenjiahui/evo_artifacts/models/Qwen3-VL-4B-Instruct",
+  "initial_git_status": "clean",
+  "historical_methods_merged": false
+}

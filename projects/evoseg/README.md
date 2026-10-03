@@ -2,15 +2,14 @@
 
 Own additions on top of the Pixel-LLM/Sa2VA base.
 
-```
-evoseg/
-├── tools/        # data manifest builders, anti-shortcut tooling, eval metrics (ported)
-├── configs/      # training / eval configs (SFT + faithfulness GRPO)
-└── datasets/     # faithful-seg data builders (swap / no-object / counterfactual / clarify)
-```
+The active method is `ftg/`: Qwen3-VL frame/query states are factorized into one
+persistent identity representation and dynamic state representations, then sent
+through the audited official SAM3.1 `visual_prompt_embed` path.
 
-## Faithful-seg components (planned)
-1. `datasets/` — query-swap + no-object + counterfactual + clarification data builders.
-2. `configs/` — Sa2VA-aligned SFT config (Qwen3-VL-4B/8B), faithfulness GRPO config.
-3. `tools/` — paper-aligned eval (cIoU/gIoU/Acc@0.5/J&F), N-acc abstention metrics,
-   video hallucination benchmark curation.
+Key directories:
+
+- `ftg/`: active factorized grounding model, public pilot data, training, metrics,
+  and controlled tests.
+- `qwen_process_seg/`: audited Qwen3-VL/SAM3.1 foundation plumbing reused by FTG.
+- earlier faithfulness/process directories: retained for provenance, not active in
+  the FTG paper story.
