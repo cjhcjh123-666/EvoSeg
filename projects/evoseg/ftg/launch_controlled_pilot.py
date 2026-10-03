@@ -102,7 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frame-budget", type=int, default=16)
     parser.add_argument("--validation-fraction", type=float, default=0.25)
     parser.add_argument("--epochs", type=int, default=2)
-    parser.add_argument("--selection-loss-weight", type=float, default=0.1)
+    parser.add_argument("--selection-loss-weight", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=11)
     parser.add_argument("--data-seed", type=int, default=42)
     parser.add_argument("--evaluate-initial", action="store_true")

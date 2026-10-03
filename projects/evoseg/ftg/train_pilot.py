@@ -415,7 +415,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lora-lr", type=float, default=2e-5)
     parser.add_argument("--grounding-lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=0.01)
-    parser.add_argument("--selection-loss-weight", type=float, default=0.1)
+    parser.add_argument("--selection-loss-weight", type=float, default=1.0)
     parser.add_argument("--qwen-pixels", type=int, default=100352)
     parser.add_argument("--evaluate-initial", action="store_true")
     parser.add_argument("--visualize-count", type=int, default=6)
