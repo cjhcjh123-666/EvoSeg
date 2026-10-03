@@ -174,7 +174,9 @@ class QwenSegSAM31(nn.Module):
                 "predicted_query": predicted_query,
             }
         )
-        diagnostics["loss"] = bce + dice + 0.1 * selection
+        selection_weight = float(getattr(self, "selection_loss_weight", 0.1))
+        diagnostics["selection_loss_weight"] = selection_weight
+        diagnostics["loss"] = bce + dice + selection_weight * selection
         return diagnostics
 
     def parameter_groups(self) -> dict[str, list[nn.Parameter]]:

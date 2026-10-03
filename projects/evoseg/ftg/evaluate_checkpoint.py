@@ -33,6 +33,9 @@ def run(args: argparse.Namespace) -> dict:
         variant=variant,
         qwen_pixels=args.qwen_pixels,
     ).to(device)
+    model.selection_loss_weight = checkpoint.get("result", {}).get(
+        "selection_loss_weight", 0.1
+    )
     set_peft_model_state_dict(model.qwen, checkpoint["qwen_lora"])
     model.grounding.load_state_dict(checkpoint["grounding"])
     payload = {
