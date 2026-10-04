@@ -4,6 +4,19 @@ This file records pilot outcomes, including negative evidence. Values are held-o
 J&F percentages on a 48-expression development pilot (36 train, 12 validation),
 not benchmark results.
 
+## Strong public foundation baseline
+
+The public `Sa2VA-Qwen3-VL-4B-SAM3` checkpoint was reproduced on the complete
+local MeViS-v2 `val^u` split before FTG training. Native-resolution evaluation
+over 869 valid expression/ground-truth pairs produced J=59.37, F=53.25, and
+J&F=56.31. The raw prediction file and metric summary are stored under
+`evo_artifacts/results/ftg/20261004_sa2va_qwen3_sam3_mevisu_baseline/MEVIS_U/`.
+
+This is 12.86 J&F points above the 43.45 three-seed mean of the scratch Qwen
+Frame Prompt pilot. The strong public checkpoint is therefore the primary
+foundation; scratch Qwen remains a foundation ablation. This comparison changes
+the initialization and is not evidence for FTG itself.
+
 ## Initial implementation
 
 The initial FTG state residual was randomly initialized and immediately entered
