@@ -93,3 +93,27 @@ The next controlled run keeps matched-query mask supervision and score-based
 inference, but uses SAM3.1-aligned binary objectness targets: the matched query
 is positive and all remaining queries are negatives. The legacy softmax loss
 is retained as an explicit ablation.
+
+## Binary-objectness replication
+
+Correcting the score loss improved some individual runs but did not remove
+seed sensitivity. With loss weight 1, FTG versus Frame Prompt was 30.94 versus
+27.29 overall at seed 11, but 21.47 versus 27.91 at seed 23. With weight 5, the
+contrast widened in opposite directions: 34.36 versus 18.10 at seed 11 and
+24.94 versus 34.16 at seed 23. Selection accuracy remained between roughly one
+and eight percent. The larger weight is therefore rejected rather than chosen
+from its favorable seed-11 result.
+
+The factorization controls also weaken a direct FTG attribution. At seed 11,
+Identity Only reached 30.96 overall, statistically indistinguishable at this
+pilot scale from FTG's 30.94. Under an eight-frame budget, FTG reached 24.86
+versus 28.34 for Frame Prompt. These outcomes do not support a robust gain from
+the gated identity/state residual itself.
+
+Frame-level Hungarian assignment provides a likely mechanism for the remaining
+instability: the matched positive object-query slot can change independently at
+every frame, even though FTG's identity representation is persistent. The next
+test therefore uses one training-time query assignment for the entire video,
+chosen by mean mask loss over frames. Inference remains the frozen SAM3.1 score
+argmax; no candidate matcher, verifier, or ground-truth inference selection is
+added.
