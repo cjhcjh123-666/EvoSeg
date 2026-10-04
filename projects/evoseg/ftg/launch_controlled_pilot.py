@@ -52,6 +52,7 @@ def run(args: argparse.Namespace) -> dict:
             "--selection-loss-weight", str(args.selection_loss_weight),
             "--selection-loss-type", args.selection_loss_type,
             "--query-policy", args.query_policy,
+            "--query-score-mode", args.query_score_mode,
             "--match-scope", args.match_scope,
             "--sam-interface", args.sam_interface,
             "--native-residual-scale-init", str(args.native_residual_scale_init),
@@ -95,6 +96,7 @@ def run(args: argparse.Namespace) -> dict:
         "selection_loss_weight": args.selection_loss_weight,
         "selection_loss_type": args.selection_loss_type,
         "query_policy": args.query_policy,
+        "query_score_mode": args.query_score_mode,
         "match_scope": args.match_scope,
         "sam_interface": args.sam_interface,
         "native_residual_scale_init": args.native_residual_scale_init,
@@ -126,6 +128,11 @@ def parse_args() -> argparse.Namespace:
         "--query-policy",
         choices=("predicted_score", "consistent_score", "fixed_slot"),
         default="predicted_score",
+    )
+    parser.add_argument(
+        "--query-score-mode",
+        choices=("native", "representation"),
+        default="native",
     )
     parser.add_argument(
         "--match-scope", choices=("frame", "video"), default="frame",

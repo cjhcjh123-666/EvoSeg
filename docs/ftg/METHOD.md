@@ -14,14 +14,27 @@ The final dynamic-state projection is zero-initialized, so FTG begins exactly at
 the persistent Identity Only solution and learns temporal corrections from mask
 supervision instead of injecting a random state perturbation at initialization.
 
-The resulting prompt enters official SAM3.1 through
+The dynamic prompt enters official SAM3.1 through
 `Sam3Image._encode_prompt(..., visual_prompt_embed=...)`. The official frozen
 vision-language encoder, object-query decoder, and segmentation head produce the
-mask logits. During training, one-target matching supervises mask BCE, Dice, and
-the official query score. At inference, only SAM3.1's predicted score selects the
-object query. Ground truth never constructs a prompt or selects an output.
+candidate mask logits and object-query features. FTG uses the persistent identity
+representation for a second, structurally distinct role: a lightweight learned
+alignment head scores each candidate object query against the same identity in
+every frame. The aligned score is added to SAM3.1's native objectness. Thus
+identity controls *which object persists*, while the state residual controls
+*how that object is segmented now*. The Frame Prompt control uses the identical
+alignment head but supplies its frame-dependent monolithic representation, so
+the contrast isolates persistent identity rather than extra supervision or
+parameters.
 
-The default audited path retains SAM3.1's predicted query score. A controlled
+During training, one-target matching supervises mask BCE, Dice, and the composed
+query score. At inference, that same learned grounding score selects the query;
+ground truth never constructs a prompt or selects an output. This association
+head is part of the end-to-end grounding interface, not a post-hoc verifier.
+
+`--query-score-mode native` retains SAM3.1's predicted query score as the
+diagnostic baseline; `--query-score-mode representation` activates identity-
+aware query association. A controlled
 `fixed_slot` interface is also available for the diagnosed permutation problem:
 one predetermined official SAM query receives mask supervision and the same
 query is read at inference. It never searches queries with ground truth and adds

@@ -266,6 +266,7 @@ def run(args: argparse.Namespace) -> dict:
     model.selection_loss_weight = args.selection_loss_weight
     model.selection_loss_type = args.selection_loss_type
     model.query_policy = args.query_policy
+    model.query_score_mode = args.query_score_mode
     model.match_scope = args.match_scope
     model.sam_interface = args.sam_interface
     model.native_residual_scale.data.fill_(args.native_residual_scale_init)
@@ -410,6 +411,7 @@ def run(args: argparse.Namespace) -> dict:
         "selection_loss_weight": args.selection_loss_weight,
         "selection_loss_type": args.selection_loss_type,
         "query_policy": args.query_policy,
+        "query_score_mode": args.query_score_mode,
         "match_scope": args.match_scope,
         "sam_interface": args.sam_interface,
         "native_residual_scale": model.native_residual_scale.detach().float().item(),
@@ -432,6 +434,13 @@ def run(args: argparse.Namespace) -> dict:
             key: value.detach().cpu() for key, value in model.grounding.state_dict().items()
         },
         "native_residual_scale": model.native_residual_scale.detach().cpu(),
+        "query_association": {
+            key: value.detach().cpu()
+            for key, value in model.query_association.state_dict().items()
+        },
+        "query_association_logit_scale": (
+            model.query_association_logit_scale.detach().cpu()
+        ),
         "result": result,
     }
     torch.save(checkpoint, args.output / "lightweight_checkpoint.pt")
@@ -474,6 +483,11 @@ def parse_args() -> argparse.Namespace:
         "--query-policy",
         choices=("predicted_score", "consistent_score", "fixed_slot"),
         default="predicted_score",
+    )
+    parser.add_argument(
+        "--query-score-mode",
+        choices=("native", "representation"),
+        default="native",
     )
     parser.add_argument(
         "--match-scope", choices=("frame", "video"), default="frame",

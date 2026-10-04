@@ -42,6 +42,9 @@ def run(args: argparse.Namespace) -> dict:
     model.query_policy = checkpoint.get("result", {}).get(
         "query_policy", "predicted_score"
     )
+    model.query_score_mode = checkpoint.get("result", {}).get(
+        "query_score_mode", "native"
+    )
     if args.query_policy is not None:
         model.query_policy = args.query_policy
     model.match_scope = checkpoint.get("result", {}).get("match_scope", "frame")
@@ -57,6 +60,15 @@ def run(args: argparse.Namespace) -> dict:
                 dtype=model.native_residual_scale.dtype,
             )
         )
+    if "query_association" in checkpoint:
+        model.query_association.load_state_dict(checkpoint["query_association"])
+    if "query_association_logit_scale" in checkpoint:
+        model.query_association_logit_scale.data.copy_(
+            checkpoint["query_association_logit_scale"].to(
+                device=model.query_association_logit_scale.device,
+                dtype=model.query_association_logit_scale.dtype,
+            )
+        )
     if args.native_residual_scale is not None:
         model.native_residual_scale.data.fill_(args.native_residual_scale)
     payload = {
@@ -64,6 +76,7 @@ def run(args: argparse.Namespace) -> dict:
         "checkpoint": str(args.checkpoint),
         "manifest": str(args.manifest),
         "query_policy": model.query_policy,
+        "query_score_mode": model.query_score_mode,
         "match_scope": model.match_scope,
         "sam_interface": model.sam_interface,
         "native_residual_scale": model.native_residual_scale.detach().float().item(),

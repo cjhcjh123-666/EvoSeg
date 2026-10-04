@@ -132,6 +132,7 @@ class QwenSegSAM31(nn.Module):
         self.query_policy = "predicted_score"
         self.fixed_query_index = 0
         self.selection_loss_type = "softmax_ce"
+        self.query_score_mode = "native"
         self.match_scope = "frame"
         self.sam_interface = "detector_grounding"
 
@@ -182,6 +183,19 @@ class QwenSegSAM31(nn.Module):
         diagnostics["prompt_cross_frame_std"] = prompts.float().std(dim=0).mean()
         return prompts, diagnostics
 
+    def score_queries(
+        self,
+        native_scores: torch.Tensor,
+        query_features: torch.Tensor,
+        diagnostics: dict,
+    ) -> torch.Tensor:
+        """Optionally replace native objectness with a learned grounding score."""
+        if self.query_score_mode == "native":
+            return native_scores
+        raise ValueError(
+            f"query score mode {self.query_score_mode!r} is unsupported by the baseline"
+        )
+
     def forward(
         self,
         frames: Sequence[Image.Image],
@@ -194,8 +208,11 @@ class QwenSegSAM31(nn.Module):
             visual = sam_visual_features or self.executor.extract_grounding_features(
                 frames, prompts.device
             )
-            all_logits, scores = self.executor.decode_grounding_prompts(
-                prompts, visual, return_all_queries=True
+            decoded = self.executor.decode_grounding_prompts(
+                prompts,
+                visual,
+                return_all_queries=True,
+                return_query_features=self.query_score_mode != "native",
             )
         elif self.sam_interface in {
             "native_text_residual", "native_factorized_residual"
@@ -206,21 +223,31 @@ class QwenSegSAM31(nn.Module):
             native_text = self.executor.extract_native_text_features(
                 query, len(frames), prompts.device
             )
-            all_logits, scores = self.executor.decode_grounding_prompts(
+            decoded = self.executor.decode_grounding_prompts(
                 prompts,
                 visual,
                 native_text_features=native_text,
                 return_all_queries=True,
+                return_query_features=self.query_score_mode != "native",
             )
         elif self.sam_interface == "tracker_slot":
             visual = sam_visual_features or self.executor.extract_visual_features(
                 frames, prompts.device
             )
-            all_logits, scores = self.executor.decode(
+            decoded = self.executor.decode(
                 prompts, visual, return_all_queries=True
             )
         else:
             raise ValueError(f"unknown SAM interface: {self.sam_interface}")
+        if self.query_score_mode == "native":
+            all_logits, scores = decoded
+        else:
+            if self.sam_interface == "tracker_slot":
+                raise ValueError("representation query scoring requires detector queries")
+            all_logits, native_scores, query_features = decoded
+            scores = self.score_queries(native_scores, query_features, diagnostics)
+            diagnostics["native_query_scores"] = native_scores
+            diagnostics["representation_query_scores"] = scores
         target = F.interpolate(
             masks[:, None].to(all_logits.device),
             size=all_logits.shape[-2:],
@@ -289,6 +316,7 @@ class QwenSegSAM31(nn.Module):
         )
         diagnostics["query_policy"] = self.query_policy
         diagnostics["selection_loss_type"] = self.selection_loss_type
+        diagnostics["query_score_mode"] = self.query_score_mode
         diagnostics["match_scope"] = self.match_scope
         diagnostics["sam_interface"] = self.sam_interface
         diagnostics["selection_loss_weight"] = selection_weight

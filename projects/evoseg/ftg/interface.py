@@ -166,6 +166,15 @@ class FactorizedTemporalGrounding(nn.Module):
         else:
             prompts = identity_prompts + gate * state_prompts
 
+        association_prompts = {
+            "global_prompt": prompts,
+            "frame_prompt": prompts,
+            "identity_only": identity_prompts,
+            "state_only": independent_state_prompts,
+            "id_state_no_gate": identity_prompts,
+            "ftg": identity_prompts,
+        }[self.variant]
+
         diagnostics: dict[str, torch.Tensor | str] = {
             "grounding_variant": self.variant,
             "identity_token": identity,
@@ -176,6 +185,7 @@ class FactorizedTemporalGrounding(nn.Module):
             "identity_prompts": identity_prompts,
             "state_prompts": state_prompts,
             "independent_state_prompts": independent_state_prompts,
+            "association_prompts": association_prompts,
             "identity_norm": identity.float().norm(),
             "state_norm": dynamic_state.float().norm(dim=-1).mean(),
             "gate_mean": gate.float().mean(),

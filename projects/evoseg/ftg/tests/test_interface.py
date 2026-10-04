@@ -63,6 +63,22 @@ def test_ftg_is_frame_permutation_equivariant_with_invariant_identity():
     torch.testing.assert_close(original[permutation], shuffled)
 
 
+def test_ftg_association_is_persistent_but_frame_control_is_not():
+    torch.manual_seed(15)
+    frames = torch.randn(5, 11)
+    query = torch.randn(11)
+    ftg = FactorizedTemporalGrounding(11, 5, 8, "ftg")
+    frame = FactorizedTemporalGrounding(11, 5, 8, "frame_prompt")
+
+    _, ftg_diagnostics = ftg(frames, query)
+    _, frame_diagnostics = frame(frames, query)
+
+    ftg_association = ftg_diagnostics["association_prompts"]
+    frame_association = frame_diagnostics["association_prompts"]
+    assert torch.equal(ftg_association, ftg_association[:1].expand_as(ftg_association))
+    assert frame_association.float().std(dim=0).mean() > 0
+
+
 def test_native_anchor_active_residual_can_start_exactly_zero():
     torch.manual_seed(17)
     frames = torch.randn(4, 10)

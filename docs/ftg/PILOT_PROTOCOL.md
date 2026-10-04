@@ -19,10 +19,13 @@ ground-truth-only, red is prediction-only (including temporal residue), and
 yellow is overlap. These are mandatory sanity checks alongside aggregate J&F.
 
 The training-only one-target assignment is also audited separately from
-SAM3.1's inference-time query ranking. If matched-query J&F is strong while
-predicted-query J&F and query-selection accuracy are poor, the permitted remedy
-is to calibrate the existing query-selection loss weight under the same frozen
-decoder. This is an optimization ablation, not an inference verifier or oracle.
+inference-time query ranking. If matched-query J&F is strong while
+predicted-query J&F and query-selection accuracy are poor, first retain native
+SAM3.1 scoring as a diagnostic control. The preregistered architectural remedy
+is representation-aware query association: the persistent identity representation
+scores frozen SAM object-query features, while the Frame Prompt baseline uses the
+same head with a frame-varying representation. The same score is trained and used
+at inference, so this is neither an oracle nor a post-hoc verifier.
 
 ## Preregistered decision
 

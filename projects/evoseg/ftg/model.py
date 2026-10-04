@@ -7,6 +7,7 @@ from typing import Sequence
 
 from PIL import Image
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from projects.evoseg.qwen_process_seg.baseline_model import QwenSegSAM31
@@ -49,6 +50,16 @@ class FTGQwenSAM31(QwenSegSAM31):
         # SAM3.1 text baseline while allowing gradients to reach Qwen/FTG on
         # the first optimization step.
         self.native_residual_scale = nn.Parameter(torch.tensor(1e-3))
+        # Candidate masks are already strong in the frozen SAM decoder, but its
+        # frame-local objectness can select different people across time.  This
+        # lightweight head aligns every SAM object query with the representation
+        # that carries referent identity (persistent for FTG, frame-local for the
+        # controlled Frame Prompt baseline).
+        self.query_association = nn.Sequential(
+            nn.LayerNorm(prompt_dim),
+            nn.Linear(prompt_dim, prompt_dim, bias=False),
+        )
+        self.query_association_logit_scale = nn.Parameter(torch.tensor(0.0))
         self.grounding.activate_variant_parameters()
 
     def encode_qwen(
@@ -75,6 +86,27 @@ class FTGQwenSAM31(QwenSegSAM31):
         diagnostics.update(grounding_diagnostics)
         return prompts, diagnostics
 
+    def score_queries(
+        self,
+        native_scores: torch.Tensor,
+        query_features: torch.Tensor,
+        diagnostics: dict,
+    ) -> torch.Tensor:
+        if self.query_score_mode == "native":
+            return native_scores
+        if self.query_score_mode != "representation":
+            raise ValueError(f"unknown query score mode: {self.query_score_mode}")
+        association = diagnostics["association_prompts"]
+        if association.shape != query_features.shape[:1] + query_features.shape[-1:]:
+            raise ValueError("association prompts must match [T,D] SAM query features")
+        association = F.normalize(self.query_association(association).float(), dim=-1)
+        candidates = F.normalize(query_features.float(), dim=-1)
+        alignment = torch.einsum("td,tqd->tq", association, candidates)
+        scale = self.query_association_logit_scale.exp().clamp(max=100.0)
+        diagnostics["identity_query_alignment"] = alignment
+        diagnostics["identity_query_logit_scale"] = scale
+        return native_scores.float() + scale * alignment
+
     def parameter_groups(self) -> dict[str, list[nn.Parameter]]:
         qwen_lora = [
             parameter for name, parameter in self.qwen.named_parameters()
@@ -85,4 +117,7 @@ class FTGQwenSAM31(QwenSegSAM31):
             if parameter.requires_grad
         ]
         grounding.append(self.native_residual_scale)
+        if self.query_score_mode == "representation":
+            grounding.extend(self.query_association.parameters())
+            grounding.append(self.query_association_logit_scale)
         return {"qwen_lora": qwen_lora, "grounding": grounding}

@@ -146,7 +146,12 @@ class FrozenSAM31Executor(nn.Module):
         native_text_features: dict[str, torch.Tensor] | None = None,
         decode_chunk_size: int | None = None,
         return_all_queries: bool = False,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        return_query_features: bool = False,
+    ) -> (
+        torch.Tensor
+        | tuple[torch.Tensor, torch.Tensor]
+        | tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+    ):
         """Decode learned prompt tokens through SAM3.1's official grounding path.
 
         The token enters ``Sam3Image._encode_prompt`` as the supported
@@ -184,6 +189,7 @@ class FrozenSAM31Executor(nn.Module):
         }
         predicted_masks = []
         predicted_scores = []
+        query_features = []
         self.detector.eval()
         for start in range(0, total, decode_chunk_size):
             end = min(start + decode_chunk_size, total)
@@ -244,13 +250,20 @@ class FrozenSAM31Executor(nn.Module):
             if return_all_queries:
                 predicted_masks.append(out["pred_masks"])
                 predicted_scores.append(score)
+                if return_query_features:
+                    query_features.append(out["queries"])
                 continue
             chosen = score.argmax(dim=-1)
             rows = torch.arange(batch, device=chosen.device)
             predicted_masks.append(out["pred_masks"][rows, chosen])
         masks = torch.cat(predicted_masks)
         if return_all_queries:
-            return masks, torch.cat(predicted_scores)
+            scores = torch.cat(predicted_scores)
+            if return_query_features:
+                return masks, scores, torch.cat(query_features)
+            return masks, scores
+        if return_query_features:
+            raise ValueError("query features require return_all_queries=True")
         return masks
 
     def decode(
