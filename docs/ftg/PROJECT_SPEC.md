@@ -17,28 +17,25 @@ the VLM without being exposed to the mask decoder through the right interface.
 
 **Factorized Temporal Grounding (FTG)** separates one video-level persistent
 identity from frame-dependent state observations. The two factors are no longer
-summed into one detector-prompt vector. They enter different native interfaces
-of a pretrained video segmenter:
+summed into one detector-prompt vector. They enter SAM3 as distinct sparse
+tokens:
 
 \[
 z^{id}=F_{id}(q,\operatorname{Pool}_t H_t),\qquad
-z_t^{state}=F_{state}(H_t,z^{id}),
+z_t^{state}=F_{state}(z^{id},H_t^{SAM}),
 \]
 
 \[
-(M_t^-,m_t^-)=\operatorname{Track}(I_t,m_{t-1};z^{id}),\qquad
-o_t=\operatorname{Observe}(I_t,z_t^{state};z^{id}),
+p_t=[z^{id};z_t^{state}],\qquad
+(M_t,m_t)=\operatorname{Track}(I_t,m_{t-1};p_t).
 \]
 
-\[
-(M_t,m_t)=\operatorname{Update}(M_t^-,m_t^-,o_t).
-\]
-
-The persistent identity initializes and remains attached to the native tracker
-memory \(m_t\); a state observation may recondition the current mask and memory
-without replacing that identity. Identity is the track's stable ownership
-signal, while state is evidence about its current appearance, location, and
-action. The implementation adds no verifier, refusal path, candidate bank,
+Here \(F_{state}\) is one identity-query cross-attention block over the native
+SAM3 spatial feature map. The first sparse token is identical at every frame;
+only the second token changes. The persistent token supplies stable ownership,
+the state token supplies evidence about current appearance and location, and
+the native tracker carries both into recurrent memory. The implementation adds
+no verifier, refusal path, candidate bank,
 process compiler, GRU, RL objective, or post-hoc matcher.
 
 The earlier additive prompt implementation is retained only as a rejected

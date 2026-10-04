@@ -7,6 +7,7 @@ from transformers.modeling_utils import PreTrainedModel
 from .configuration_sa2va_chat import Sa2VAChatConfigQwen
 
 from .sam3 import SAM3
+from .ftg_interface import FactorizedPromptTokens
 
 import numpy as np
 from torchvision.transforms.functional import to_pil_image
@@ -60,6 +61,13 @@ class Sa2VAChatModelQwen(PreTrainedModel):
         self.text_hidden_fcs = nn.Sequential(
             nn.Linear(in_dim, in_dim), nn.ReLU(inplace=True),
             nn.Linear(in_dim, out_dim), nn.Dropout(0.0)
+        )
+        self.grounding_variant = getattr(
+            config, 'grounding_variant', 'identity_memory'
+        )
+        self.factorized_grounding = (
+            None if self.grounding_variant == 'identity_memory'
+            else FactorizedPromptTokens(out_dim)
         )
 
     @property
@@ -242,7 +250,26 @@ class Sa2VAChatModelQwen(PreTrainedModel):
             seg_hidden_states = seg_hidden_states.unsqueeze(0)
             g_pixel_values = input_dict['g_pixel_values']
             sam_states = self.grounding_encoder.get_sam2_embeddings(g_pixel_values)
-            pred_masks = self.grounding_encoder.language_embd_inference(sam_states, [seg_hidden_states] * num_frames)
+            if self.factorized_grounding is None:
+                frame_prompts = [seg_hidden_states] * num_frames
+            else:
+                frame_prompts = []
+                with torch.no_grad(), torch.autocast(
+                        device_type='cuda', dtype=torch.bfloat16):
+                    for frame_idx in range(num_frames):
+                        features = self.grounding_encoder.sam2_model._get_image_feature(
+                            sam_states, frame_idx, batch_size=1
+                        )
+                        spatial_features = features[2][-1].permute(1, 0, 2)
+                        tokens, _ = self.factorized_grounding(
+                            seg_hidden_states,
+                            spatial_features,
+                            variant=self.grounding_variant,
+                        )
+                        frame_prompts.append(tokens)
+            pred_masks = self.grounding_encoder.language_embd_inference(
+                sam_states, frame_prompts
+            )
             w, h = ori_image_size
             masks = F.interpolate(pred_masks, size=(h, w), mode='bilinear', align_corners=False)
             masks = masks[:, 0]

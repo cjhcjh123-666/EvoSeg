@@ -116,7 +116,9 @@ class SAM3(nn.Module):
         for frame_idx in range(num_frame):
             frame_mask_out = []
             for obj_idx in range(num_obj):
-                _language_embd = language_embd[frame_idx][obj_idx][None][None]
+                _language_embd = self._as_sparse_tokens(
+                    language_embd[frame_idx][obj_idx]
+                )
                 _, _, out_mask_logits = self.sam2_model.add_language_embd(
                     inference_state, frame_idx, obj_idx + 100, _language_embd
                 )
@@ -136,7 +138,9 @@ class SAM3(nn.Module):
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             for frame_idx in range(num_frame):
                 for obj_idx in range(num_obj):
-                    _language_embd = language_embd[frame_idx][obj_idx][None][None]
+                    _language_embd = self._as_sparse_tokens(
+                        language_embd[frame_idx][obj_idx]
+                    )
                     self.sam2_model.add_language_embd(
                         inference_state,
                         frame_idx,
@@ -160,6 +164,15 @@ class SAM3(nn.Module):
                 mask_out.append(out_mask_logits)
             mask_out = torch.cat(mask_out, dim=0)
         return mask_out
+
+    @staticmethod
+    def _as_sparse_tokens(language_embd):
+        """Normalize one object's C or KxC prompt to SAM's BxKxC form."""
+        if language_embd.ndim == 1:
+            return language_embd[None, None]
+        if language_embd.ndim == 2:
+            return language_embd[None]
+        raise ValueError("language prompt must have shape [C] or [K, C]")
 
     def get_sam2_embeddings_with_expand(self, images, expand_size=1):
         raise NotImplementedError

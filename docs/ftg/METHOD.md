@@ -11,15 +11,16 @@ weights but assigns two representations to different responsibilities:
 
 - `z_id` is computed once from the query and global video context. It owns the
   tracker object ID and remains attached to persistent SAM memory.
-- `z_state_t` is conditioned on `z_id` and the current Qwen frame state. It
-  supplies a frame-dependent observation that may recondition the current mask
-  and memory without changing object ownership.
+- `z_state_t` is produced by using `z_id` as a single cross-attention query over
+  the current frame's native SAM3 spatial features. It is therefore both
+  target-conditioned and frame-dependent.
 
-This makes the interface recurrent rather than additive. Identity is not
-recomputed independently per frame, and state is not added to identity to form
-one prompt vector. The frozen native SAM tracker carries the persistent state;
-Qwen LoRA and the identity/state observation projections are trainable. Ground
-truth supervises masks during training but never initializes memory, chooses an
+For frame `t`, SAM3 receives two distinct sparse language tokens
+`[z_id, z_state_t]`; identity is not recomputed independently per frame and
+state is not added to identity. The frozen native tracker then carries object
+ownership through its recurrent memory. Qwen LoRA, the existing `[SEG]`
+projection, and the small state cross-attention are trainable. Ground truth
+supervises masks during training but never initializes memory, chooses an
 anchor, or selects a prediction at evaluation time.
 
 The decisive Frame Prompt control receives the same frame observations and
@@ -49,6 +50,11 @@ prompt-vector addition and one-shot anchor propagation.
 - `projects/sa2va/evaluation/sa2va_eval_ref_vos.py`: reproducible strong
   Qwen3-VL/SAM3 foundation evaluation with explicit public-dataset path
   overrides and deterministic smoke subsets.
+- `projects/sa2va/configs/ftg/ftg_qwen3_4b_sam3_video_pilot.py`: public
+  MeViS-v2 + Long-RVOS temporal gate, with the old existence/Faithful head
+  explicitly disabled.
+- `projects/evoseg/ftg/strong_interface.py`: identity-query spatial
+  cross-attention and controlled prompt variants.
 - `python -m projects.evoseg.ftg.evaluate_sam31_video_baseline`: frozen official
   SAM3.1 detector-to-tracker diagnostic.
 - `python -m projects.evoseg.ftg.evaluate_qwen_seeded_tracker`: rejected

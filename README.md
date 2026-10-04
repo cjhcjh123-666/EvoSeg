@@ -1,8 +1,9 @@
 # EvoSeg — Factorized Temporal Grounding
 
 **EvoSeg** studies Referring Video Object Segmentation with Segmentation VLMs.
-The current method, **FTG**, factorizes video grounding into a persistent object
-identity and frame-dependent object states before frozen SAM3.1 mask decoding.
+The current method, **FTG**, gives frozen SAM3 a persistent identity token plus
+an identity-conditioned, frame-dependent state token before mask decoding and
+native video-memory propagation.
 
 Codebase: fork of ByteDance **Pixel-LLM (Sa2VA)** — see `README.pixel_llm.md` for the
 upstream README (license preserved in `LICENSE`). Our research layer lives in

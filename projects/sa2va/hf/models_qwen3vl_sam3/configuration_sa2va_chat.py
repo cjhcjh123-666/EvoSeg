@@ -15,10 +15,12 @@ class Sa2VAChatConfigQwen(Qwen3VLConfig):
     def __init__(
             self,
             template=None,
+            grounding_variant='identity_memory',
             **kwargs
         ):
         super().__init__(**kwargs)
         self.template = template
+        self.grounding_variant = grounding_variant
 
     def to_dict(self):
         """
@@ -30,5 +32,6 @@ class Sa2VAChatConfigQwen(Qwen3VLConfig):
 
         output = super().to_dict()
         output["template"] = self.template
+        output["grounding_variant"] = self.grounding_variant
 
         return output

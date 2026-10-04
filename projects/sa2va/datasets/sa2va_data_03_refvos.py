@@ -28,7 +28,8 @@ class Sa2VA03RefVOS(Sa2VABaseDataset):
                  extra_image_processor=None,
                  select_number=5,
                  sampled_frames=5,
-                 dataset_type: Literal['default', 'refytvos', 'refsav']='default',
+                 dataset_type: Literal['default', 'refytvos', 'refsav', 'long_rvos']='default',
+                 annotation_folder=None,
                  **kwargs):
         
         # Initialize base class
@@ -49,8 +50,11 @@ class Sa2VA03RefVOS(Sa2VABaseDataset):
         self.sampled_frames = sampled_frames
         assert expression_file and tokenizer
 
-        if self.dataset_type in ['default', 'refytvos']:
-            assert mask_file is not None
+        if self.dataset_type in ['default', 'refytvos', 'long_rvos']:
+            if self.dataset_type != 'long_rvos':
+                assert mask_file is not None
+            else:
+                assert annotation_folder is not None
             vid2metaid, metas, mask_dict = self.json_file_preprocess(expression_file, mask_file)
             self.video_infos = vid2metaid
             self.videos = list(self.video_infos.keys())
@@ -67,6 +71,7 @@ class Sa2VA03RefVOS(Sa2VABaseDataset):
             self.text_data = None # text data are in the anno_dict
 
         self.image_folder = image_folder
+        self.annotation_folder = annotation_folder
 
     def real_len(self):
         return len(self.video_infos)
@@ -95,6 +100,8 @@ class Sa2VA03RefVOS(Sa2VABaseDataset):
                     meta['mask_anno_id'] = exp_dict['anno_id']
                 elif self.dataset_type == 'refytvos':
                     meta['mask_anno_id'] = [str(anno_count), ]
+                elif self.dataset_type == 'long_rvos':
+                    meta['mask_anno_id'] = [str(exp_dict['obj_id']), ]
                 else:
                     raise NotImplementedError
 
@@ -112,7 +119,9 @@ class Sa2VA03RefVOS(Sa2VABaseDataset):
                 if vid_name not in vid2metaid.keys():
                     vid2metaid[vid_name] = []
                 vid2metaid[vid_name].append(len(metas) - 1)
-        if mask_file.endswith('.pkl'):
+        if self.dataset_type == 'long_rvos':
+            mask_dict = None
+        elif mask_file.endswith('.pkl'):
             with open(mask_file, 'rb') as f:
                 mask_dict = pickle.load(f)
         elif mask_file.endswith('.json'):
@@ -223,7 +232,7 @@ class Sa2VA03RefVOS(Sa2VABaseDataset):
         if data_dict.get('images', None) is not None:
             try:
                 # Load images from paths
-                if self.dataset_type in ['default', 'refytvos']:
+                if self.dataset_type in ['default', 'refytvos', 'long_rvos']:
                     images = []
                     for img_path in data_dict['images']:
                         full_img_path = os.path.join(self.image_folder, img_path)
@@ -346,20 +355,6 @@ class Sa2VA03RefVOS(Sa2VABaseDataset):
             conversations.append({'from': 'gpt', 'value': random.choice(ANSWER_LIST)})
 
         # prepare masks
-        # one exp can have multiple annos
-        video_masks = []
-        for object_info in data_dict:
-            anno_ids = object_info['mask_anno_id']
-            obj_masks = []
-            for anno_id in anno_ids:
-                anno_id = str(anno_id)
-                frames_masks = self.mask_dict[anno_id]
-                frames_masks_ = []
-                for frame_idx in selected_frame_indexes:
-                    frames_masks_.append(copy.deepcopy(frames_masks[frame_idx]))
-                obj_masks.append(frames_masks_)
-            video_masks.append(obj_masks)
-
         # read image size from the first image
         first_image_path = images[0]
         first_image_path = os.path.join(self.image_folder, first_image_path)
@@ -370,7 +365,42 @@ class Sa2VA03RefVOS(Sa2VABaseDataset):
         # switch height and width (PIL system (WH vs HW system)
         _image_size = first_image.size
         image_size = (_image_size[1], _image_size[0])
-        masks = self.decode_mask(video_masks, image_size=image_size)
+        if self.dataset_type == 'long_rvos':
+            object_masks = []
+            for object_info in data_dict:
+                obj_id = str(object_info['mask_anno_id'][0])
+                selected_masks = []
+                for frame_idx in selected_frame_indexes:
+                    frame_id = object_info['frames'][frame_idx]
+                    mask_path = os.path.join(
+                        self.annotation_folder,
+                        object_info['video'],
+                        obj_id,
+                        frame_id + '.png',
+                    )
+                    mask_image = self._read_image(mask_path)
+                    if mask_image is None:
+                        selected_masks.append(np.zeros(image_size, dtype=np.uint8))
+                    else:
+                        mask_array = np.asarray(mask_image)
+                        if mask_array.ndim == 3:
+                            mask_array = mask_array.any(axis=2)
+                        selected_masks.append(mask_array.astype(np.uint8))
+                object_masks.append(np.stack(selected_masks, axis=0))
+            masks = torch.from_numpy(np.stack(object_masks, axis=0)).flatten(0, 1)
+        else:
+            # one expression can have multiple annotated object ids.
+            video_masks = []
+            for object_info in data_dict:
+                obj_masks = []
+                for anno_id in object_info['mask_anno_id']:
+                    frames_masks = self.mask_dict[str(anno_id)]
+                    obj_masks.append([
+                        copy.deepcopy(frames_masks[frame_idx])
+                        for frame_idx in selected_frame_indexes
+                    ])
+                video_masks.append(obj_masks)
+            masks = self.decode_mask(video_masks, image_size=image_size)
         if masks is None:
             return None
 

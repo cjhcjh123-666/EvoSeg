@@ -125,6 +125,8 @@ def main():
         template_str = system_prompt_pattern.sub('', template_str)
 
     config_dict["template"] = template_str
+    config_dict["grounding_variant"] = cfg.model.get(
+        'grounding_variant', 'identity_memory')
 
 
     if 'qwen' in arch_type:

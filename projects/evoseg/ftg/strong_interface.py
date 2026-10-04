@@ -1,0 +1,94 @@
+"""Identity/state prompt roles for the pretrained Qwen3-VL/SAM3 foundation."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+import torch
+from torch import nn
+
+
+StrongGroundingVariant = Literal[
+    "identity_memory",
+    "state_only",
+    "frame_prompt",
+    "vector_sum",
+    "ftg",
+]
+
+
+class FactorizedPromptTokens(nn.Module):
+    """Compose native SAM sparse tokens while keeping identity structurally fixed.
+
+    ``identity`` is the pretrained Sa2VA ``[SEG]`` projection. ``frame_features``
+    are native SAM spatial features aligned one-to-one with the repeated identity
+    rows. A single identity query cross-attends to each frame, so the state is
+    target-aware rather than a global average. FTG returns identity and state as
+    two sparse prompt tokens; the
+    ``vector_sum`` control deliberately collapses them back into one token.
+    """
+
+    def __init__(self, hidden_dim: int = 256) -> None:
+        super().__init__()
+        self.identity_norm = nn.LayerNorm(hidden_dim)
+        self.frame_norm = nn.LayerNorm(hidden_dim)
+        self.state_attention = nn.MultiheadAttention(
+            hidden_dim,
+            num_heads=8 if hidden_dim % 8 == 0 else 1,
+            batch_first=True,
+        )
+        self.state_mlp = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.state_gate = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, 1),
+        )
+
+    def state_observation(
+        self, identity: torch.Tensor, frame_features: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if identity.ndim != 2 or frame_features.ndim != 3:
+            raise ValueError("identity must be [N, C] and frame_features [N, S, C]")
+        if identity.shape[0] != frame_features.shape[0] or \
+                identity.shape[1] != frame_features.shape[2]:
+            raise ValueError("identity and frame_features batch/channel shapes differ")
+        query = self.identity_norm(identity)[:, None]
+        frame_features = self.frame_norm(frame_features)
+        observation, _ = self.state_attention(
+            query, frame_features, frame_features, need_weights=False
+        )
+        observation = observation[:, 0]
+        inputs = torch.cat(
+            [self.identity_norm(identity), observation], dim=-1
+        )
+        gate = self.state_gate(inputs).sigmoid()
+        state = gate * self.state_mlp(inputs)
+        return state, gate
+
+    def forward(
+        self,
+        identity: torch.Tensor,
+        frame_features: torch.Tensor,
+        variant: StrongGroundingVariant = "ftg",
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        state, gate = self.state_observation(identity, frame_features)
+        if variant == "identity_memory":
+            tokens = identity[:, None]
+        elif variant == "state_only":
+            state, gate = self.state_observation(
+                torch.zeros_like(identity), frame_features
+            )
+            tokens = state[:, None]
+        elif variant == "frame_prompt":
+            tokens = state[:, None]
+        elif variant == "vector_sum":
+            tokens = (identity + state)[:, None]
+        elif variant == "ftg":
+            tokens = torch.stack([identity, state], dim=1)
+        else:
+            raise ValueError(f"unknown strong grounding variant: {variant}")
+        return tokens, gate

@@ -17,6 +17,11 @@ from peft import PeftModelForCausalLM
 
 from transformers import AutoImageProcessor, AutoVideoProcessor
 
+from projects.evoseg.ftg.strong_interface import (
+    FactorizedPromptTokens,
+    StrongGroundingVariant,
+)
+
 class Sa2VAModel(BaseModel):
     def __init__(self,
                  mllm,
@@ -40,6 +45,8 @@ class Sa2VAModel(BaseModel):
                  # grounding-encoder input resolution for the no-mask pseudo data.
                  # 1024 = SAM2 native; set 1008 for the HF SAM3 tracker.
                  grounding_img_size:int=1024,
+                 grounding_variant: StrongGroundingVariant='identity_memory',
+                 use_existence_head: bool=True,
                  ):
         super().__init__()
         if special_tokens is None:
@@ -76,11 +83,22 @@ class Sa2VAModel(BaseModel):
             nn.Linear(in_dim, in_dim), nn.ReLU(inplace=True),
             nn.Linear(in_dim, out_dim), nn.Dropout(0.0)
         )
+        self.grounding_variant = grounding_variant
+        self.factorized_grounding = (
+            None
+            if grounding_variant == 'identity_memory'
+            else FactorizedPromptTokens(out_dim)
+        )
+        self.use_existence_head = use_existence_head
         # [TEG] Temporal Existence Gate: per-frame presence from the [SEG]
         # embedding (lang) x the SAM2 image feature of each frame (feat).
-        self.existence_head = nn.Sequential(
-            nn.Linear(out_dim + out_dim, out_dim), nn.ReLU(inplace=True),
-            nn.Linear(out_dim, 1)
+        self.existence_head = (
+            nn.Sequential(
+                nn.Linear(out_dim + out_dim, out_dim), nn.ReLU(inplace=True),
+                nn.Linear(out_dim, 1)
+            )
+            if use_existence_head
+            else None
         )
         self.loss_mask = BUILDER.build(loss_mask)
         self.loss_dice = BUILDER.build(loss_dice)
@@ -181,14 +199,18 @@ class Sa2VAModel(BaseModel):
         state_dict_mllm = self.mllm.state_dict(*args, prefix=prefix + 'mllm.', **kwargs)
         state_dict_sam2 = self.grounding_encoder.state_dict(*args, prefix=prefix + 'grounding_encoder.', **kwargs)
         state_dict_text = self.text_hidden_fcs.state_dict(*args, prefix=prefix + 'text_hidden_fcs.', **kwargs)
-        state_dict_exist = self.existence_head.state_dict(*args, prefix=prefix + 'existence_head.', **kwargs)
         to_return = OrderedDict()
         to_return.update(state_dict_mllm)
         to_return.update(
             {k: v
              for k, v in state_dict_sam2.items() if k.startswith('grounding_encoder.sam2_model.sam_mask_decoder')})
         to_return.update(state_dict_text)
-        to_return.update(state_dict_exist)
+        if self.factorized_grounding is not None:
+            to_return.update(self.factorized_grounding.state_dict(
+                *args, prefix=prefix + 'factorized_grounding.', **kwargs))
+        if self.existence_head is not None:
+            to_return.update(self.existence_head.state_dict(
+                *args, prefix=prefix + 'existence_head.', **kwargs))
         return to_return
 
     def check_obj_number(self, pred_embeddings_list_video, gt_masks_video, fix_number=5):
@@ -288,8 +310,19 @@ class Sa2VAModel(BaseModel):
         ])
         num_objs = pred_embeddings_list_video[0].shape[0]
         num_frames = len(pred_embeddings_list_video)
-        language_embeddings = torch.cat(pred_embeddings_list_video, dim=0)[:, None]
+        identity_embeddings = torch.cat(pred_embeddings_list_video, dim=0)[:, None]
         sam_states = self.grounding_encoder.get_sam2_embeddings(g_pixel_values, expand_size=num_objs)
+        vis_feat = sam_states['current_vision_feats'][-1]          # [HW, T*nobj, C]
+        frame_features = vis_feat.permute(1, 0, 2)                 # [T*nobj, HW, C]
+        feat_pool = vis_feat.mean(dim=0)                            # legacy TEG only
+        if self.factorized_grounding is None:
+            language_embeddings = identity_embeddings
+        else:
+            language_embeddings, _ = self.factorized_grounding(
+                identity_embeddings.squeeze(1),
+                frame_features,
+                variant=self.grounding_variant,
+            )
         pred_masks = self.grounding_encoder.inject_language_embd(sam_states, language_embeddings, nf_nobj=(num_frames, num_objs))
 
         gt_masks = [F.interpolate(gt_mask.unsqueeze(0), size=pred_masks[0].shape[-2:], mode='nearest').squeeze(0) for gt_mask in gt_masks_video]
@@ -299,16 +332,19 @@ class Sa2VAModel(BaseModel):
         # [TEG] temporal existence gate: per-frame presence e_t predicted from
         # the SAM2 frame features x the [SEG] embedding, supervised by the
         # per-frame GT mask presence (absent frames carry zero masks).
-        vis_feat = sam_states['current_vision_feats'][-1]          # [HW, T*nobj, C]
-        feat_pool = vis_feat.mean(dim=0)                            # [N, C] (mean over spatial HW)
-        lang_emb = language_embeddings.squeeze(1)                  # [T*nobj, C]
-        e_logit = self.existence_head(
-            torch.cat([feat_pool, lang_emb], dim=-1)).squeeze(-1)  # [T*nobj]
-        presence = torch.stack([
-            (g > 0).any(dim=-1).any(dim=-1).float() for g in gt_masks_video
-        ], dim=0).reshape(-1)                                       # [T*nobj]
-        n_e = min(e_logit.shape[0], presence.shape[0])
-        e_logit, presence = e_logit[:n_e], presence[:n_e]
+        if self.existence_head is not None:
+            lang_emb = identity_embeddings.squeeze(1)              # [T*nobj, C]
+            e_logit = self.existence_head(
+                torch.cat([feat_pool, lang_emb], dim=-1)).squeeze(-1)
+            presence = torch.stack([
+                (g > 0).any(dim=-1).any(dim=-1).float()
+                for g in gt_masks_video
+            ], dim=0).reshape(-1)
+            n_e = min(e_logit.shape[0], presence.shape[0])
+            e_logit, presence = e_logit[:n_e], presence[:n_e]
+        else:
+            e_logit = identity_embeddings.new_empty(0)
+            presence = identity_embeddings.new_empty(0)
 
         bs = len(pred_masks)
         loss_mask, loss_dice, loss_exist = 0, 0, 0
