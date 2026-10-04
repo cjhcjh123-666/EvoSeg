@@ -199,3 +199,28 @@ against a persistent identity representation for FTG and against a frame-varying
 monolithic representation for Frame Prompt. The score is trained with the same
 one-target supervision and used identically at inference; it is part of the
 grounding interface, not an oracle, verifier, or post-hoc matcher.
+
+## Identity-aware query association
+
+The first association head used a learned cosine term with initial scale 1.
+It failed consistently: FTG minus Frame Prompt was -6.50, -2.70, and -8.19
+overall J&F at seeds 11, 23, and 31 under the eight-frame budget. At 16 frames,
+the seed-11 difference was -4.44. FTG's oracle J&F nevertheless remained between
+82.35 and 89.47 for the two primary seeds. Persistent identity alone therefore
+does not calibrate the frozen decoder's candidate scores in this small training
+regime.
+
+Score-magnitude logging explained one concrete issue. Native SAM query logits
+had standard deviation 1.0--1.24, whereas cosine alignment had standard
+deviation only 0.05--0.07; the learned scale stayed near 1.005 after 72 updates.
+A scale-10 softmax-ranking replication made the terms comparable and improved
+Long-RVOS Hybrid by +7.15 and +9.58 points at seeds 11 and 23. However, overall
+J&F still fell by 4.09 and 1.42 points because Static, Dynamic, and MeViS did
+not retain their performance. This stronger ranker is also rejected rather than
+selected for its favorable Hybrid subset.
+
+The next scale gate returns to the only cross-seed-positive configuration: the
+native-text anchor with a small full FTG residual at T=8. It expands to 192
+public expressions (144 train, 48 video-disjoint validation), four epochs, three
+optimization seeds, and Identity/State controls. This determines whether the
+repeatable +2.96/+2.98 small-pilot gain survives adequate coverage.
