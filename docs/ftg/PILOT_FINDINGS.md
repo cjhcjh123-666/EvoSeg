@@ -140,3 +140,22 @@ bank. It injects each learned prompt into one official SAM3.1 tracker object
 slot and retains only the tracker's small multimask ambiguity set. This path is
 an architectural grounding-interface control, not post-hoc matching, and uses
 about half the pilot memory of the detector path.
+
+## Stable tracker-slot interface
+
+The tracker-slot control removed most query permutation but also removed the
+useful segmentation candidates. Frame Prompt reached only 15.11 overall J&F at
+seed 11, with a matched-query upper bound of 15.78; FTG reached 15.07. At seed
+23, Frame Prompt and FTG reached 15.10 and 15.70. All six seed-11 variants fell
+in the narrow 15.06--15.50 range. The issue is therefore decoder capacity for
+this prompt type, not query selection. A raw projected language vector is not a
+valid substitute for the visual object embedding expected by the tracker mask
+decoder.
+
+Inspection of the official SAM3.1 detector showed that its score head compares
+object queries against the complete native language-token sequence. The next
+interface preserves that pretrained native text grounding as a semantic
+identity anchor and introduces Qwen Frame/FTG prompts only as a near-zero visual
+residual. This makes the initial model equivalent up to a 1e-3 residual scale to
+the public SAM3.1 text baseline, instead of asking a small pilot to relearn the
+entire Qwen-to-SAM semantic space.
