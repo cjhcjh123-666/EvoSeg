@@ -37,9 +37,25 @@ the foundation and +0.666506 points over two-token FTG. Target-present J&F shows
 the same contrast (68.219 versus 67.519 versus 67.634 for broad Identity, broad
 FTG, and the public foundation). Thus public-video Qwen/identity adaptation is
 promising, but the current extra state token removes its gain. A complete
-identity-adapted evaluation is running. The next method gate should preserve
-this adapted identity base and learn state only as a zero-initialized second
-stage, rather than jointly moving Qwen and introducing a new prompt interface.
+identity-adapted evaluation reached J=58.80, F=67.31, and J&F=63.06 on all 907
+expressions, +1.10 points over the public foundation. Target-present J&F also
+improved from 64.60 to 65.38 (+0.78), so the gain is not solely an absent-target
+artifact. The next method gate should preserve this adapted identity base and
+learn state only as a zero-initialized second stage, rather than jointly moving
+Qwen and introducing a new prompt interface. Because this checkpoint was still
+trained through the joint FTG interface, a clean single-prompt Identity
+Adaptation run with the same data and budget is required for final attribution.
+
+Qualitative extremes confirm that identity adaptation changes instance
+selection rather than merely mask boundaries. It corrects near-total target
+swaps for “the advancing cow that was the first to come closer” (present-frame
+J 0.003 to 0.864) and the elephant being attacked by the others (0.009 to
+0.877). Conversely, it changes a correctly tracked descending turtle to a
+different turtle (0.881 to 0.003) and switches the referent of “the girl is
+circling around what?” from the bicycle to the girl (0.720 to 0.025). The eight
+ranked temporal sheets and manifest are stored in the 128-expression result's
+`qualitatives/` directory. This bidirectional re-ranking is why a second-stage
+state branch must retain an explicit fixed identity base.
 
 This file records pilot outcomes, including negative evidence. Values are held-out
 J&F percentages on a 48-expression development pilot (36 train, 12 validation),

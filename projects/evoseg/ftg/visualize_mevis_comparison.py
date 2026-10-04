@@ -93,7 +93,16 @@ def fit(image, size):
     return canvas
 
 
-def render(record, baseline, ftg, mask_dictionary, image_root, output):
+def render(
+    record,
+    baseline,
+    ftg,
+    mask_dictionary,
+    image_root,
+    output,
+    baseline_label="Strong baseline",
+    candidate_label="FTG",
+):
     video_id = record["video_id"]
     expression_id = record["expression_id"]
     base_item = baseline[video_id][expression_id]
@@ -108,13 +117,16 @@ def render(record, baseline, ftg, mask_dictionary, image_root, output):
     draw = ImageDraw.Draw(sheet)
     title = (
         f"{video_id}/{expression_id}  "
-        f"J: baseline {record['baseline_j']:.3f} | FTG {record['ftg_j']:.3f} "
+        f"J: {baseline_label} {record['baseline_j']:.3f} | "
+        f"{candidate_label} {record['ftg_j']:.3f} "
         f"| delta {record['delta_j']:+.3f}"
     )
     draw.text((8, 6), title, fill="black")
     query = record["expression"]
     draw.text((8, 27), query[:190], fill="black")
-    for column, label in enumerate(("RGB", "Ground truth", "Strong baseline", "FTG")):
+    for column, label in enumerate(
+        ("RGB", "Ground truth", baseline_label, candidate_label)
+    ):
         draw.text((column * cell[0] + 8, 54), label, fill="black")
     for row, frame_index in enumerate(indices):
         frame_name = frames[frame_index]
@@ -145,6 +157,8 @@ def parse_args():
     parser.add_argument("--image-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--per-side", type=int, default=4)
+    parser.add_argument("--baseline-label", default="Strong baseline")
+    parser.add_argument("--candidate-label", default="FTG")
     return parser.parse_args()
 
 
@@ -164,8 +178,16 @@ def main():
             f"{index:02d}_{side}_{record['video_id']}_"
             f"{record['expression_id']}.jpg"
         )
-        render(record, baseline, ftg, mask_dictionary, args.image_root,
-               args.output / filename)
+        render(
+            record,
+            baseline,
+            ftg,
+            mask_dictionary,
+            args.image_root,
+            args.output / filename,
+            baseline_label=args.baseline_label,
+            candidate_label=args.candidate_label,
+        )
         record["file"] = filename
     (args.output / "manifest.json").write_text(
         json.dumps(selected, indent=2) + "\n"
