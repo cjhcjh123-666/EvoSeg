@@ -43,8 +43,17 @@ improved from 64.60 to 65.38 (+0.78), so the gain is not solely an absent-target
 artifact. The next method gate should preserve this adapted identity base and
 learn state only as a zero-initialized second stage, rather than jointly moving
 Qwen and introducing a new prompt interface. Because this checkpoint was still
-trained through the joint FTG interface, a clean single-prompt Identity
-Adaptation run with the same data and budget is required for final attribution.
+trained through the joint FTG interface, we also ran a clean single-prompt
+Identity Adaptation control with the same data and budget. It reached J=60.00,
+F=68.20, and J&F=64.10 on the 128-expression gate, with target-present
+J&F=66.89. This is 0.71/0.75 points below the public foundation overall/on
+target-present expressions, so ordinary public-video Qwen adaptation does not
+explain the gain and is not advanced to the complete split. The contrast with
+the joint checkpoint's identity readout (65.37/68.22) indicates that
+state-conditioned training improves the identity representation even though
+the current direct two-token composition removes that improvement. The next
+gate therefore freezes the jointly adapted identity foundation and learns a
+fresh zero-initialized, norm-bounded state residual.
 
 The repaired Frame Prompt checkpoint fails the same 128-expression controlled
 gate: J=19.38, F=23.20, and J&F=21.29, with target-present J&F=19.24. This is
