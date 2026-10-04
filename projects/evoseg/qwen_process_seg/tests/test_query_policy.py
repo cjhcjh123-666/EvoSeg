@@ -26,6 +26,19 @@ def test_fixed_slot_uses_the_same_query_for_training_and_inference():
     assert predicted.tolist() == [0, 0]
 
 
+def test_consistent_score_uses_one_score_selected_query_for_the_clip():
+    losses = torch.tensor([[0.0, 1.0], [1.0, 0.0], [0.0, 1.0]])
+    scores = torch.tensor([[0.0, 2.0], [3.0, 0.0], [0.0, 2.0]])
+
+    oracle, supervised, predicted = query_assignments(
+        losses, scores, "consistent_score"
+    )
+
+    assert oracle.tolist() == [0, 1, 0]
+    assert supervised.tolist() == [0, 1, 0]
+    assert predicted.tolist() == [1, 1, 1]
+
+
 def test_fixed_slot_validates_query_index():
     values = torch.zeros(2, 3)
     with pytest.raises(ValueError):

@@ -45,6 +45,9 @@ def query_assignments(
         raise ValueError(f"unknown match scope: {match_scope}")
     if policy == "predicted_score":
         return oracle, oracle, scores.argmax(dim=-1)
+    if policy == "consistent_score":
+        clip_query = scores.detach().mean(dim=0).argmax()
+        return oracle, oracle, clip_query.expand(scores.shape[0])
     if policy == "fixed_slot":
         if not 0 <= fixed_query_index < scores.shape[-1]:
             raise ValueError("fixed query index is outside the SAM query bank")
@@ -256,7 +259,7 @@ class QwenSegSAM31(nn.Module):
         )
         selection_weight = (
             float(getattr(self, "selection_loss_weight", 0.1))
-            if self.query_policy == "predicted_score" else 0.0
+            if self.query_policy in {"predicted_score", "consistent_score"} else 0.0
         )
         diagnostics["query_policy"] = self.query_policy
         diagnostics["selection_loss_type"] = self.selection_loss_type

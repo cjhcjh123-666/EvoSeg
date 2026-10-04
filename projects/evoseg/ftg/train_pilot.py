@@ -452,7 +452,8 @@ def parse_args() -> argparse.Namespace:
         default="softmax_ce",
     )
     parser.add_argument(
-        "--query-policy", choices=("predicted_score", "fixed_slot"),
+        "--query-policy",
+        choices=("predicted_score", "consistent_score", "fixed_slot"),
         default="predicted_score",
     )
     parser.add_argument(

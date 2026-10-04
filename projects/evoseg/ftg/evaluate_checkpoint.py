@@ -42,6 +42,8 @@ def run(args: argparse.Namespace) -> dict:
     model.query_policy = checkpoint.get("result", {}).get(
         "query_policy", "predicted_score"
     )
+    if args.query_policy is not None:
+        model.query_policy = args.query_policy
     model.match_scope = checkpoint.get("result", {}).get("match_scope", "frame")
     set_peft_model_state_dict(model.qwen, checkpoint["qwen_lora"])
     model.grounding.load_state_dict(checkpoint["grounding"])
@@ -49,6 +51,8 @@ def run(args: argparse.Namespace) -> dict:
         "variant": variant,
         "checkpoint": str(args.checkpoint),
         "manifest": str(args.manifest),
+        "query_policy": model.query_policy,
+        "match_scope": model.match_scope,
         "orders": {},
     }
     for order in args.eval_orders:
@@ -78,6 +82,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=11)
     parser.add_argument("--qwen-pixels", type=int, default=100352)
     parser.add_argument("--visualize-count", type=int, default=12)
+    parser.add_argument(
+        "--query-policy",
+        choices=("predicted_score", "consistent_score", "fixed_slot"),
+    )
     parser.add_argument(
         "--eval-orders", nargs="+", choices=("original", "shuffle", "reverse"),
         default=("original",),
