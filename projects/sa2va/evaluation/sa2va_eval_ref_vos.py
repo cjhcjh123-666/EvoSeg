@@ -96,6 +96,12 @@ DATASETS_INFO = {
         'expression_file': 'data/video_datas/mevis/test/meta_expressions_release.json',
         'mask_file': None,
     },
+    'LONG_RVOS': {
+        'data_root': 'data/video_datas/long_rvos/valid/',
+        'image_folder': 'data/video_datas/long_rvos/valid/JPEGImages',
+        'expression_file': 'data/video_datas/long_rvos/valid/meta_expressions.json',
+        'mask_file': None,
+    },
     'REFYTVOS': {
         'data_root': 'data/video_datas/rvos/',
         'image_folder': 'data/video_datas/rvos/valid/JPEGImages/',
