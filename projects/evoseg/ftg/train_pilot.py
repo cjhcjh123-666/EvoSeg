@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import time
 from collections import defaultdict
@@ -192,6 +193,14 @@ def evaluate(
                 "gate_mean": output["gate_mean"].float().item(),
                 "gate_std": output["gate_std"].float().item(),
                 "prompt_cross_frame_std": output["prompt_cross_frame_std"].float().item(),
+                "native_query_score_std": (
+                    output["native_query_scores"].float().std().item()
+                    if "native_query_scores" in output else None
+                ),
+                "identity_query_alignment_std": (
+                    output["identity_query_alignment"].float().std().item()
+                    if "identity_query_alignment" in output else None
+                ),
             }
         )
     return {"order": order, "aggregate": _aggregate(records), "records": records}
@@ -267,6 +276,11 @@ def run(args: argparse.Namespace) -> dict:
     model.selection_loss_type = args.selection_loss_type
     model.query_policy = args.query_policy
     model.query_score_mode = args.query_score_mode
+    if args.query_association_scale_init <= 0:
+        raise ValueError("query association scale must be positive")
+    model.query_association_logit_scale.data.fill_(
+        math.log(args.query_association_scale_init)
+    )
     model.match_scope = args.match_scope
     model.sam_interface = args.sam_interface
     model.native_residual_scale.data.fill_(args.native_residual_scale_init)
@@ -359,6 +373,14 @@ def run(args: argparse.Namespace) -> dict:
                     output["native_residual_scale"].detach().float().item()
                     if "native_residual_scale" in output else None
                 ),
+                "native_query_score_std": (
+                    output["native_query_scores"].detach().float().std().item()
+                    if "native_query_scores" in output else None
+                ),
+                "identity_query_alignment_std": (
+                    output["identity_query_alignment"].detach().float().std().item()
+                    if "identity_query_alignment" in output else None
+                ),
                 "sam_parameter_grad_count": sam_grad_count,
                 "elapsed_seconds": time.perf_counter() - before,
             }
@@ -412,6 +434,9 @@ def run(args: argparse.Namespace) -> dict:
         "selection_loss_type": args.selection_loss_type,
         "query_policy": args.query_policy,
         "query_score_mode": args.query_score_mode,
+        "query_association_scale": (
+            model.query_association_logit_scale.detach().float().exp().item()
+        ),
         "match_scope": args.match_scope,
         "sam_interface": args.sam_interface,
         "native_residual_scale": model.native_residual_scale.detach().float().item(),
@@ -489,6 +514,7 @@ def parse_args() -> argparse.Namespace:
         choices=("native", "representation"),
         default="native",
     )
+    parser.add_argument("--query-association-scale-init", type=float, default=1.0)
     parser.add_argument(
         "--match-scope", choices=("frame", "video"), default="frame",
     )

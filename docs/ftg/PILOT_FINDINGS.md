@@ -159,3 +159,43 @@ identity anchor and introduces Qwen Frame/FTG prompts only as a near-zero visual
 residual. This makes the initial model equivalent up to a 1e-3 residual scale to
 the public SAM3.1 text baseline, instead of asking a small pilot to relearn the
 entire Qwen-to-SAM semantic space.
+
+## Native-text anchor and temporal-budget replication
+
+The native SAM3.1 text anchor substantially improved the controlled baseline and
+produced the first cross-seed repeatable FTG contrast at an eight-frame budget.
+At seed 11, FTG reached 38.99 overall J&F versus 36.03 for Frame Prompt; at seed
+23 it reached 39.01 versus 36.04. The overall gains were therefore +2.96 and
++2.98 points. Long-RVOS Hybrid also repeated closely (+5.63 and +5.67), and
+MeViS motion improved by +4.05 and +2.02. Long-RVOS Dynamic was unchanged
+(+0.00 and -0.02), while Static changed by -0.01 and +6.15.
+
+This is encouraging but not yet evidence of a selectively dynamic gain. Each
+Long-RVOS type has only two validation expressions, Dynamic remains near zero in
+absolute J&F, and the seed-23 Static gain is larger than the mean motion-sensitive
+gain. The result justifies a larger replication; it does not by itself satisfy
+the stronger identity/state mechanism claim.
+
+## Dynamic-only residual and query-ranking failure
+
+A stricter factorized interface treated frozen SAM3.1 native text as the identity
+base and let FTG contribute only its gated dynamic-state residual. Without an
+identity-aware association score, this version failed consistently. At 16 frames
+with binary objectness, FTG versus Frame Prompt was 25.46 versus 34.36 at seed 11
+and 27.01 versus 30.32 at seed 23. Replacing binary objectness with softmax
+cross-entropy still gave 34.62 versus 38.62 at seed 11. The eight-frame contrast
+was also inconsistent (-0.76 at seed 11, +1.28 at seed 23).
+
+The negative actual scores coexist with very strong candidate-mask upper bounds:
+FTG oracle J&F reached 85.98 at seed 11 and 81.57 at seed 23, and reached 90.41
+under the softmax ablation. Qualitative examples likewise show good masks in the
+candidate set but switches between people and temporal false-positive residue.
+Thus factorizing only the prompt content is insufficient: persistent identity
+must also participate in candidate association.
+
+The next interface uses frozen SAM object-query features already produced by the
+official decoder. A shared end-to-end alignment head scores those candidates
+against a persistent identity representation for FTG and against a frame-varying
+monolithic representation for Frame Prompt. The score is trained with the same
+one-target supervision and used identically at inference; it is part of the
+grounding interface, not an oracle, verifier, or post-hoc matcher.

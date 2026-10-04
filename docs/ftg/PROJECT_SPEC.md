@@ -17,9 +17,11 @@ the VLM without being exposed to the mask decoder through the right interface.
 
 **Factorized Temporal Grounding (FTG)** separates the grounding representation
 into one video-level persistent identity token and frame-dependent state tokens.
-Each state is conditioned on the fixed identity. Their composition is a stable
-identity base plus a gated dynamic residual, decoded through frozen official
-SAM3.1:
+Each state is conditioned on the fixed identity. Frozen SAM3.1 native text
+features provide the pretrained semantic anchor, while FTG assigns the two
+factors distinct jobs: the dynamic state supplies a gated frame-specific prompt
+residual, and the persistent identity associates the referred object with SAM's
+candidate object-query features:
 
 \[
 z^{id}=F_{id}(q,\operatorname{Pool}_t H_t),\qquad
@@ -27,11 +29,17 @@ z_t^{state}=F_{state}(H_t,z^{id}),
 \]
 
 \[
-p_t=W_{id}z^{id}+\sigma(W_g[z^{id};z_t^{state}])\odot
-W_{state}z_t^{state}.
+p_t^{dyn}=\sigma(W_g[z^{id};z_t^{state}])\odot
+W_{state}z_t^{state},
+\qquad
+s_{t,k}=s^{SAM}_{t,k}+\tau\cos(Az^{id},h^{SAM}_{t,k}).
 \]
 
-This is representation factorization, not another temporal aggregation module.
+Here the selected mask is \(M_{t,\arg\max_k s_{t,k}}\). Frame Prompt receives
+the same association head but replaces the persistent identity with its
+frame-dependent monolithic representation, keeping the decisive comparison
+controlled. This is representation factorization, not another temporal
+aggregation module.
 The implementation adds no verifier, refusal path, candidate bank, process
 compiler, GRU, RL objective, keyframe classifier, or post-hoc matcher.
 
