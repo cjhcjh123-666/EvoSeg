@@ -59,7 +59,7 @@ def eval_expression(task):
         fs.append(float(db_eval_boundary(target, prediction)))
     if not js:
         return None
-    return float(np.mean(js)), float(np.mean(fs))
+    return float(np.mean(js)), float(np.mean(fs)), not anno_ids
 
 
 def parse_args():
@@ -95,16 +95,29 @@ def main():
                 pairs.append(score)
             if (index + 1) % 100 == 0:
                 print(f"  {index + 1}/{len(tasks)} expressions", flush=True)
-    js = [score[0] for score in pairs]
-    fs = [score[1] for score in pairs]
+    def summarize(scores):
+        if not scores:
+            return {"evaluated_pairs": 0, "mean_j": None, "mean_f": None,
+                    "j_and_f": None}
+        js = [score[0] for score in scores]
+        fs = [score[1] for score in scores]
+        return {
+            "evaluated_pairs": len(scores),
+            "mean_j": float(np.mean(js)),
+            "mean_f": float(np.mean(fs)),
+            "j_and_f": float((np.mean(js) + np.mean(fs)) / 2),
+        }
+
+    overall = summarize(pairs)
+    target_present = summarize([score for score in pairs if not score[2]])
+    no_target = summarize([score for score in pairs if score[2]])
     summary = {
         "protocol": "DAVIS J&F (Long-RVOS vendored official implementation)",
         "empty_frame_semantics": "empty/empty=1; false-positive-on-empty=0",
         "results": str(args.results),
-        "evaluated_pairs": len(pairs),
-        "mean_j": float(np.mean(js)),
-        "mean_f": float(np.mean(fs)),
-        "j_and_f": float((np.mean(js) + np.mean(fs)) / 2),
+        **overall,
+        "target_present": target_present,
+        "no_target": no_target,
     }
     print(json.dumps(summary, indent=2), flush=True)
     if args.output:

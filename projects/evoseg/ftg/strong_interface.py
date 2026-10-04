@@ -14,6 +14,7 @@ StrongGroundingVariant = Literal[
     "frame_prompt",
     "vector_sum",
     "ftg",
+    "anchored_ftg",
 ]
 
 
@@ -42,6 +43,16 @@ class FactorizedPromptTokens(nn.Module):
             nn.GELU(),
             nn.Linear(hidden_dim, hidden_dim),
         )
+        # The strong-foundation path must begin as the published model, not as
+        # a randomly perturbed prompt.  This separate residual is exactly zero
+        # at initialization and is the only new content used by anchored FTG.
+        self.anchored_state_mlp = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        nn.init.zeros_(self.anchored_state_mlp[-1].weight)
+        nn.init.zeros_(self.anchored_state_mlp[-1].bias)
         self.state_gate = nn.Sequential(
             nn.Linear(hidden_dim * 2, hidden_dim),
             nn.GELU(),
@@ -49,7 +60,11 @@ class FactorizedPromptTokens(nn.Module):
         )
 
     def state_observation(
-        self, identity: torch.Tensor, frame_features: torch.Tensor
+        self,
+        identity: torch.Tensor,
+        frame_features: torch.Tensor,
+        *,
+        anchored: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if identity.ndim != 2 or frame_features.ndim != 3:
             raise ValueError("identity must be [N, C] and frame_features [N, S, C]")
@@ -66,7 +81,8 @@ class FactorizedPromptTokens(nn.Module):
             [self.identity_norm(identity), observation], dim=-1
         )
         gate = self.state_gate(inputs).sigmoid()
-        state = gate * self.state_mlp(inputs)
+        state_mlp = self.anchored_state_mlp if anchored else self.state_mlp
+        state = gate * state_mlp(inputs)
         return state, gate
 
     def forward(
@@ -75,7 +91,10 @@ class FactorizedPromptTokens(nn.Module):
         frame_features: torch.Tensor,
         variant: StrongGroundingVariant = "ftg",
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        state, gate = self.state_observation(identity, frame_features)
+        anchored = variant == "anchored_ftg"
+        state, gate = self.state_observation(
+            identity, frame_features, anchored=anchored
+        )
         if variant == "identity_memory":
             tokens = identity[:, None]
         elif variant == "state_only":
@@ -89,6 +108,11 @@ class FactorizedPromptTokens(nn.Module):
             tokens = (identity + state)[:, None]
         elif variant == "ftg":
             tokens = torch.stack([identity, state], dim=1)
+        elif variant == "anchored_ftg":
+            # One sparse prompt retains the pretrained identity geometry.  The
+            # target-aware dynamic state can move it only after learning; at
+            # initialization this is bit-for-bit the identity-memory prompt.
+            tokens = (identity + state)[:, None]
         else:
             raise ValueError(f"unknown strong grounding variant: {variant}")
         return tokens, gate

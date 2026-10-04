@@ -15,3 +15,10 @@ changing the model or optimization recipe.
 It inherits the exact checkpoint, seed, data order, optimization, and training
 budget, but sends only the frame-dependent state token to SAM3. The difference
 from FTG is therefore the persistent identity token, not frame conditioning.
+
+`anchored_ftg_qwen3_4b_sam3_video_pilot.py` is the foundation-preserving
+follow-up after the first full FTG run regressed on MeViS. It freezes Qwen and
+the pretrained `[SEG]` projection, disables LoRA, and learns only a
+zero-initialized, identity-conditioned dynamic residual. Its step-zero prompt
+is exactly the original single identity token; this prevents broad fine-tuning
+or a random extra sparse token from destroying the reproduced strong baseline.

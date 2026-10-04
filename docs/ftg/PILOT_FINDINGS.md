@@ -12,6 +12,8 @@ over all 907 expressions, including absent-object frames with the official
 DAVIS/Long-RVOS empty-mask convention, produced J=57.69, F=66.22, and
 J&F=61.95. The raw prediction file and metric summary are stored under
 `evo_artifacts/results/ftg/20261004_sa2va_qwen3_sam3_mevisu_baseline/MEVIS_U/`.
+On the 869 target-present expressions alone it reached J&F=64.60; the official
+overall score also contains 38 native MeViS-v2 no-target expressions.
 
 An earlier local diagnostic reported J=59.37, F=53.25, and J&F=56.31 over only
 869 expressions. It skipped empty-target frames and used normalized mean
@@ -35,6 +37,8 @@ eight A800 GPUs without NaNs or OOMs.
 On the complete MeViS-v2 `val^u` split, official native-resolution scoring gave
 J=43.87, F=51.00, and J&F=47.43. This is **14.52 J&F points below** the frozen
 strong checkpoint. The result rejects this training recipe as a paper method.
+The same conclusion holds after removing the 38 no-target expressions: FTG
+reached 49.31 versus 64.60 for the foundation, a 15.29-point regression.
 It does not yet distinguish two coupled changes: the new second sparse state
 token and broad adaptation of 1.041B Qwen/embedding parameters on only 3,517
 video samples. A same-budget Frame Prompt run is the immediate controlled test.

@@ -47,6 +47,7 @@ class Sa2VAModel(BaseModel):
                  grounding_img_size:int=1024,
                  grounding_variant: StrongGroundingVariant='identity_memory',
                  use_existence_head: bool=True,
+                 freeze_foundation: bool=False,
                  ):
         super().__init__()
         if special_tokens is None:
@@ -89,7 +90,13 @@ class Sa2VAModel(BaseModel):
             if grounding_variant == 'identity_memory'
             else FactorizedPromptTokens(out_dim)
         )
+        if self.factorized_grounding is not None:
+            if grounding_variant == 'anchored_ftg':
+                self.factorized_grounding.state_mlp.requires_grad_(False)
+            else:
+                self.factorized_grounding.anchored_state_mlp.requires_grad_(False)
         self.use_existence_head = use_existence_head
+        self.freeze_foundation = freeze_foundation
         # [TEG] Temporal Existence Gate: per-frame presence from the [SEG]
         # embedding (lang) x the SAM2 image feature of each frame (feat).
         self.existence_head = (
@@ -133,6 +140,14 @@ class Sa2VAModel(BaseModel):
 
         if self.mllm.use_llm_lora:
             self.mllm.manual_prepare_llm_for_lora()
+
+        if self.freeze_foundation:
+            # Preserve the public foundation exactly.  In particular, freezing
+            # must happen after Qwen's output embedding is untied and after any
+            # optional PEFT wrapping, otherwise the newly created parameters
+            # silently remain trainable.
+            self.mllm.requires_grad_(False)
+            self.text_hidden_fcs.requires_grad_(False)
 
         # Keep distributed startup logs bounded: eight ranks printing every Qwen
         # tensor can produce megabytes of duplicated output before step zero.
@@ -190,9 +205,18 @@ class Sa2VAModel(BaseModel):
 
     def state_dict(self, *args, **kwargs):
         prefix = kwargs.pop('prefix', '')
-        state_dict_mllm = self.mllm.state_dict(*args, prefix=prefix + 'mllm.', **kwargs)
+        state_dict_mllm = (
+            OrderedDict()
+            if self.freeze_foundation
+            else self.mllm.state_dict(*args, prefix=prefix + 'mllm.', **kwargs)
+        )
         state_dict_sam2 = self.grounding_encoder.state_dict(*args, prefix=prefix + 'grounding_encoder.', **kwargs)
-        state_dict_text = self.text_hidden_fcs.state_dict(*args, prefix=prefix + 'text_hidden_fcs.', **kwargs)
+        state_dict_text = (
+            OrderedDict()
+            if self.freeze_foundation
+            else self.text_hidden_fcs.state_dict(
+                *args, prefix=prefix + 'text_hidden_fcs.', **kwargs)
+        )
         to_return = OrderedDict()
         to_return.update(state_dict_mllm)
         to_return.update(
