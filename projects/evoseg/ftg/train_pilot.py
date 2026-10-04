@@ -267,6 +267,7 @@ def run(args: argparse.Namespace) -> dict:
     model.selection_loss_type = args.selection_loss_type
     model.query_policy = args.query_policy
     model.match_scope = args.match_scope
+    model.sam_interface = args.sam_interface
     model.executor.visual_chunk_size = args.sam_visual_chunk_size
     model.executor.decode_chunk_size = args.sam_decode_chunk_size
     groups = model.parameter_groups()
@@ -395,6 +396,7 @@ def run(args: argparse.Namespace) -> dict:
         "selection_loss_type": args.selection_loss_type,
         "query_policy": args.query_policy,
         "match_scope": args.match_scope,
+        "sam_interface": args.sam_interface,
         "sam_visual_chunk_size": args.sam_visual_chunk_size,
         "sam_decode_chunk_size": args.sam_decode_chunk_size,
         "validation": {
@@ -458,6 +460,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--match-scope", choices=("frame", "video"), default="frame",
+    )
+    parser.add_argument(
+        "--sam-interface",
+        choices=("detector_grounding", "tracker_slot"),
+        default="detector_grounding",
     )
     parser.add_argument("--sam-visual-chunk-size", type=int, default=4)
     parser.add_argument("--sam-decode-chunk-size", type=int, default=4)

@@ -235,7 +235,8 @@ class FrozenSAM31Executor(nn.Module):
         self,
         frame_prompts: torch.Tensor,
         visual_features: tuple[torch.Tensor, list[torch.Tensor]],
-    ) -> torch.Tensor:
+        return_all_queries: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Return one official predicted logit mask per frame, object slot 0."""
         image_embedding, high_res = visual_features
         extra = multiplex_prompt_batch(
@@ -256,6 +257,8 @@ class FrozenSAM31Executor(nn.Module):
             )
         masks = output["masks"][:, 0]  # [T,K,H,W]
         quality = output["iou_pred"][:, 0]  # [T,K]
+        if return_all_queries:
+            return masks, quality
         chosen = quality.argmax(dim=-1)
         rows = torch.arange(masks.shape[0], device=masks.device)
         return masks[rows, chosen]

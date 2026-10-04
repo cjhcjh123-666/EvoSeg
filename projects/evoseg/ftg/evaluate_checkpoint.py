@@ -45,6 +45,9 @@ def run(args: argparse.Namespace) -> dict:
     if args.query_policy is not None:
         model.query_policy = args.query_policy
     model.match_scope = checkpoint.get("result", {}).get("match_scope", "frame")
+    model.sam_interface = checkpoint.get("result", {}).get(
+        "sam_interface", "detector_grounding"
+    )
     set_peft_model_state_dict(model.qwen, checkpoint["qwen_lora"])
     model.grounding.load_state_dict(checkpoint["grounding"])
     payload = {
@@ -53,6 +56,7 @@ def run(args: argparse.Namespace) -> dict:
         "manifest": str(args.manifest),
         "query_policy": model.query_policy,
         "match_scope": model.match_scope,
+        "sam_interface": model.sam_interface,
         "orders": {},
     }
     for order in args.eval_orders:

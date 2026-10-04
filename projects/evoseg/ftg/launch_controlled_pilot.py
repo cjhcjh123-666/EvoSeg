@@ -53,6 +53,7 @@ def run(args: argparse.Namespace) -> dict:
             "--selection-loss-type", args.selection_loss_type,
             "--query-policy", args.query_policy,
             "--match-scope", args.match_scope,
+            "--sam-interface", args.sam_interface,
             "--sam-visual-chunk-size", str(args.sam_visual_chunk_size),
             "--sam-decode-chunk-size", str(args.sam_decode_chunk_size),
         ]
@@ -94,6 +95,7 @@ def run(args: argparse.Namespace) -> dict:
         "selection_loss_type": args.selection_loss_type,
         "query_policy": args.query_policy,
         "match_scope": args.match_scope,
+        "sam_interface": args.sam_interface,
         "sam_visual_chunk_size": args.sam_visual_chunk_size,
         "sam_decode_chunk_size": args.sam_decode_chunk_size,
         "launches": launches,
@@ -125,6 +127,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--match-scope", choices=("frame", "video"), default="frame",
+    )
+    parser.add_argument(
+        "--sam-interface",
+        choices=("detector_grounding", "tracker_slot"),
+        default="detector_grounding",
     )
     parser.add_argument("--sam-visual-chunk-size", type=int, default=4)
     parser.add_argument("--sam-decode-chunk-size", type=int, default=4)

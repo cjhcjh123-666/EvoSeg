@@ -133,6 +133,7 @@ class QwenSegSAM31(nn.Module):
         self.fixed_query_index = 0
         self.selection_loss_type = "softmax_ce"
         self.match_scope = "frame"
+        self.sam_interface = "detector_grounding"
 
     def encode_qwen_context(
         self, frames: Sequence[Image.Image], query: str
@@ -189,12 +190,22 @@ class QwenSegSAM31(nn.Module):
         sam_visual_features: dict[str, list[torch.Tensor]] | None = None,
     ) -> dict:
         prompts, diagnostics = self.encode_qwen(frames, query)
-        visual = sam_visual_features or self.executor.extract_grounding_features(
-            frames, prompts.device
-        )
-        all_logits, scores = self.executor.decode_grounding_prompts(
-            prompts, visual, return_all_queries=True
-        )
+        if self.sam_interface == "detector_grounding":
+            visual = sam_visual_features or self.executor.extract_grounding_features(
+                frames, prompts.device
+            )
+            all_logits, scores = self.executor.decode_grounding_prompts(
+                prompts, visual, return_all_queries=True
+            )
+        elif self.sam_interface == "tracker_slot":
+            visual = sam_visual_features or self.executor.extract_visual_features(
+                frames, prompts.device
+            )
+            all_logits, scores = self.executor.decode(
+                prompts, visual, return_all_queries=True
+            )
+        else:
+            raise ValueError(f"unknown SAM interface: {self.sam_interface}")
         target = F.interpolate(
             masks[:, None].to(all_logits.device),
             size=all_logits.shape[-2:],
@@ -264,6 +275,7 @@ class QwenSegSAM31(nn.Module):
         diagnostics["query_policy"] = self.query_policy
         diagnostics["selection_loss_type"] = self.selection_loss_type
         diagnostics["match_scope"] = self.match_scope
+        diagnostics["sam_interface"] = self.sam_interface
         diagnostics["selection_loss_weight"] = selection_weight
         diagnostics["loss"] = bce + dice + selection_weight * selection
         return diagnostics
