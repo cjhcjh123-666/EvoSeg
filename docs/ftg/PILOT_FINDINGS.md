@@ -46,6 +46,17 @@ If broad adaptation is the shared failure, the next FTG variant must preserve
 the strong checkpoint exactly at initialization: freeze Qwen and the pretrained
 identity projection, and learn only a zero-initialized dynamic residual.
 
+Full-split qualitative ranking confirms that this is an identity-grounding
+failure rather than ordinary boundary noise. On “the individual giving
+sustenance to the lizard,” the foundation tracks the referred arm/person while
+FTG becomes nearly empty (J 0.904 to 0.019). On “cow walking to the front
+first,” FTG consistently switches from the correct smaller cow to the adjacent
+large cow (J 0.867 to 0.039). Conversely, FTG corrects whole-clip identity
+mistakes on an airplane and a two-horse clip by more than 0.90 J. The broad
+adaptation is therefore remapping which instance the language denotes, not
+learning a controlled frame-state correction. Reproducible four-frame sheets
+and their manifest are stored beside the FTG metric file under `qualitatives/`.
+
 ## Initial implementation
 
 The initial FTG state residual was randomly initialized and immediately entered
