@@ -268,6 +268,7 @@ def run(args: argparse.Namespace) -> dict:
     model.query_policy = args.query_policy
     model.match_scope = args.match_scope
     model.sam_interface = args.sam_interface
+    model.native_residual_scale.data.fill_(args.native_residual_scale_init)
     model.executor.visual_chunk_size = args.sam_visual_chunk_size
     model.executor.decode_chunk_size = args.sam_decode_chunk_size
     groups = model.parameter_groups()
@@ -472,6 +473,7 @@ def parse_args() -> argparse.Namespace:
         choices=("detector_grounding", "native_text_residual", "tracker_slot"),
         default="detector_grounding",
     )
+    parser.add_argument("--native-residual-scale-init", type=float, default=1e-3)
     parser.add_argument("--sam-visual-chunk-size", type=int, default=4)
     parser.add_argument("--sam-decode-chunk-size", type=int, default=4)
     parser.add_argument("--qwen-pixels", type=int, default=100352)
