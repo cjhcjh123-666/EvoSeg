@@ -149,6 +149,12 @@ def parse_args():
                         help='Explicit mask annotation override.')
     parser.add_argument('--max-samples', type=int, default=None,
                         help='Optional deterministic prefix for smoke evaluation.')
+    parser.add_argument('--sample-count', type=int, default=None,
+                        help='Optional evenly spaced deterministic evaluation subset.')
+    parser.add_argument('--grounding-variant', default=None,
+                        help='Optional runtime grounding-interface override.')
+    parser.add_argument('--residual-ratio', type=float, default=None,
+                        help='Optional runtime FTG residual/identity norm bound.')
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -181,6 +187,16 @@ if __name__ == '__main__':
         rank, world_size = get_dist_info()
 
     model = load_model(args.model_path).eval().cuda()
+    if args.grounding_variant is not None:
+        if model.factorized_grounding is None:
+            raise ValueError('grounding override requires a factorized model')
+        model.grounding_variant = args.grounding_variant
+    if args.residual_ratio is not None:
+        if model.factorized_grounding is None:
+            raise ValueError('residual ratio requires a factorized model')
+        if not 0 < args.residual_ratio <= 1:
+            raise ValueError('--residual-ratio must be in (0, 1]')
+        model.factorized_grounding.max_residual_ratio = args.residual_ratio
 
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_path,
@@ -210,6 +226,15 @@ if __name__ == '__main__':
         if args.max_samples <= 0:
             raise ValueError('--max-samples must be positive')
         dataset.text_data = dataset.text_data[:args.max_samples]
+    if args.sample_count is not None:
+        if args.max_samples is not None:
+            raise ValueError('--sample-count and --max-samples are mutually exclusive')
+        if not 0 < args.sample_count <= len(dataset.text_data):
+            raise ValueError('--sample-count must be in the dataset range')
+        sample_indices = np.linspace(
+            0, len(dataset.text_data) - 1, args.sample_count, dtype=int
+        )
+        dataset.text_data = [dataset.text_data[index] for index in sample_indices]
 
     sampler = torch.utils.data.DistributedSampler(
         dataset, 
