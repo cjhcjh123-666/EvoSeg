@@ -10,3 +10,8 @@ The pilot keeps SAM3 frozen so the controlled comparison changes only Qwen LoRA,
 the pretrained `[SEG]` projection, and the FTG state module. After the temporal
 gate, the full Public-SegMix run adds RefCOCO/+/g and Ref-Youtube-VOS without
 changing the model or optimization recipe.
+
+`frame_prompt_qwen3_4b_sam3_video_pilot.py` is the decisive controlled baseline.
+It inherits the exact checkpoint, seed, data order, optimization, and training
+budget, but sends only the frame-dependent state token to SAM3. The difference
+from FTG is therefore the persistent identity token, not frame conditioning.
