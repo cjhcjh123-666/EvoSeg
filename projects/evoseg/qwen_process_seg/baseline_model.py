@@ -46,6 +46,39 @@ def query_assignments(
     raise ValueError(f"unknown query policy: {policy}")
 
 
+def query_selection_loss(
+    scores: torch.Tensor,
+    matched_query: torch.Tensor,
+    loss_type: str,
+    positive_weight: float = 5.0,
+    gamma: float = 2.0,
+) -> torch.Tensor:
+    """Train SAM query objectness with either the legacy or official semantics.
+
+    SAM3.1 emits one binary objectness logit per object query.  Its native
+    training objective marks the Hungarian-matched query positive and every
+    other query negative; a softmax over query indices is retained only as a
+    controlled legacy ablation.
+    """
+    if scores.ndim != 2 or matched_query.shape != scores.shape[:1]:
+        raise ValueError("scores must be [T,Q] and matched_query must be [T]")
+    if loss_type == "softmax_ce":
+        return F.cross_entropy(scores.float(), matched_query)
+    if loss_type != "binary_objectness":
+        raise ValueError(f"unknown selection loss: {loss_type}")
+
+    targets = torch.zeros_like(scores, dtype=torch.float32)
+    targets.scatter_(1, matched_query[:, None], 1.0)
+    logits = scores.float()
+    probability = logits.sigmoid()
+    bce = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+    # Match SAM3.1's IABCE structure: emphasize the single positive query and
+    # focal-downweight easy negatives without changing inference behavior.
+    positive = targets * bce * positive_weight
+    negative = (1.0 - targets) * bce * probability.pow(gamma)
+    return (positive + negative).mean(dim=1).mean()
+
+
 class QwenSegSAM31(nn.Module):
     def __init__(
         self,
@@ -88,6 +121,7 @@ class QwenSegSAM31(nn.Module):
         self.qwen_pixels = qwen_pixels
         self.query_policy = "predicted_score"
         self.fixed_query_index = 0
+        self.selection_loss_type = "softmax_ce"
 
     def encode_qwen_context(
         self, frames: Sequence[Image.Image], query: str
@@ -184,7 +218,11 @@ class QwenSegSAM31(nn.Module):
             matched_logits.float(), target.float()
         )
         matched_dice = soft_dice_loss(matched_logits.float(), target.float())
-        selection = F.cross_entropy(scores.float(), matched_query)
+        selection = query_selection_loss(
+            scores,
+            matched_query,
+            getattr(self, "selection_loss_type", "softmax_ce"),
+        )
         predicted_logits = all_logits[rows, predicted_query]
         predicted_bce = F.binary_cross_entropy_with_logits(
             predicted_logits.float(), target.float()
@@ -212,6 +250,7 @@ class QwenSegSAM31(nn.Module):
             if self.query_policy == "predicted_score" else 0.0
         )
         diagnostics["query_policy"] = self.query_policy
+        diagnostics["selection_loss_type"] = self.selection_loss_type
         diagnostics["selection_loss_weight"] = selection_weight
         diagnostics["loss"] = bce + dice + selection_weight * selection
         return diagnostics

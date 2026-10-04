@@ -50,6 +50,7 @@ def run(args: argparse.Namespace) -> dict:
             "--data-seed", str(args.data_seed),
             "--device", "0",
             "--selection-loss-weight", str(args.selection_loss_weight),
+            "--selection-loss-type", args.selection_loss_type,
             "--query-policy", args.query_policy,
             "--sam-visual-chunk-size", str(args.sam_visual_chunk_size),
             "--sam-decode-chunk-size", str(args.sam_decode_chunk_size),
@@ -89,6 +90,7 @@ def run(args: argparse.Namespace) -> dict:
         "frame_budget": args.frame_budget,
         "epochs": args.epochs,
         "selection_loss_weight": args.selection_loss_weight,
+        "selection_loss_type": args.selection_loss_type,
         "query_policy": args.query_policy,
         "sam_visual_chunk_size": args.sam_visual_chunk_size,
         "sam_decode_chunk_size": args.sam_decode_chunk_size,
@@ -109,6 +111,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--validation-fraction", type=float, default=0.25)
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--selection-loss-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--selection-loss-type",
+        choices=("softmax_ce", "binary_objectness"),
+        default="softmax_ce",
+    )
     parser.add_argument(
         "--query-policy", choices=("predicted_score", "fixed_slot"),
         default="predicted_score",

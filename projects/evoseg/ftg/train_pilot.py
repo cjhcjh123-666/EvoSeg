@@ -248,6 +248,7 @@ def run(args: argparse.Namespace) -> dict:
         qwen_pixels=args.qwen_pixels,
     ).to(device)
     model.selection_loss_weight = args.selection_loss_weight
+    model.selection_loss_type = args.selection_loss_type
     model.query_policy = args.query_policy
     model.executor.visual_chunk_size = args.sam_visual_chunk_size
     model.executor.decode_chunk_size = args.sam_decode_chunk_size
@@ -374,6 +375,7 @@ def run(args: argparse.Namespace) -> dict:
         "sam_trainable_parameters": model.executor.trainable_parameter_count(),
         "trainable_parameters": parameter_counts,
         "selection_loss_weight": args.selection_loss_weight,
+        "selection_loss_type": args.selection_loss_type,
         "query_policy": args.query_policy,
         "sam_visual_chunk_size": args.sam_visual_chunk_size,
         "sam_decode_chunk_size": args.sam_decode_chunk_size,
@@ -426,6 +428,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--grounding-lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--selection-loss-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--selection-loss-type",
+        choices=("softmax_ce", "binary_objectness"),
+        default="softmax_ce",
+    )
     parser.add_argument(
         "--query-policy", choices=("predicted_score", "fixed_slot"),
         default="predicted_score",

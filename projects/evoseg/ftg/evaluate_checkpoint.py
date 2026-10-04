@@ -36,6 +36,9 @@ def run(args: argparse.Namespace) -> dict:
     model.selection_loss_weight = checkpoint.get("result", {}).get(
         "selection_loss_weight", 0.1
     )
+    model.selection_loss_type = checkpoint.get("result", {}).get(
+        "selection_loss_type", "softmax_ce"
+    )
     model.query_policy = checkpoint.get("result", {}).get(
         "query_policy", "predicted_score"
     )
