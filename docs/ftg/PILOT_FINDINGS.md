@@ -8,14 +8,39 @@ not benchmark results.
 
 The public `Sa2VA-Qwen3-VL-4B-SAM3` checkpoint was reproduced on the complete
 local MeViS-v2 `val^u` split before FTG training. Native-resolution evaluation
-over 869 valid expression/ground-truth pairs produced J=59.37, F=53.25, and
-J&F=56.31. The raw prediction file and metric summary are stored under
+over all 907 expressions, including absent-object frames with the official
+DAVIS/Long-RVOS empty-mask convention, produced J=57.69, F=66.22, and
+J&F=61.95. The raw prediction file and metric summary are stored under
 `evo_artifacts/results/ftg/20261004_sa2va_qwen3_sam3_mevisu_baseline/MEVIS_U/`.
 
-This is 12.86 J&F points above the 43.45 three-seed mean of the scratch Qwen
+An earlier local diagnostic reported J=59.37, F=53.25, and J&F=56.31 over only
+869 expressions. It skipped empty-target frames and used normalized mean
+boundary distance rather than the official DAVIS boundary tolerance. That file
+is retained as `metrics_distance_legacy.json` for provenance and must not be
+used in a paper table.
+
+This is 18.50 J&F points above the 43.45 three-seed mean of the scratch Qwen
 Frame Prompt pilot. The strong public checkpoint is therefore the primary
 foundation; scratch Qwen remains a foundation ablation. This comparison changes
 the initialization and is not evidence for FTG itself.
+
+## Full public-data FTG run on the strong foundation
+
+The first strong-foundation FTG run trained for one epoch on the complete public
+MeViS-v2 and Long-RVOS train splits (3,517 samples, 440 distributed optimizer
+steps). SAM3 was frozen; Qwen LoRA, the existing text projection, and the new
+identity-conditioned state module were optimized. It completed normally on
+eight A800 GPUs without NaNs or OOMs.
+
+On the complete MeViS-v2 `val^u` split, official native-resolution scoring gave
+J=43.87, F=51.00, and J&F=47.43. This is **14.52 J&F points below** the frozen
+strong checkpoint. The result rejects this training recipe as a paper method.
+It does not yet distinguish two coupled changes: the new second sparse state
+token and broad adaptation of 1.041B Qwen/embedding parameters on only 3,517
+video samples. A same-budget Frame Prompt run is the immediate controlled test.
+If broad adaptation is the shared failure, the next FTG variant must preserve
+the strong checkpoint exactly at initialization: freeze Qwen and the pretrained
+identity projection, and learn only a zero-initialized dynamic residual.
 
 ## Initial implementation
 

@@ -40,7 +40,14 @@ def db_eval_iou(annotation, segmentation, void_pixels=None):
     union = np.sum(
         (segmentation | annotation) & np.logical_not(void_pixels), axis=(-2, -1)
     )
-    j = inters / union
+    # Avoid a benign divide-by-zero warning before applying the DAVIS
+    # empty/empty convention below.
+    j = np.divide(
+        inters,
+        union,
+        out=np.ones_like(inters, dtype=float),
+        where=np.logical_not(np.isclose(union, 0)),
+    )
     if j.ndim == 0:
         j = 1 if np.isclose(union, 0) else j
     else:

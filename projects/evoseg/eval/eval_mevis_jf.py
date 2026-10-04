@@ -24,43 +24,42 @@ DEFAULT_MASK = Path(
 )
 WORKER_META = {}
 WORKER_MASK = {}
+WORKER_RESULTS = {}
 
 
 def decode_bool(rle):
     return None if rle is None else mask_utils.decode(rle).astype(bool)
 
 
-def eval_video(task):
-    vid, exps = task
-    meta = WORKER_META[vid]["expressions"]
-    out = []
-    for exp_id, item in exps.items():
-        exp_info = meta.get(exp_id)
-        if exp_info is None:
+def eval_expression(task):
+    vid, exp_id = task
+    item = WORKER_RESULTS[vid][exp_id]
+    exp_info = WORKER_META[vid]["expressions"].get(exp_id)
+    if exp_info is None:
+        return None
+    anno_ids = [str(a) for a in exp_info["anno_id"]]
+    js, fs = [], []
+    for frame_index, encoded_prediction in enumerate(item["prediction_masks"]):
+        prediction = decode_bool(encoded_prediction)
+        if prediction is None:
             continue
-        anno_ids = [str(a) for a in exp_info["anno_id"]]
-        js, fs = [], []
-        for frame_index, encoded_prediction in enumerate(item["prediction_masks"]):
-            prediction = decode_bool(encoded_prediction)
-            if prediction is None:
+        target = None
+        for anno_id in anno_ids:
+            annotations = WORKER_MASK.get(anno_id, [])
+            if frame_index >= len(annotations):
                 continue
-            target = None
-            for anno_id in anno_ids:
-                annotations = WORKER_MASK.get(anno_id, [])
-                if frame_index >= len(annotations):
-                    continue
-                annotation = decode_bool(annotations[frame_index])
-                if annotation is not None:
-                    target = annotation if target is None else target | annotation
-            if target is None:
-                target = np.zeros_like(prediction)
-            # Official DAVIS-style empty-mask semantics are retained: empty/empty
-            # is one, while a false positive on an absent frame is zero.
-            js.append(float(db_eval_iou(target, prediction)))
-            fs.append(float(db_eval_boundary(target, prediction)))
-        if js:
-            out.append((float(np.mean(js)), float(np.mean(fs))))
-    return out
+            annotation = decode_bool(annotations[frame_index])
+            if annotation is not None:
+                target = annotation if target is None else target | annotation
+        if target is None:
+            target = np.zeros_like(prediction)
+        # Official DAVIS-style empty-mask semantics are retained: empty/empty
+        # is one, while a false positive on an absent frame is zero.
+        js.append(float(db_eval_iou(target, prediction)))
+        fs.append(float(db_eval_boundary(target, prediction)))
+    if not js:
+        return None
+    return float(np.mean(js)), float(np.mean(fs))
 
 
 def parse_args():
@@ -74,22 +73,28 @@ def parse_args():
 
 
 def main():
-    global WORKER_META, WORKER_MASK
+    global WORKER_META, WORKER_MASK, WORKER_RESULTS
     args = parse_args()
-    results = json.loads(args.results.read_text())
+    WORKER_RESULTS = json.loads(args.results.read_text())
     WORKER_META = json.loads(args.meta.read_text())["videos"]
     WORKER_MASK = json.loads(args.mask.read_text())
-    tasks = [(video, expressions) for video, expressions in results.items()
-             if video in WORKER_META]
+    tasks = [
+        (video, exp_id)
+        for video, expressions in WORKER_RESULTS.items()
+        if video in WORKER_META
+        for exp_id in expressions
+    ]
     print(f"tasks: {len(tasks)}", flush=True)
     pairs = []
-    # Fork workers inherit the read-only dictionaries. Tasks carry only one
-    # video's predictions, not the full 400+ MB mask dictionary.
+    # Fork workers inherit the read-only dictionaries. Small key-only tasks
+    # avoid repeatedly pickling the 190 MB prediction dictionary and prevent
+    # long videos with many expressions from creating a worker straggler.
     with Pool(processes=args.workers) as pool:
-        for index, scores in enumerate(pool.imap_unordered(eval_video, tasks)):
-            pairs.extend(scores)
-            if (index + 1) % 10 == 0:
-                print(f"  {index + 1}/{len(tasks)} videos", flush=True)
+        for index, score in enumerate(pool.imap_unordered(eval_expression, tasks)):
+            if score is not None:
+                pairs.append(score)
+            if (index + 1) % 100 == 0:
+                print(f"  {index + 1}/{len(tasks)} expressions", flush=True)
     js = [score[0] for score in pairs]
     fs = [score[1] for score in pairs]
     summary = {
