@@ -26,6 +26,26 @@ def soft_dice_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return (1 - (numerator + 1) / (denominator + 1)).mean()
 
 
+def query_assignments(
+    per_query_loss: torch.Tensor,
+    scores: torch.Tensor,
+    policy: str,
+    fixed_query_index: int = 0,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return oracle, supervised, and inference query indices per frame."""
+    if per_query_loss.shape != scores.shape:
+        raise ValueError("per-query loss and score tensors must have the same shape")
+    oracle = per_query_loss.detach().argmin(dim=-1)
+    if policy == "predicted_score":
+        return oracle, oracle, scores.argmax(dim=-1)
+    if policy == "fixed_slot":
+        if not 0 <= fixed_query_index < scores.shape[-1]:
+            raise ValueError("fixed query index is outside the SAM query bank")
+        fixed = torch.full_like(oracle, fixed_query_index)
+        return oracle, fixed, fixed
+    raise ValueError(f"unknown query policy: {policy}")
+
+
 class QwenSegSAM31(nn.Module):
     def __init__(
         self,
@@ -66,6 +86,8 @@ class QwenSegSAM31(nn.Module):
         self.bridge = QwenToSAM31Bridge(hidden, 256)
         self.executor = FrozenSAM31Executor(sam_checkpoint, sam_official_repo)
         self.qwen_pixels = qwen_pixels
+        self.query_policy = "predicted_score"
+        self.fixed_query_index = 0
 
     def encode_qwen_context(
         self, frames: Sequence[Image.Image], query: str
@@ -147,13 +169,22 @@ class QwenSegSAM31(nn.Module):
         )
         # Standard training-only bipartite assignment for one target per frame.
         # GT chooses the supervised official object query, never an inference prompt.
-        matched_query = (per_query_bce + per_query_dice).detach().argmin(dim=-1)
+        matched_query, supervised_query, predicted_query = query_assignments(
+            per_query_bce + per_query_dice,
+            scores,
+            self.query_policy,
+            self.fixed_query_index,
+        )
         rows = torch.arange(all_logits.shape[0], device=all_logits.device)
-        logits = all_logits[rows, matched_query]
+        matched_logits = all_logits[rows, matched_query]
+        logits = all_logits[rows, supervised_query]
         bce = F.binary_cross_entropy_with_logits(logits.float(), target.float())
         dice = soft_dice_loss(logits.float(), target.float())
+        matched_bce = F.binary_cross_entropy_with_logits(
+            matched_logits.float(), target.float()
+        )
+        matched_dice = soft_dice_loss(matched_logits.float(), target.float())
         selection = F.cross_entropy(scores.float(), matched_query)
-        predicted_query = scores.argmax(dim=-1)
         predicted_logits = all_logits[rows, predicted_query]
         predicted_bce = F.binary_cross_entropy_with_logits(
             predicted_logits.float(), target.float()
@@ -164,17 +195,23 @@ class QwenSegSAM31(nn.Module):
                 "loss_bce": bce,
                 "loss_dice": dice,
                 "loss_selection": selection,
-                "matched_mask_loss": bce + dice,
+                "matched_mask_loss": matched_bce + matched_dice,
+                "supervised_mask_loss": bce + dice,
                 "predicted_mask_loss": predicted_bce + predicted_dice,
                 "mask_empty_fraction": (predicted_logits.sigmoid() < 0.5).all(dim=-1).all(dim=-1).float().mean(),
                 "mask_full_fraction": (predicted_logits.sigmoid() >= 0.5).all(dim=-1).all(dim=-1).float().mean(),
-                "matched_mask_logits": logits,
+                "matched_mask_logits": matched_logits,
                 "predicted_mask_logits": predicted_logits,
                 "matched_query": matched_query,
+                "supervised_query": supervised_query,
                 "predicted_query": predicted_query,
             }
         )
-        selection_weight = float(getattr(self, "selection_loss_weight", 0.1))
+        selection_weight = (
+            float(getattr(self, "selection_loss_weight", 0.1))
+            if self.query_policy == "predicted_score" else 0.0
+        )
+        diagnostics["query_policy"] = self.query_policy
         diagnostics["selection_loss_weight"] = selection_weight
         diagnostics["loss"] = bce + dice + selection_weight * selection
         return diagnostics

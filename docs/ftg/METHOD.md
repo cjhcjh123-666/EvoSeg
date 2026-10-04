@@ -21,6 +21,12 @@ mask logits. During training, one-target matching supervises mask BCE, Dice, and
 the official query score. At inference, only SAM3.1's predicted score selects the
 object query. Ground truth never constructs a prompt or selects an output.
 
+The default audited path retains SAM3.1's predicted query score. A controlled
+`fixed_slot` interface is also available for the diagnosed permutation problem:
+one predetermined official SAM query receives mask supervision and the same
+query is read at inference. It never searches queries with ground truth and adds
+no scorer, verifier, or post-hoc selection module.
+
 Trainable parameters are Qwen LoRA in the final six language layers plus only the
 active controlled grounding branch. All SAM3.1 parameters, the old foundation
 fusion module, inactive controls, and the old bridge remain frozen.
