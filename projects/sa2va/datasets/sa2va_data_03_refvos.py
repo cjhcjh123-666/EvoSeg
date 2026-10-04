@@ -378,7 +378,13 @@ class Sa2VA03RefVOS(Sa2VABaseDataset):
                         obj_id,
                         frame_id + '.png',
                     )
-                    mask_image = self._read_image(mask_path)
+                    # Long-RVOS omits PNGs when an object is absent. This is a
+                    # valid zero mask, not a corrupt-data warning.
+                    mask_image = (
+                        self._read_image(mask_path)
+                        if os.path.exists(mask_path)
+                        else None
+                    )
                     if mask_image is None:
                         selected_masks.append(np.zeros(image_size, dtype=np.uint8))
                     else:

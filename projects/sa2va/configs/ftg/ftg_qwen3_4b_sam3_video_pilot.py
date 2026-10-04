@@ -34,6 +34,7 @@ model['frozen_sam2_decoder'] = True
 model['grounding_variant'] = 'ftg'
 model['use_existence_head'] = False
 model['mllm']['model_path'] = path
+model['tokenizer']['pretrained_model_name_or_path'] = path
 model['grounding_encoder']['load_checkpoint'] = False
 
 public_video_dataset = dict(

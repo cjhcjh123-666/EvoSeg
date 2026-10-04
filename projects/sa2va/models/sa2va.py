@@ -341,7 +341,8 @@ class Sa2VAModel(BaseModel):
             presence = identity_embeddings.new_empty(0)
 
         bs = len(pred_masks)
-        loss_mask, loss_dice, loss_exist = 0, 0, 0
+        loss_mask, loss_dice = 0, 0
+        loss_exist = identity_embeddings.sum() * 0.0
         if len(pred_masks) != len(gt_masks):
             # drop this data
             print(f"Pred mask shape {pred_masks.shape} is not equal to gt_mask shape {gt_masks.shape} !!!")
