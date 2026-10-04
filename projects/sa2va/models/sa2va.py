@@ -134,7 +134,8 @@ class Sa2VAModel(BaseModel):
         if self.mllm.use_llm_lora:
             self.mllm.manual_prepare_llm_for_lora()
 
-        # Print gradient status of all weights in self.mllm.model.base_model.model
+        # Keep distributed startup logs bounded: eight ranks printing every Qwen
+        # tensor can produce megabytes of duplicated output before step zero.
         print("\n" + "="*80)
         print("GRADIENT STATUS OF MLLM.MODEL WEIGHTS")
         print("="*80)
@@ -144,17 +145,10 @@ class Sa2VAModel(BaseModel):
             total_params = 0
             trainable_params = 0
             
-            for name, param in base_model.named_parameters():
+            for _, param in base_model.named_parameters():
                 total_params += param.numel()
                 if param.requires_grad:
                     trainable_params += param.numel()
-                    grad_status = "✓ TRAINABLE"
-                else:
-                    grad_status = "✗ FROZEN"
-                
-                print(f"{name:<60} | {grad_status} | Shape: {tuple(param.shape)} | Params: {param.numel():,}")
-            
-            print("-" * 80)
             print(f"SUMMARY:")
             print(f"  Total parameters: {total_params:,}")
             print(f"  Trainable parameters: {trainable_params:,}")
