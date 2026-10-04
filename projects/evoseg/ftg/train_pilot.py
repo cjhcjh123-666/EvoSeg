@@ -204,6 +204,8 @@ def _load_or_build_manifest(args: argparse.Namespace) -> tuple[dict, Path]:
 def run(args: argparse.Namespace) -> dict:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required")
+    if args.sam_visual_chunk_size <= 0:
+        raise ValueError("sam_visual_chunk_size must be positive")
     torch.manual_seed(args.seed)
     torch.cuda.set_device(args.device)
     device = torch.device(f"cuda:{args.device}")
@@ -245,6 +247,7 @@ def run(args: argparse.Namespace) -> dict:
     ).to(device)
     model.selection_loss_weight = args.selection_loss_weight
     model.query_policy = args.query_policy
+    model.executor.visual_chunk_size = args.sam_visual_chunk_size
     groups = model.parameter_groups()
     if not all(groups.values()):
         raise RuntimeError({key: len(value) for key, value in groups.items()})
@@ -369,6 +372,7 @@ def run(args: argparse.Namespace) -> dict:
         "trainable_parameters": parameter_counts,
         "selection_loss_weight": args.selection_loss_weight,
         "query_policy": args.query_policy,
+        "sam_visual_chunk_size": args.sam_visual_chunk_size,
         "validation": {
             order: payload["aggregate"] for order, payload in validations.items()
         },
@@ -422,6 +426,7 @@ def parse_args() -> argparse.Namespace:
         "--query-policy", choices=("predicted_score", "fixed_slot"),
         default="predicted_score",
     )
+    parser.add_argument("--sam-visual-chunk-size", type=int, default=4)
     parser.add_argument("--qwen-pixels", type=int, default=100352)
     parser.add_argument("--evaluate-initial", action="store_true")
     parser.add_argument("--visualize-count", type=int, default=6)

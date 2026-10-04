@@ -51,6 +51,7 @@ def run(args: argparse.Namespace) -> dict:
             "--device", "0",
             "--selection-loss-weight", str(args.selection_loss_weight),
             "--query-policy", args.query_policy,
+            "--sam-visual-chunk-size", str(args.sam_visual_chunk_size),
         ]
         if args.evaluate_initial:
             command.append("--evaluate-initial")
@@ -88,6 +89,7 @@ def run(args: argparse.Namespace) -> dict:
         "epochs": args.epochs,
         "selection_loss_weight": args.selection_loss_weight,
         "query_policy": args.query_policy,
+        "sam_visual_chunk_size": args.sam_visual_chunk_size,
         "launches": launches,
     }
     (args.output / "launch_state.json").write_text(json.dumps(state, indent=2) + "\n")
@@ -109,6 +111,7 @@ def parse_args() -> argparse.Namespace:
         "--query-policy", choices=("predicted_score", "fixed_slot"),
         default="predicted_score",
     )
+    parser.add_argument("--sam-visual-chunk-size", type=int, default=4)
     parser.add_argument("--seed", type=int, default=11)
     parser.add_argument("--data-seed", type=int, default=42)
     parser.add_argument("--evaluate-initial", action="store_true")
