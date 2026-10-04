@@ -46,3 +46,26 @@ was 34.55 at weight 0.3.
 The next gate therefore increases public training coverage and optimization
 steps while keeping Qwen, frozen SAM3.1, the interface, frame budget, and loss
 weight fixed. No verifier, oracle selection, or post-hoc matcher is introduced.
+
+## Scaled 192-expression replication
+
+The scaled run used 144 train and 48 video-disjoint validation expressions for
+four epochs (576 updates) with selection weight 1.0. The small-pilot improvement
+did not survive. FTG versus Frame Prompt changed Static/Dynamic/Hybrid/MeViS by
+-2.77/-6.10/-3.15/+0.53 points at seed 11 and
+-3.21/-3.94/+1.26/-4.77 points at seed 23. Overall FTG was 33.80 versus 35.54
+and 33.07 versus 36.44. The identity-state hypothesis is therefore **not
+supported by the current gated implementation**.
+
+The negative result remains diagnostic rather than a decoder-capacity failure.
+At seed 11, FTG's matched-query J&F was 83.55 versus 74.79 for Frame Prompt,
+while actual query-selection accuracy was only 2.34% versus 4.04%. State Only
+and ID+State without gate reached 84.39 and 83.49 matched-query J&F. The
+factorized states contain useful masks, but the permutation-matched training
+target does not align them with the query chosen at inference.
+
+The next controlled test replaces permutation matching plus score-based
+inference with a single predetermined official SAM query slot used identically
+for supervision and inference. This is an interface alignment: it adds no
+inference module, does not search candidates, and never uses ground truth to
+choose an output.
