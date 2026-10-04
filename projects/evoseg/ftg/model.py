@@ -56,7 +56,20 @@ class FTGQwenSAM31(QwenSegSAM31):
     ) -> tuple[torch.Tensor, dict]:
         frame_states, query_state, diagnostics = self.encode_qwen_context(frames, query)
         prompts, grounding_diagnostics = self.grounding(frame_states, query_state)
-        if getattr(self, "sam_interface", "detector_grounding") == "native_text_residual":
+        sam_interface = getattr(self, "sam_interface", "detector_grounding")
+        if sam_interface == "native_factorized_residual":
+            if self.variant == "ftg":
+                prompts = (
+                    grounding_diagnostics["state_gate"]
+                    * grounding_diagnostics["state_prompts"]
+                )
+            elif self.variant == "id_state_no_gate":
+                prompts = grounding_diagnostics["state_prompts"]
+            elif self.variant == "identity_only":
+                prompts = grounding_diagnostics["identity_prompts"]
+            elif self.variant == "state_only":
+                prompts = grounding_diagnostics["independent_state_prompts"]
+        if sam_interface in {"native_text_residual", "native_factorized_residual"}:
             prompts = self.native_residual_scale * prompts
             grounding_diagnostics["native_residual_scale"] = self.native_residual_scale
         diagnostics.update(grounding_diagnostics)

@@ -132,7 +132,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--sam-interface",
-        choices=("detector_grounding", "native_text_residual", "tracker_slot"),
+        choices=(
+            "detector_grounding", "native_text_residual",
+            "native_factorized_residual", "tracker_slot",
+        ),
         default="detector_grounding",
     )
     parser.add_argument("--native-residual-scale-init", type=float, default=1e-3)

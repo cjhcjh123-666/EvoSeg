@@ -173,6 +173,9 @@ class FactorizedTemporalGrounding(nn.Module):
                 independent_state if self.variant == "state_only" else dynamic_state
             ),
             "state_gate": gate,
+            "identity_prompts": identity_prompts,
+            "state_prompts": state_prompts,
+            "independent_state_prompts": independent_state_prompts,
             "identity_norm": identity.float().norm(),
             "state_norm": dynamic_state.float().norm(dim=-1).mean(),
             "gate_mean": gate.float().mean(),
@@ -180,6 +183,19 @@ class FactorizedTemporalGrounding(nn.Module):
             "prompt_cross_frame_std": prompts.float().std(dim=0).mean(),
         }
         return prompts, diagnostics
+
+    def zero_active_output_projection(self) -> None:
+        """Start a native-anchor residual at exactly zero for any variant."""
+        projection = {
+            "global_prompt": self.monolithic_projection,
+            "frame_prompt": self.monolithic_projection,
+            "identity_only": self.identity_projection,
+            "state_only": self.state_only_projection,
+            "id_state_no_gate": self.state_projection,
+            "ftg": self.state_projection,
+        }[self.variant]
+        nn.init.zeros_(projection.net[-1].weight)
+        nn.init.zeros_(projection.net[-1].bias)
 
     def active_parameter_count(self) -> int:
         """Count parameters receiving gradients for this controlled variant."""

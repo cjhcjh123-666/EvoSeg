@@ -61,3 +61,22 @@ def test_ftg_is_frame_permutation_equivariant_with_invariant_identity():
         original_diagnostics["identity_token"], shuffled_diagnostics["identity_token"]
     )
     torch.testing.assert_close(original[permutation], shuffled)
+
+
+def test_native_anchor_active_residual_can_start_exactly_zero():
+    torch.manual_seed(17)
+    frames = torch.randn(4, 10)
+    query = torch.randn(10)
+    for variant in FTG_VARIANTS:
+        module = FactorizedTemporalGrounding(10, 6, 8, variant)
+        module.zero_active_output_projection()
+        prompts, diagnostics = module(frames, query)
+        if variant == "ftg":
+            prompts = diagnostics["state_gate"] * diagnostics["state_prompts"]
+        elif variant == "id_state_no_gate":
+            prompts = diagnostics["state_prompts"]
+        elif variant == "identity_only":
+            prompts = diagnostics["identity_prompts"]
+        elif variant == "state_only":
+            prompts = diagnostics["independent_state_prompts"]
+        assert torch.count_nonzero(prompts) == 0

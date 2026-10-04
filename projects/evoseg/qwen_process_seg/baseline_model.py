@@ -197,7 +197,9 @@ class QwenSegSAM31(nn.Module):
             all_logits, scores = self.executor.decode_grounding_prompts(
                 prompts, visual, return_all_queries=True
             )
-        elif self.sam_interface == "native_text_residual":
+        elif self.sam_interface in {
+            "native_text_residual", "native_factorized_residual"
+        }:
             visual = sam_visual_features or self.executor.extract_grounding_features(
                 frames, prompts.device
             )
