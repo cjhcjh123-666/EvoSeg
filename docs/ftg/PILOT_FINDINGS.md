@@ -57,6 +57,42 @@ adaptation is therefore remapping which instance the language denotes, not
 learning a controlled frame-state correction. Reproducible four-frame sheets
 and their manifest are stored beside the FTG metric file under `qualitatives/`.
 
+## Full-split frame-prompt and foundation-preserving controls
+
+The same-budget Frame Prompt control reached J=22.85, F=26.84, and J&F=24.84
+on all 907 MeViS-v2 `val^u` expressions. Its target-present J&F was 24.24. The
+late training loss had already shown persistent divergence, and the complete
+official score confirms that replacing the pretrained prompt with an
+independently learned frame state is not a viable explanation or method.
+
+Anchored FTG then froze Qwen, the pretrained `[SEG]` projection, and SAM3 and
+trained only 592,897 parameters in a zero-initialized identity-conditioned
+state residual. This version was exactly the public foundation at step zero and
+trained without persistent divergence. Nevertheless, it reached only J=43.86,
+F=50.94, and J&F=47.40; target-present J&F was 49.17. It therefore remained
+14.56 points below the 61.95 foundation overall and 15.43 points below it on
+target-present expressions. Foundation freezing and zero initialization alone
+do not protect the pretrained language-to-instance mapping.
+
+The qualitative failure is again instance selection rather than boundary
+quality. On “cow walking to the front first,” Anchored FTG switches from the
+correct smaller cow to the adjacent foreground cow (present-frame J 0.867 to
+0.035). Three paraphrases of a stationary white car fall from about 0.915 to
+0.088. Conversely, four paraphrases of a right-moving airplane improve from
+0.002 to 0.908 by correcting the foundation's instance choice. Thus even the
+small learned prompt displacement globally re-ranks instances in both
+directions instead of acting as a local state correction. Reproducible sheets
+and their manifest are stored under the Anchored result directory's
+`qualitatives/` folder.
+
+The next controls separate two questions. An unconditioned residual keeps the
+same frozen foundation, zero initialization, trainable parameter count, data,
+and schedule while removing identity from state extraction. A bounded FTG
+variant additionally constrains residual norm to a fixed fraction of identity
+norm, turning preservation into a functional prompt-space trust region rather
+than inferring it from small weight norms. Neither control is promoted to the
+paper method until it passes the same full-split gate.
+
 ## Initial implementation
 
 The initial FTG state residual was randomly initialized and immediately entered
