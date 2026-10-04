@@ -224,3 +224,26 @@ native-text anchor with a small full FTG residual at T=8. It expands to 192
 public expressions (144 train, 48 video-disjoint validation), four epochs, three
 optimization seeds, and Identity/State controls. This determines whether the
 repeatable +2.96/+2.98 small-pilot gain survives adequate coverage.
+
+## Scaled native-anchor T=8 replication
+
+The 192-expression replication decisively rejected the small-pilot result. Over
+three optimization seeds, Frame Prompt reached 43.45 +/- 0.31 overall J&F while
+FTG reached 39.62 +/- 2.25, a delta of -3.83 +/- 1.96 points. The individual
+overall deltas were -1.07, -4.99, and -5.44; none was positive. Mean FTG-minus-
+Frame differences were -10.12 Static, -0.76 Dynamic, -6.73 Hybrid, and -1.80
+MeViS points. The preregistered scale decision is therefore **NO-GO**.
+
+The seed-11 controls further localize the failure. Identity Only reached 43.40
+overall and State Only reached 43.51, both close to Frame Prompt at 43.84 and
+above FTG at 42.77. Adding the two representations through the current gated
+prompt composition is harmful; neither data coverage nor one isolated factor is
+the primary problem. The small 12-example validation gain was driven by a few
+large per-example corrections and did not generalize to 48 validation examples.
+
+This closes the vector-composition design. The next architectural test must bind
+persistent identity to an actual tracked object rather than to another detector
+prompt vector: initialize an official SAM3.1 video tracker from a native-text
+detector output, preserve identity in tracker memory, and reserve dynamic state
+for frame-dependent updates. A raw language projection into a tracker slot and
+post-hoc candidate matching remain excluded by the prior negative controls.
