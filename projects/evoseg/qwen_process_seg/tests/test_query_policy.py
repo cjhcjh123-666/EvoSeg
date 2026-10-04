@@ -30,3 +30,27 @@ def test_fixed_slot_validates_query_index():
     values = torch.zeros(2, 3)
     with pytest.raises(ValueError):
         query_assignments(values, values, "fixed_slot", fixed_query_index=3)
+
+
+def test_video_matching_uses_one_query_for_the_entire_clip():
+    losses = torch.tensor(
+        [
+            [0.0, 2.0, 3.0],
+            [4.0, 0.0, 3.0],
+            [4.0, 0.0, 3.0],
+        ]
+    )
+    scores = torch.zeros_like(losses)
+
+    oracle, supervised, _ = query_assignments(
+        losses, scores, "predicted_score", match_scope="video"
+    )
+
+    assert oracle.tolist() == [1, 1, 1]
+    assert supervised.tolist() == [1, 1, 1]
+
+
+def test_query_assignment_rejects_unknown_match_scope():
+    values = torch.zeros(1, 2)
+    with pytest.raises(ValueError, match="unknown match scope"):
+        query_assignments(values, values, "predicted_score", match_scope="clipish")

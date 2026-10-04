@@ -42,6 +42,7 @@ def run(args: argparse.Namespace) -> dict:
     model.query_policy = checkpoint.get("result", {}).get(
         "query_policy", "predicted_score"
     )
+    model.match_scope = checkpoint.get("result", {}).get("match_scope", "frame")
     set_peft_model_state_dict(model.qwen, checkpoint["qwen_lora"])
     model.grounding.load_state_dict(checkpoint["grounding"])
     payload = {

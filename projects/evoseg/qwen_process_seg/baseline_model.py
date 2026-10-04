@@ -31,11 +31,18 @@ def query_assignments(
     scores: torch.Tensor,
     policy: str,
     fixed_query_index: int = 0,
+    match_scope: str = "frame",
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Return oracle, supervised, and inference query indices per frame."""
     if per_query_loss.shape != scores.shape:
         raise ValueError("per-query loss and score tensors must have the same shape")
-    oracle = per_query_loss.detach().argmin(dim=-1)
+    if match_scope == "frame":
+        oracle = per_query_loss.detach().argmin(dim=-1)
+    elif match_scope == "video":
+        clip_query = per_query_loss.detach().mean(dim=0).argmin()
+        oracle = clip_query.expand(per_query_loss.shape[0])
+    else:
+        raise ValueError(f"unknown match scope: {match_scope}")
     if policy == "predicted_score":
         return oracle, oracle, scores.argmax(dim=-1)
     if policy == "fixed_slot":
@@ -122,6 +129,7 @@ class QwenSegSAM31(nn.Module):
         self.query_policy = "predicted_score"
         self.fixed_query_index = 0
         self.selection_loss_type = "softmax_ce"
+        self.match_scope = "frame"
 
     def encode_qwen_context(
         self, frames: Sequence[Image.Image], query: str
@@ -208,6 +216,7 @@ class QwenSegSAM31(nn.Module):
             scores,
             self.query_policy,
             self.fixed_query_index,
+            self.match_scope,
         )
         rows = torch.arange(all_logits.shape[0], device=all_logits.device)
         matched_logits = all_logits[rows, matched_query]
@@ -251,6 +260,7 @@ class QwenSegSAM31(nn.Module):
         )
         diagnostics["query_policy"] = self.query_policy
         diagnostics["selection_loss_type"] = self.selection_loss_type
+        diagnostics["match_scope"] = self.match_scope
         diagnostics["selection_loss_weight"] = selection_weight
         diagnostics["loss"] = bce + dice + selection_weight * selection
         return diagnostics
