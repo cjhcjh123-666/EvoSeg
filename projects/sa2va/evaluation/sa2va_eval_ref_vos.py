@@ -19,6 +19,33 @@ import concurrent.futures
 from pycocotools import mask as cocomask
 
 
+def load_model(model_path):
+    """Load local SAM3 exports without relying on a partial HF module cache."""
+    if 'qwen3-vl' in model_path.lower() and 'sam3' in model_path.lower():
+        from projects.sa2va.hf.models_qwen3vl_sam3.configuration_sa2va_chat import (
+            Sa2VAChatConfigQwen,
+        )
+        from projects.sa2va.hf.models_qwen3vl_sam3.modeling_sa2va_qwen import (
+            Sa2VAChatModelQwen,
+        )
+
+        config = Sa2VAChatConfigQwen.from_pretrained(model_path)
+        return Sa2VAChatModelQwen.from_pretrained(
+            model_path,
+            config=config,
+            torch_dtype=torch.bfloat16,
+            low_cpu_mem_usage=True,
+            use_flash_attn=True,
+        )
+    return AutoModel.from_pretrained(
+        model_path,
+        torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
+        use_flash_attn=True,
+        trust_remote_code=True,
+    )
+
+
 def async_func(executor, func, **kwargs):
     future = executor.submit(func, **kwargs)
     return future
@@ -108,6 +135,14 @@ def parse_args():
     parser.add_argument('--work_dir', type=str, default=None)
     parser.add_argument('--deepspeed', type=str, default=None) # dummy
     parser.add_argument('--data_root', default='./data', help='Root directory for all datasets.')
+    parser.add_argument('--image-folder', default=None,
+                        help='Explicit image folder override for public-dataset mirrors.')
+    parser.add_argument('--expression-file', default=None,
+                        help='Explicit expression JSON override.')
+    parser.add_argument('--mask-file', default=None,
+                        help='Explicit mask annotation override.')
+    parser.add_argument('--max-samples', type=int, default=None,
+                        help='Optional deterministic prefix for smoke evaluation.')
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -139,13 +174,7 @@ if __name__ == '__main__':
         _init_dist_slurm('nccl')
         rank, world_size = get_dist_info()
 
-    model = AutoModel.from_pretrained(
-        args.model_path,
-        torch_dtype=torch.bfloat16,
-        low_cpu_mem_usage=True,
-        use_flash_attn=True,
-        trust_remote_code=True,
-    ).eval().cuda()
+    model = load_model(args.model_path).eval().cuda()
 
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_path,
@@ -158,6 +187,12 @@ if __name__ == '__main__':
         processor = None
 
     dataset_info = DATASETS_INFO[args.dataset]
+    if args.image_folder is not None:
+        dataset_info['image_folder'] = args.image_folder
+    if args.expression_file is not None:
+        dataset_info['expression_file'] = args.expression_file
+    if args.mask_file is not None:
+        dataset_info['mask_file'] = args.mask_file
 
 
     dataset = RefVOSDataset(
@@ -165,6 +200,10 @@ if __name__ == '__main__':
         expression_file=dataset_info['expression_file'],
         mask_file=dataset_info['mask_file'],
     )
+    if args.max_samples is not None:
+        if args.max_samples <= 0:
+            raise ValueError('--max-samples must be positive')
+        dataset.text_data = dataset.text_data[:args.max_samples]
 
     sampler = torch.utils.data.DistributedSampler(
         dataset, 

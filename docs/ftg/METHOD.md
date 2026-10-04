@@ -1,58 +1,60 @@
 # Factorized Temporal Grounding implementation
 
-Qwen3-VL encodes the ordered sampled frames and original referring expression in
-one multimodal sequence. Exact visual-token spans are recovered from
-`image_grid_thw`; mean pooling within each span gives frame states `H_t`, while
-the expression token span gives query state `q`.
+## Active strong-foundation design
 
-The grounding interface in `projects/evoseg/ftg/interface.py` implements all six
-controlled variants. FTG first obtains one identity state from the query and the
-mean video context. Each frame state is then transformed while conditioned on
-that same identity. Separate projections map identity and state to SAM3.1's
-256-dimensional prompt space, and a vector gate controls the dynamic residual.
-The final dynamic-state projection is zero-initialized, so FTG begins exactly at
-the persistent Identity Only solution and learns temporal corrections from mask
-supervision instead of injecting a random state perturbation at initialization.
+The primary implementation starts from the public
+`Sa2VA-Qwen3-VL-4B-SAM3` checkpoint. It already maps Qwen's generated `[SEG]`
+state through a learned projection and uses the result to condition the native
+SAM3 video tracker. Its released inference path repeats one monolithic language
+embedding on every frame before propagation. FTG preserves these pretrained
+weights but assigns two representations to different responsibilities:
 
-The dynamic prompt enters official SAM3.1 through
-`Sam3Image._encode_prompt(..., visual_prompt_embed=...)`. The official frozen
-vision-language encoder, object-query decoder, and segmentation head produce the
-candidate mask logits and object-query features. FTG uses the persistent identity
-representation for a second, structurally distinct role: a lightweight learned
-alignment head scores each candidate object query against the same identity in
-every frame. The aligned score is added to SAM3.1's native objectness. Thus
-identity controls *which object persists*, while the state residual controls
-*how that object is segmented now*. The Frame Prompt control uses the identical
-alignment head but supplies its frame-dependent monolithic representation, so
-the contrast isolates persistent identity rather than extra supervision or
-parameters.
+- `z_id` is computed once from the query and global video context. It owns the
+  tracker object ID and remains attached to persistent SAM memory.
+- `z_state_t` is conditioned on `z_id` and the current Qwen frame state. It
+  supplies a frame-dependent observation that may recondition the current mask
+  and memory without changing object ownership.
 
-During training, one-target matching supervises mask BCE, Dice, and the composed
-query score. At inference, that same learned grounding score selects the query;
-ground truth never constructs a prompt or selects an output. This association
-head is part of the end-to-end grounding interface, not a post-hoc verifier.
+This makes the interface recurrent rather than additive. Identity is not
+recomputed independently per frame, and state is not added to identity to form
+one prompt vector. The frozen native SAM tracker carries the persistent state;
+Qwen LoRA and the identity/state observation projections are trainable. Ground
+truth supervises masks during training but never initializes memory, chooses an
+anchor, or selects a prediction at evaluation time.
 
-`--query-score-mode native` retains SAM3.1's predicted query score as the
-diagnostic baseline; `--query-score-mode representation` activates identity-
-aware query association. A controlled
-`fixed_slot` interface is also available for the diagnosed permutation problem:
-one predetermined official SAM query receives mask supervision and the same
-query is read at inference. It never searches queries with ground truth and adds
-no scorer, verifier, or post-hoc selection module.
+The decisive Frame Prompt control receives the same frame observations and
+trainable budget but has no persistent identity variable. Identity Memory uses
+the persistent representation without frame reconditioning. State Only restarts
+from frame-dependent evidence without carrying an identity. The old vector-sum
+variant is retained as a negative architectural control.
 
-Trainable parameters are Qwen LoRA in the final six language layers plus only the
-active controlled grounding branch. All SAM3.1 parameters, the old foundation
-fusion module, inactive controls, and the old bridge remain frozen.
+## Rejected scratch implementation
 
-## Entry points
+The existing `projects/evoseg/ftg/interface.py` and `train_pilot.py` implement
+the first scratch Qwen3-VL-4B + frozen official SAM3.1 study. They recover exact
+visual-token spans from `image_grid_thw`, form frame states `H_t`, and evaluate
+Global, Frame, Identity, State, and additive FTG prompts through SAM3.1's
+`visual_prompt_embed` path. SAM parameters remain frozen and query-selected
+predictions never use ground truth.
 
-- `python -m projects.evoseg.ftg.train_pilot`: train/evaluate one variant.
-- `python -m projects.evoseg.ftg.summarize_pilot`: compare completed FTG and
-  Frame Prompt runs against the preregistered pilot gate.
-- `python -m projects.evoseg.ftg.evaluate_checkpoint`: separate actual
-  SAM3.1 query-selected masks from training-only matched-query masks and run
-  temporal-order diagnostics on a saved lightweight checkpoint.
-- `projects/evoseg/ftg/public_video_data.py`: deterministic public-data manifest
-  and loaders.
-- `projects/evoseg/ftg/metrics.py`: region J, boundary F, J&F, and absent-frame
-  error rates.
+That implementation is useful as a controlled foundation ablation, but it is
+not the active paper method. Across the scaled 192-expression, three-seed pilot,
+Frame Prompt reached 43.45 +/- 0.31 J&F and additive FTG reached 39.62 +/- 2.25.
+A stronger training-free test that wrote the complete Qwen anchor mask through
+SAM3.1's native memory encoder reached only 21.25 J&F. These results reject both
+prompt-vector addition and one-shot anchor propagation.
+
+## Current entry points
+
+- `projects/sa2va/evaluation/sa2va_eval_ref_vos.py`: reproducible strong
+  Qwen3-VL/SAM3 foundation evaluation with explicit public-dataset path
+  overrides and deterministic smoke subsets.
+- `python -m projects.evoseg.ftg.evaluate_sam31_video_baseline`: frozen official
+  SAM3.1 detector-to-tracker diagnostic.
+- `python -m projects.evoseg.ftg.evaluate_qwen_seeded_tracker`: rejected
+  training-free Qwen-mask-to-tracker-memory control.
+- `python -m projects.evoseg.ftg.train_pilot`: legacy scratch controlled pilot.
+- `projects/evoseg/ftg/public_video_data.py`: deterministic Long-RVOS and
+  MeViS-v2 pilot manifests and loaders.
+- `projects/evoseg/ftg/metrics.py`: region J, boundary F, J&F, present-frame
+  J&F, and absent-frame error rates.

@@ -15,13 +15,10 @@ the VLM without being exposed to the mask decoder through the right interface.
 
 ## Method claim
 
-**Factorized Temporal Grounding (FTG)** separates the grounding representation
-into one video-level persistent identity token and frame-dependent state tokens.
-Each state is conditioned on the fixed identity. Frozen SAM3.1 native text
-features provide the pretrained semantic anchor, while FTG assigns the two
-factors distinct jobs: the dynamic state supplies a gated frame-specific prompt
-residual, and the persistent identity associates the referred object with SAM's
-candidate object-query features:
+**Factorized Temporal Grounding (FTG)** separates one video-level persistent
+identity from frame-dependent state observations. The two factors are no longer
+summed into one detector-prompt vector. They enter different native interfaces
+of a pretrained video segmenter:
 
 \[
 z^{id}=F_{id}(q,\operatorname{Pool}_t H_t),\qquad
@@ -29,25 +26,36 @@ z_t^{state}=F_{state}(H_t,z^{id}),
 \]
 
 \[
-p_t^{dyn}=\sigma(W_g[z^{id};z_t^{state}])\odot
-W_{state}z_t^{state},
-\qquad
-s_{t,k}=s^{SAM}_{t,k}+\tau\cos(Az^{id},h^{SAM}_{t,k}).
+(M_t^-,m_t^-)=\operatorname{Track}(I_t,m_{t-1};z^{id}),\qquad
+o_t=\operatorname{Observe}(I_t,z_t^{state};z^{id}),
 \]
 
-Here the selected mask is \(M_{t,\arg\max_k s_{t,k}}\). Frame Prompt receives
-the same association head but replaces the persistent identity with its
-frame-dependent monolithic representation, keeping the decisive comparison
-controlled. This is representation factorization, not another temporal
-aggregation module.
-The implementation adds no verifier, refusal path, candidate bank, process
-compiler, GRU, RL objective, keyframe classifier, or post-hoc matcher.
+\[
+(M_t,m_t)=\operatorname{Update}(M_t^-,m_t^-,o_t).
+\]
+
+The persistent identity initializes and remains attached to the native tracker
+memory \(m_t\); a state observation may recondition the current mask and memory
+without replacing that identity. Identity is the track's stable ownership
+signal, while state is evidence about its current appearance, location, and
+action. The implementation adds no verifier, refusal path, candidate bank,
+process compiler, GRU, RL objective, or post-hoc matcher.
+
+The earlier additive prompt implementation is retained only as a rejected
+control. On the scaled three-seed pilot it underperformed Frame Prompt in every
+seed, and direct training-free insertion of a Qwen mask into SAM3.1 tracker
+memory also failed. Neither result is used as the paper method.
 
 ## Fixed model and data
 
-- Backbone: Qwen3-VL-4B-Instruct.
-- Pixel decoder: frozen official SAM3.1 Object Multiplex model.
-- Interface: official `visual_prompt_embed` grounding-token path.
+- VLM: Qwen3-VL-4B.
+- Primary initialization: the public trained
+  `Sa2VA-Qwen3-VL-4B-SAM3` checkpoint; no Faithful, refusal, verifier, or
+  synthetic-data checkpoint is used.
+- Pixel decoder and persistent memory: the checkpoint's native SAM3 video
+  tracker, frozen for the first controlled study.
+- Scratch initialization from `Qwen3-VL-4B-Instruct` plus official SAM3.1 is a
+  controlled foundation ablation, not the main full-scale model.
 - Default temporal budget: 16 uniformly sampled full-range frames.
 - Pilot data: public Long-RVOS train plus public MeViS-v2 train.
 - Full training mix: RefCOCO/+/g, Ref-Youtube-VOS train, MeViS-v2 train, and
@@ -57,21 +65,24 @@ compiler, GRU, RL objective, keyframe classifier, or post-hoc matcher.
 
 ## Controlled comparison
 
-Every variant uses the same Qwen checkpoint, SAM3.1 checkpoint, data manifest,
+Every variant uses the same public pretrained checkpoint, data manifest,
 frame budget, LoRA placement, loss, optimizer, steps, and evaluation code. Only
 the grounding interface changes:
 
 | Variant | Persistent identity | Dynamic state | Frame-specific prompt |
 |---|---:|---:|---:|
-| Global Prompt | mixed | mixed | no |
+| Pretrained Monolithic | mixed | mixed | no |
 | Frame Prompt | mixed | mixed | yes |
-| Identity Only | yes | no | no |
+| Identity Memory | yes | no | no |
 | State Only | no | yes | yes |
-| ID + State, no gate | yes | yes | yes |
-| FTG | yes | yes | yes |
+| ID + State, vector sum | yes | yes | yes |
+| FTG memory interface | yes | yes | yes |
 
-The decisive comparison is **Frame Prompt versus FTG**. It isolates explicit
-identity persistence from the generic benefit of frame-specific prompts.
+The decisive comparison remains **Frame Prompt versus FTG** with identical
+initial weights and supervision. It isolates persistent identity memory from
+the generic benefit of frame-specific prompts. Identity Memory and State Only
+test each factor alone; the rejected vector-sum variant tests whether gains
+require distinct interfaces.
 
 ## Evaluation
 

@@ -247,3 +247,59 @@ prompt vector: initialize an official SAM3.1 video tracker from a native-text
 detector output, preserve identity in tracker memory, and reserve dynamic state
 for frame-dependent updates. A raw language projection into a tracker slot and
 post-hoc candidate matching remain excluded by the prior negative controls.
+
+## Official detector-to-tracker foundation audit
+
+The frozen official SAM3.1 video path was evaluated on the same 48-expression,
+eight-frame held-out partition used by the scaled replication. Text detection
+initialized the official tracker, and one tracker identity was selected once by
+the model's native score and retained across the clip. Ground truth was not used
+for initialization, selection, or propagation.
+
+This persistent-track baseline reached 33.66 overall J&F: 65.20 Static, 25.29
+Dynamic, 24.42 Hybrid, and 29.02 MeViS motion. It failed to expose any valid
+track on 25 of 48 expressions (4/8 Static, 6/8 Dynamic, 5/8 Hybrid, and 10/24
+MeViS), yielding a 70.55% false-reject rate. Unioning all official tracks was
+retained only as a diagnostic and reached 36.43 overall; it is not the
+single-referent primary output.
+
+The same-manifest Frame Prompt mean was 43.45 J&F. The native tracker is much
+stronger on Static (65.20 versus 51.42) but substantially weaker on Dynamic,
+Hybrid, and MeViS. Persistent memory is therefore useful once identity is
+acquired, but native text detection often never acquires the dynamically
+described referent. This rejects using unmodified SAM3.1 tracking as the final
+method while motivating the next recurrent interface more sharply: Qwen
+frame-state grounding supplies observations and learned memory updates, whereas
+the official tracker state carries persistent identity. Identity and state are
+no longer composed into one detector-prompt vector.
+
+Result artifact:
+`/9950backfile/chenjiahui/evo_artifacts/results/ftg/20261004_sam31_video_baseline_scaled192_t8/result.json`.
+
+## Qwen-mask initialization of tracker memory
+
+The next training-free control used the trained Frame Prompt model to select an
+anchor frame by native SAM query score, wrote its predicted full-resolution mask
+into the official SAM3.1 multiplex memory encoder, and propagated that identity
+in both temporal directions. Ground truth was used only for metrics. This is a
+stronger and more faithful test than the earlier point-prompt control: the
+tracker receives the complete Qwen-predicted mask through its native
+`add_new_masks(..., add_mask_to_memory=True)` path.
+
+Across all 48 held-out expressions, Frame Prompt reached 43.65 J&F in this
+checkpoint evaluation, whereas Qwen-seeded tracking reached only 21.25 J&F.
+Present-frame J&F fell from 51.20 to 9.89 and false rejection rose from 0.00% to
+84.78%. The breakdown was 28.71 Static, 13.88 Dynamic, 12.58 Hybrid, and 24.10
+MeViS motion J&F. The failure is therefore systematic rather than a single
+endpoint-cache or point-prompt artifact.
+
+This result rejects a training-free "predict one anchor mask, then propagate"
+implementation of FTG. The persistent state must be learned jointly with the
+frame observations, or integrated into a segmentation model whose video memory
+was already trained for language-conditioned RVOS. The 144-example scratch-Qwen
+pilot remains a controlled diagnostic, not the foundation for the full paper;
+the next full-scale implementation should start from a public trained RVOS
+checkpoint and retain scratch Qwen as an ablation.
+
+Result artifact:
+`/9950backfile/chenjiahui/evo_artifacts/results/ftg/20261004_qwen_seeded_tracker_scaled192_t8_v3/merged/result.json`.

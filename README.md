@@ -8,12 +8,14 @@ Codebase: fork of ByteDance **Pixel-LLM (Sa2VA)** — see `README.pixel_llm.md` 
 upstream README (license preserved in `LICENSE`). Our research layer lives in
 `projects/evoseg/`.
 
-## Status (2026-10-03)
+## Status (2026-10-04)
 
 - Project specification locked: [`docs/ftg/PROJECT_SPEC.md`](docs/ftg/PROJECT_SPEC.md).
-- Backbone: Qwen3-VL-4B + frozen official SAM3.1.
-- First experiment: controlled Global/Frame/Identity/State/FTG pilot on public
-  Long-RVOS and MeViS-v2.
+- Primary foundation: public `Sa2VA-Qwen3-VL-4B-SAM3`; scratch
+  Qwen3-VL-4B + frozen official SAM3.1 is retained as a controlled ablation.
+- The first additive Global/Frame/Identity/State/FTG pilot was rejected. The
+  active method assigns persistent identity to native tracker memory and
+  frame-dependent state to reconditioning observations.
 - Earlier faithfulness and temporal-process experiments remain as archived
   diagnostics and are not part of the FTG method claim.
 
