@@ -46,6 +46,14 @@ Qwen and introducing a new prompt interface. Because this checkpoint was still
 trained through the joint FTG interface, a clean single-prompt Identity
 Adaptation run with the same data and budget is required for final attribution.
 
+The repaired Frame Prompt checkpoint fails the same 128-expression controlled
+gate: J=19.38, F=23.20, and J&F=21.29, with target-present J&F=19.24. This is
+43.52 points below the public foundation and 44.08 points below the repaired
+single Identity interface on identical evenly spaced keys. Frame-specific
+prompts alone therefore do not explain the Identity gain and are not advanced
+to full-split evaluation. Their severe regression is consistent with
+frame-local referent decisions losing the stable cross-frame identity prior.
+
 Qualitative extremes confirm that identity adaptation changes instance
 selection rather than merely mask boundaries. It corrects near-total target
 swaps for “the advancing cow that was the first to come closer” (present-frame
