@@ -6,6 +6,33 @@ from mmengine.dist import master_only
 from transformers import AutoModel
 import os
 
+
+def load_hf_model(model_path):
+    """Load local SAM3 exports without Transformers' fragile module cache."""
+    normalized = model_path.lower()
+    if 'qwen3-vl' in normalized and 'sam3' in normalized:
+        from projects.sa2va.hf.models_qwen3vl_sam3.configuration_sa2va_chat import (
+            Sa2VAChatConfigQwen,
+        )
+        from projects.sa2va.hf.models_qwen3vl_sam3.modeling_sa2va_qwen import (
+            Sa2VAChatModelQwen,
+        )
+
+        config = Sa2VAChatConfigQwen.from_pretrained(model_path)
+        return Sa2VAChatModelQwen.from_pretrained(
+            model_path,
+            config=config,
+            torch_dtype=torch.bfloat16,
+            low_cpu_mem_usage=True,
+            use_flash_attn=True,
+        ).eval()
+    return AutoModel.from_pretrained(
+        model_path,
+        trust_remote_code=True,
+        torch_dtype=torch.bfloat16,
+    ).eval()
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Convert HF to PTH script')
     parser.add_argument('hf_model_path', help='path to HF model directory')
@@ -25,11 +52,7 @@ def main():
     args = parse_args()
 
     # Load HF model
-    hf_model = AutoModel.from_pretrained(
-        args.hf_model_path, 
-        trust_remote_code=True, 
-        torch_dtype=torch.bfloat16
-    ).eval()
+    hf_model = load_hf_model(args.hf_model_path)
     print(hf_model)
 
     hf_state_dict = hf_model.state_dict()

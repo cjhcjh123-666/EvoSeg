@@ -49,6 +49,7 @@ class Sa2VAModel(BaseModel):
                  grounding_residual_ratio: float=0.02,
                  use_existence_head: bool=True,
                  freeze_foundation: bool=False,
+                 pretrained_ignore_prefixes: tuple[str, ...]=(),
                  ):
         super().__init__()
         if special_tokens is None:
@@ -118,6 +119,16 @@ class Sa2VAModel(BaseModel):
 
         if pretrained_pth is not None:
             pretrained_state_dict = guess_load_checkpoint(pretrained_pth)
+            if pretrained_ignore_prefixes:
+                pretrained_ignore_prefixes = tuple(pretrained_ignore_prefixes)
+                pretrained_state_dict = OrderedDict(
+                    (key, value)
+                    for key, value in pretrained_state_dict.items()
+                    if not key.startswith(pretrained_ignore_prefixes)
+                )
+                print(
+                    'Ignored pretrained prefixes: '
+                    f'{tuple(pretrained_ignore_prefixes)}')
             self.load_state_dict(pretrained_state_dict, strict=False)
             print(f'Load pretrained weight from {pretrained_pth}')
 

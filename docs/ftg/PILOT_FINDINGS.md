@@ -20,7 +20,26 @@ exactly reproduced the public checkpoint on the same evenly spaced 128-expressio
 MeViS-v2 subset: both obtained J&F=64.813826%. Re-evaluation of the learned
 Anchored FTG interface on those same keys obtained J&F=64.634527%, a controlled
 change of -0.179299 points rather than the previously reported -16.12 points.
-The complete 907-expression re-evaluation is in progress.
+On the complete 907-expression split, repaired Anchored FTG obtained J=57.80,
+F=66.29, and J&F=62.04 versus the public foundation's 57.69/66.22/61.95. The
+overall change is +0.09 points. Target-present J&F was effectively unchanged
+(64.589 versus 64.599); the small overall difference comes from no-target
+expressions and is not evidence for identity-state factorization. The result
+does establish that the corrected zero-initialized interface preserves the
+strong foundation. Broad FTG and Frame Prompt must now be re-exported before
+their controlled comparison can be interpreted.
+
+The repaired broad checkpoint was next evaluated on the same deterministic
+128-expression subset. Its two-token FTG interface reached J&F=64.704607%,
+0.109219 points below the public foundation. Switching that *same checkpoint*
+to a single `identity_memory` token reached 65.371112%, or +0.557286 points over
+the foundation and +0.666506 points over two-token FTG. Target-present J&F shows
+the same contrast (68.219 versus 67.519 versus 67.634 for broad Identity, broad
+FTG, and the public foundation). Thus public-video Qwen/identity adaptation is
+promising, but the current extra state token removes its gain. A complete
+identity-adapted evaluation is running. The next method gate should preserve
+this adapted identity base and learn state only as a zero-initialized second
+stage, rather than jointly moving Qwen and introducing a new prompt interface.
 
 This file records pilot outcomes, including negative evidence. Values are held-out
 J&F percentages on a 48-expression development pilot (36 train, 12 validation),

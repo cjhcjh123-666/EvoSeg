@@ -17,6 +17,12 @@ the pretrained `[SEG]` projection, and the FTG state module. After the temporal
 gate, the full Public-SegMix run adds RefCOCO/+/g and Ref-Youtube-VOS without
 changing the model or optimization recipe.
 
+`identity_adapt_qwen3_4b_sam3_video_pilot.py` is the clean stage-one baseline.
+It uses the same public video data, Qwen LoRA, projection, and optimization
+budget as joint FTG while retaining the published single identity prompt. It
+must be compared directly with joint FTG and Frame Prompt, and its checkpoint
+is the intended foundation for the two-stage adapted Anchored FTG run.
+
 `frame_prompt_qwen3_4b_sam3_video_pilot.py` is the broad-adaptation Frame Prompt
 control. It inherits the same checkpoint, data order, and training budget as
 the first two-token FTG run, but emits only the frame-dependent state token. It
@@ -40,3 +46,10 @@ the unbounded Anchored FTG prompt was found to remap instances despite small
 weight norms. The dynamic residual may move the frozen identity prompt by at
 most 2% of its norm. This is a hard prompt-space bound, not a weight-decay
 proxy; step zero still exactly reproduces the public foundation.
+
+`adapted_anchored_ftg_qwen3_4b_sam3_video_pilot.py` is the clean two-stage
+follow-up. It uses the public-video-adapted identity checkpoint as its frozen
+foundation, explicitly ignores that checkpoint's jointly trained
+`factorized_grounding` weights, and learns a fresh zero-initialized state
+residual. This makes the decisive comparison adapted Identity versus adapted
+Identity + State without moving Qwen and the interface simultaneously.
