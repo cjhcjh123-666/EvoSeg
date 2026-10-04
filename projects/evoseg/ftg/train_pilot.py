@@ -43,6 +43,14 @@ def _grad_norm(parameters: list[torch.nn.Parameter]) -> float:
     return squared.sqrt().item()
 
 
+def _switch_rate(indices: torch.Tensor) -> float:
+    """Fraction of adjacent frames assigned to different SAM query slots."""
+    indices = indices.detach().flatten()
+    if indices.numel() < 2:
+        return 0.0
+    return (indices[1:] != indices[:-1]).float().mean().item()
+
+
 def _ordered_sample(sample: dict, order: str, seed: int) -> tuple[list, torch.Tensor]:
     length = len(sample["frames"])
     if order == "original":
@@ -81,6 +89,8 @@ def _aggregate(records: list[dict]) -> dict:
                     "oracle_jf",
                     "oracle_present_jf",
                     "query_selection_accuracy",
+                    "matched_query_switch_rate",
+                    "predicted_query_switch_rate",
                     "matched_mask_loss",
                     "predicted_mask_loss",
                 )
@@ -170,6 +180,12 @@ def evaluate(
                 "query_selection_accuracy": (
                     output["predicted_query"] == output["matched_query"]
                 ).float().mean().item(),
+                "matched_query_switch_rate": _switch_rate(
+                    output["matched_query"]
+                ),
+                "predicted_query_switch_rate": _switch_rate(
+                    output["predicted_query"]
+                ),
                 "loss": output["loss"].float().item(),
                 "matched_mask_loss": output["matched_mask_loss"].float().item(),
                 "predicted_mask_loss": output["predicted_mask_loss"].float().item(),
