@@ -7,7 +7,11 @@ from pathlib import Path
 
 import numpy as np
 from pycocotools import mask as mask_utils
-from scipy import ndimage
+
+from projects.evoseg.temporal_seg.official_metrics import (
+    db_eval_boundary,
+    db_eval_iou,
+)
 
 
 DEFAULT_META = Path(
@@ -20,23 +24,6 @@ DEFAULT_MASK = Path(
 )
 WORKER_META = {}
 WORKER_MASK = {}
-
-
-def db_eval_boundary(fg, gt, bound_th=0.008):
-    fg = fg.astype(np.float64)
-    gt = gt.astype(np.float64)
-    if np.sum(fg) == 0 and np.sum(gt) == 0:
-        return 1.0
-    if np.sum(fg) == 0 or np.sum(gt) == 0:
-        return 0.0
-    fg_b = (fg - ndimage.binary_erosion(fg > 0).astype(float)) > 0
-    gt_b = (gt - ndimage.binary_erosion(gt > 0).astype(float)) > 0
-    fg_d = ndimage.distance_transform_edt(np.logical_not(fg_b))
-    gt_d = ndimage.distance_transform_edt(np.logical_not(gt_b))
-    max_dist = bound_th * np.sqrt(fg.shape[0] ** 2 + fg.shape[1] ** 2)
-    prec = 1.0 - np.mean(np.minimum(fg_d, max_dist)[gt_b > 0]) / max_dist
-    rec = 1.0 - np.mean(np.minimum(gt_d, max_dist)[fg_b > 0]) / max_dist
-    return 2 * prec * rec / (prec + rec + 1e-10)
 
 
 def decode_bool(rle):
@@ -65,12 +52,12 @@ def eval_video(task):
                 annotation = decode_bool(annotations[frame_index])
                 if annotation is not None:
                     target = annotation if target is None else target | annotation
-            if target is None or target.sum() == 0:
-                continue
-            intersection = np.logical_and(prediction, target).sum()
-            union = np.logical_or(prediction, target).sum()
-            js.append(intersection / (union + 1e-10))
-            fs.append(db_eval_boundary(prediction, target))
+            if target is None:
+                target = np.zeros_like(prediction)
+            # Official DAVIS-style empty-mask semantics are retained: empty/empty
+            # is one, while a false positive on an absent frame is zero.
+            js.append(float(db_eval_iou(target, prediction)))
+            fs.append(float(db_eval_boundary(target, prediction)))
         if js:
             out.append((float(np.mean(js)), float(np.mean(fs))))
     return out
@@ -106,6 +93,8 @@ def main():
     js = [score[0] for score in pairs]
     fs = [score[1] for score in pairs]
     summary = {
+        "protocol": "DAVIS J&F (Long-RVOS vendored official implementation)",
+        "empty_frame_semantics": "empty/empty=1; false-positive-on-empty=0",
         "results": str(args.results),
         "evaluated_pairs": len(pairs),
         "mean_j": float(np.mean(js)),
