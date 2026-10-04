@@ -28,3 +28,9 @@ control for Anchored FTG. It uses the same frozen foundation, 592,897 trainable
 parameters, zero initialization, data, and schedule, but replaces the identity
 query used for state extraction with zeros. Anchored FTG versus this control
 isolates identity-conditioned dynamic state from a generic frame residual.
+
+`bounded_ftg_qwen3_4b_sam3_video_pilot.py` adds a functional trust region after
+the unbounded Anchored FTG prompt was found to remap instances despite small
+weight norms. The dynamic residual may move the frozen identity prompt by at
+most 2% of its norm. This is a hard prompt-space bound, not a weight-decay
+proxy; step zero still exactly reproduces the public foundation.

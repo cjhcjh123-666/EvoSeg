@@ -67,7 +67,11 @@ class Sa2VAChatModelQwen(PreTrainedModel):
         )
         self.factorized_grounding = (
             None if self.grounding_variant == 'identity_memory'
-            else FactorizedPromptTokens(out_dim)
+            else FactorizedPromptTokens(
+                out_dim,
+                max_residual_ratio=getattr(
+                    config, 'grounding_residual_ratio', 0.02),
+            )
         )
 
     @property

@@ -68,6 +68,11 @@ def parse_args():
     parser.add_argument("--meta", type=Path, default=DEFAULT_META)
     parser.add_argument("--mask", type=Path, default=DEFAULT_MASK)
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument(
+        "--keys-from",
+        type=Path,
+        help="Restrict evaluation to video/expression keys present in another results JSON.",
+    )
     parser.add_argument("--output", type=Path)
     return parser.parse_args()
 
@@ -78,11 +83,20 @@ def main():
     WORKER_RESULTS = json.loads(args.results.read_text())
     WORKER_META = json.loads(args.meta.read_text())["videos"]
     WORKER_MASK = json.loads(args.mask.read_text())
+    allowed = None
+    if args.keys_from:
+        key_results = json.loads(args.keys_from.read_text())
+        allowed = {
+            (video, expression_id)
+            for video, expressions in key_results.items()
+            for expression_id in expressions
+        }
     tasks = [
         (video, exp_id)
         for video, expressions in WORKER_RESULTS.items()
         if video in WORKER_META
         for exp_id in expressions
+        if allowed is None or (video, exp_id) in allowed
     ]
     print(f"tasks: {len(tasks)}", flush=True)
     pairs = []
@@ -115,6 +129,7 @@ def main():
         "protocol": "DAVIS J&F (Long-RVOS vendored official implementation)",
         "empty_frame_semantics": "empty/empty=1; false-positive-on-empty=0",
         "results": str(args.results),
+        "keys_from": str(args.keys_from) if args.keys_from else None,
         **overall,
         "target_present": target_present,
         "no_target": no_target,

@@ -5,8 +5,11 @@ from torch import nn
 
 
 class FactorizedPromptTokens(nn.Module):
-    def __init__(self, hidden_dim=256):
+    def __init__(self, hidden_dim=256, max_residual_ratio=0.02):
         super().__init__()
+        if not 0 < max_residual_ratio <= 1:
+            raise ValueError("max_residual_ratio must be in (0, 1]")
+        self.max_residual_ratio = max_residual_ratio
         self.identity_norm = nn.LayerNorm(hidden_dim)
         self.frame_norm = nn.LayerNorm(hidden_dim)
         self.state_attention = nn.MultiheadAttention(
@@ -51,7 +54,9 @@ class FactorizedPromptTokens(nn.Module):
         state, gate = self.state_observation(
             state_identity,
             frame_features,
-            anchored=variant in {"anchored_ftg", "unconditioned_residual"},
+            anchored=variant in {
+                "anchored_ftg", "unconditioned_residual", "bounded_ftg"
+            },
         )
         if variant == "identity_memory":
             tokens = identity[:, None]
@@ -70,6 +75,14 @@ class FactorizedPromptTokens(nn.Module):
             tokens = (identity + state)[:, None]
         elif variant == "unconditioned_residual":
             tokens = (identity + state)[:, None]
+        elif variant == "bounded_ftg":
+            identity_norm = identity.float().norm(dim=-1, keepdim=True)
+            state_norm = state.float().norm(dim=-1, keepdim=True)
+            max_norm = self.max_residual_ratio * identity_norm
+            residual_scale = torch.clamp(
+                max_norm / state_norm.clamp_min(1e-6), max=1.0
+            ).to(state.dtype)
+            tokens = (identity + residual_scale * state)[:, None]
         else:
             raise ValueError(f"unknown grounding variant: {variant}")
         return tokens, gate

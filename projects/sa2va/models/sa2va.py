@@ -46,6 +46,7 @@ class Sa2VAModel(BaseModel):
                  # 1024 = SAM2 native; set 1008 for the HF SAM3 tracker.
                  grounding_img_size:int=1024,
                  grounding_variant: StrongGroundingVariant='identity_memory',
+                 grounding_residual_ratio: float=0.02,
                  use_existence_head: bool=True,
                  freeze_foundation: bool=False,
                  ):
@@ -88,10 +89,12 @@ class Sa2VAModel(BaseModel):
         self.factorized_grounding = (
             None
             if grounding_variant == 'identity_memory'
-            else FactorizedPromptTokens(out_dim)
+            else FactorizedPromptTokens(
+                out_dim, max_residual_ratio=grounding_residual_ratio)
         )
         if self.factorized_grounding is not None:
-            if grounding_variant in {'anchored_ftg', 'unconditioned_residual'}:
+            if grounding_variant in {
+                    'anchored_ftg', 'unconditioned_residual', 'bounded_ftg'}:
                 self.factorized_grounding.state_mlp.requires_grad_(False)
             else:
                 self.factorized_grounding.anchored_state_mlp.requires_grad_(False)

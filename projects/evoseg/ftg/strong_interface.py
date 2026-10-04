@@ -16,6 +16,7 @@ StrongGroundingVariant = Literal[
     "ftg",
     "anchored_ftg",
     "unconditioned_residual",
+    "bounded_ftg",
 ]
 
 
@@ -30,8 +31,15 @@ class FactorizedPromptTokens(nn.Module):
     ``vector_sum`` control deliberately collapses them back into one token.
     """
 
-    def __init__(self, hidden_dim: int = 256) -> None:
+    def __init__(
+        self,
+        hidden_dim: int = 256,
+        max_residual_ratio: float = 0.02,
+    ) -> None:
         super().__init__()
+        if not 0 < max_residual_ratio <= 1:
+            raise ValueError("max_residual_ratio must be in (0, 1]")
+        self.max_residual_ratio = max_residual_ratio
         self.identity_norm = nn.LayerNorm(hidden_dim)
         self.frame_norm = nn.LayerNorm(hidden_dim)
         self.state_attention = nn.MultiheadAttention(
@@ -92,7 +100,9 @@ class FactorizedPromptTokens(nn.Module):
         frame_features: torch.Tensor,
         variant: StrongGroundingVariant = "ftg",
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        anchored = variant in {"anchored_ftg", "unconditioned_residual"}
+        anchored = variant in {
+            "anchored_ftg", "unconditioned_residual", "bounded_ftg"
+        }
         state_identity = (
             torch.zeros_like(identity)
             if variant == "unconditioned_residual"
@@ -123,6 +133,14 @@ class FactorizedPromptTokens(nn.Module):
             # Parameter-matched control: preserve the same foundation prompt
             # and residual branch, but remove identity from state extraction.
             tokens = (identity + state)[:, None]
+        elif variant == "bounded_ftg":
+            identity_norm = identity.float().norm(dim=-1, keepdim=True)
+            state_norm = state.float().norm(dim=-1, keepdim=True)
+            max_norm = self.max_residual_ratio * identity_norm
+            residual_scale = torch.clamp(
+                max_norm / state_norm.clamp_min(1e-6), max=1.0
+            ).to(state.dtype)
+            tokens = (identity + residual_scale * state)[:, None]
         else:
             raise ValueError(f"unknown strong grounding variant: {variant}")
         return tokens, gate

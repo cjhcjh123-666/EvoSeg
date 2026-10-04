@@ -27,6 +27,7 @@ def test_ftg_keeps_identity_token_fixed_across_frame_states():
         ("ftg", 2),
         ("anchored_ftg", 1),
         ("unconditioned_residual", 1),
+        ("bounded_ftg", 1),
     ],
 )
 def test_variant_shapes_and_gate_range(variant, token_count):
@@ -87,6 +88,20 @@ def test_unconditioned_residual_matches_identity_then_ignores_identity_in_state(
     assert torch.equal(first_gate, second_gate)
 
 
+def test_bounded_ftg_limits_functional_prompt_displacement():
+    ratio = 0.02
+    module = FactorizedPromptTokens(hidden_dim=4, max_residual_ratio=ratio)
+    identity = torch.randn(3, 4)
+    frame_features = torch.randn(3, 7, 4)
+    with torch.no_grad():
+        module.anchored_state_mlp[-1].weight.fill_(10)
+        module.anchored_state_mlp[-1].bias.fill_(10)
+    tokens, _ = module(identity, frame_features, variant="bounded_ftg")
+    displacement = (tokens[:, 0] - identity).norm(dim=-1)
+    bound = ratio * identity.norm(dim=-1)
+    assert torch.all(displacement <= bound + 1e-6)
+
+
 def test_invalid_shapes_and_variant_are_rejected():
     module = FactorizedPromptTokens(hidden_dim=4)
     with pytest.raises(ValueError):
@@ -103,6 +118,15 @@ def test_exported_hf_composer_is_weight_and_output_compatible():
     frames = torch.randn(2, 5, 8)
     expected, expected_gate = training(identity, frames, variant="ftg")
     actual, actual_gate = exported(identity, frames, variant="ftg")
+    assert torch.equal(expected, actual)
+    assert torch.equal(expected_gate, actual_gate)
+
+    expected, expected_gate = training(
+        identity, frames, variant="bounded_ftg"
+    )
+    actual, actual_gate = exported(
+        identity, frames, variant="bounded_ftg"
+    )
     assert torch.equal(expected, actual)
     assert torch.equal(expected_gate, actual_gate)
 

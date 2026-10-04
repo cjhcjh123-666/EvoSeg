@@ -127,6 +127,8 @@ def main():
     config_dict["template"] = template_str
     config_dict["grounding_variant"] = cfg.model.get(
         'grounding_variant', 'identity_memory')
+    config_dict["grounding_residual_ratio"] = cfg.model.get(
+        'grounding_residual_ratio', 0.02)
 
 
     if 'qwen' in arch_type:
