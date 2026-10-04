@@ -16,32 +16,33 @@ the VLM without being exposed to the mask decoder through the right interface.
 ## Method claim
 
 **Factorized Temporal Grounding (FTG)** separates one video-level persistent
-identity from frame-dependent state observations. The two factors are no longer
-summed into one detector-prompt vector. They enter SAM3 as distinct sparse
-tokens:
+identity from frame-dependent state observations. The released checkpoint's
+pretrained segmentation prompt is retained as the persistent identity anchor;
+an identity-conditioned state branch can only add a gated residual:
 
 \[
-z^{id}=F_{id}(q,\operatorname{Pool}_t H_t),\qquad
+z^{id}=F_{\mathrm{pretrained}}(q,V),\qquad
 z_t^{state}=F_{state}(z^{id},H_t^{SAM}),
 \]
 
 \[
-p_t=[z^{id};z_t^{state}],\qquad
-(M_t,m_t)=\operatorname{Track}(I_t,m_{t-1};p_t).
+p_t=z^{id}+\sigma(G(z^{id},z_t^{state}))\odot R(z^{id},z_t^{state}),
+\qquad M_t=\operatorname{SAM3}(I_{1:T},p_t).
 \]
 
 Here \(F_{state}\) is one identity-query cross-attention block over the native
-SAM3 spatial feature map. The first sparse token is identical at every frame;
-only the second token changes. The persistent token supplies stable ownership,
-the state token supplies evidence about current appearance and location, and
-the native tracker carries both into recurrent memory. The implementation adds
-no verifier, refusal path, candidate bank,
+SAM3 spatial feature map. \(R\)'s final projection is initialized to exactly
+zero, so FTG is bit-for-bit the public foundation at initialization. Qwen, the
+pretrained `[SEG]` projection, and SAM3 are frozen in the controlled pilot; only
+the small state residual and gate are learned. The persistent prompt supplies a
+stable identity base while the residual expresses current appearance and
+location. The implementation adds no verifier, refusal path, candidate bank,
 process compiler, GRU, RL objective, or post-hoc matcher.
 
-The earlier additive prompt implementation is retained only as a rejected
-control. On the scaled three-seed pilot it underperformed Frame Prompt in every
-seed, and direct training-free insertion of a Qwen mask into SAM3.1 tracker
-memory also failed. Neither result is used as the paper method.
+The earlier randomly initialized two-token and broadly adapted implementations
+are retained only as rejected controls. They changed the pretrained language-to-
+instance geometry and failed on full MeViS-v2. Neither result is used as the
+paper method.
 
 ## Fixed model and data
 
@@ -49,8 +50,8 @@ memory also failed. Neither result is used as the paper method.
 - Primary initialization: the public trained
   `Sa2VA-Qwen3-VL-4B-SAM3` checkpoint; no Faithful, refusal, verifier, or
   synthetic-data checkpoint is used.
-- Pixel decoder and persistent memory: the checkpoint's native SAM3 video
-  tracker, frozen for the first controlled study.
+- Pixel decoder: the checkpoint's native SAM3 video model, frozen for the first
+  controlled study.
 - Scratch initialization from `Qwen3-VL-4B-Instruct` plus official SAM3.1 is a
   controlled foundation ablation, not the main full-scale model.
 - Default temporal budget: 16 uniformly sampled full-range frames.
@@ -62,24 +63,25 @@ memory also failed. Neither result is used as the paper method.
 
 ## Controlled comparison
 
-Every variant uses the same public pretrained checkpoint, data manifest,
-frame budget, LoRA placement, loss, optimizer, steps, and evaluation code. Only
-the grounding interface changes:
+The primary strong-foundation comparison keeps the checkpoint, public data,
+frame budget, frozen Qwen/SAM3 scope, loss, optimizer, steps, and evaluation
+code fixed. Only the residual's access to persistent identity changes:
 
-| Variant | Persistent identity | Dynamic state | Frame-specific prompt |
+| Variant | Frozen identity base | State residual | Identity-conditioned state |
 |---|---:|---:|---:|
-| Pretrained Monolithic | mixed | mixed | no |
-| Frame Prompt | mixed | mixed | yes |
-| Identity Memory | yes | no | no |
-| State Only | no | yes | yes |
-| ID + State, vector sum | yes | yes | yes |
-| FTG memory interface | yes | yes | yes |
+| Public Foundation / Identity Only | yes | no | no |
+| Unconditioned Frame Residual | yes | yes | no |
+| ID + State without gate | yes | yes | yes |
+| Anchored FTG | yes | yes | yes |
 
-The decisive comparison remains **Frame Prompt versus FTG** with identical
-initial weights and supervision. It isolates persistent identity memory from
-the generic benefit of frame-specific prompts. Identity Memory and State Only
-test each factor alone; the rejected vector-sum variant tests whether gains
-require distinct interfaces.
+The decisive factorization comparison is **Unconditioned Frame Residual versus
+Anchored FTG**; the public foundation establishes whether either learned
+residual improves rather than merely changes predictions. The ungated variant
+tests whether adaptive residual control is necessary. The broadly adapted
+Frame Prompt and two-token FTG runs are retained as explicitly labeled negative
+diagnostics, not parameter-matched primary controls. The scratch-Qwen suite
+still reports Global/Frame/Identity/State/FTG under an exactly shared trainable
+scope as a separate foundation ablation.
 
 ## Evaluation
 

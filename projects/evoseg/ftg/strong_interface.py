@@ -15,6 +15,7 @@ StrongGroundingVariant = Literal[
     "vector_sum",
     "ftg",
     "anchored_ftg",
+    "unconditioned_residual",
 ]
 
 
@@ -91,9 +92,14 @@ class FactorizedPromptTokens(nn.Module):
         frame_features: torch.Tensor,
         variant: StrongGroundingVariant = "ftg",
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        anchored = variant == "anchored_ftg"
+        anchored = variant in {"anchored_ftg", "unconditioned_residual"}
+        state_identity = (
+            torch.zeros_like(identity)
+            if variant == "unconditioned_residual"
+            else identity
+        )
         state, gate = self.state_observation(
-            identity, frame_features, anchored=anchored
+            state_identity, frame_features, anchored=anchored
         )
         if variant == "identity_memory":
             tokens = identity[:, None]
@@ -112,6 +118,10 @@ class FactorizedPromptTokens(nn.Module):
             # One sparse prompt retains the pretrained identity geometry.  The
             # target-aware dynamic state can move it only after learning; at
             # initialization this is bit-for-bit the identity-memory prompt.
+            tokens = (identity + state)[:, None]
+        elif variant == "unconditioned_residual":
+            # Parameter-matched control: preserve the same foundation prompt
+            # and residual branch, but remove identity from state extraction.
             tokens = (identity + state)[:, None]
         else:
             raise ValueError(f"unknown strong grounding variant: {variant}")

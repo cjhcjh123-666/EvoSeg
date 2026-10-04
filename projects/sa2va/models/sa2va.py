@@ -91,7 +91,7 @@ class Sa2VAModel(BaseModel):
             else FactorizedPromptTokens(out_dim)
         )
         if self.factorized_grounding is not None:
-            if grounding_variant == 'anchored_ftg':
+            if grounding_variant in {'anchored_ftg', 'unconditioned_residual'}:
                 self.factorized_grounding.state_mlp.requires_grad_(False)
             else:
                 self.factorized_grounding.anchored_state_mlp.requires_grad_(False)

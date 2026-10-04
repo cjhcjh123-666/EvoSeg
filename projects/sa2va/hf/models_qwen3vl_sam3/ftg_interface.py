@@ -43,8 +43,15 @@ class FactorizedPromptTokens(nn.Module):
         return gate * state_mlp(inputs), gate
 
     def forward(self, identity, frame_features, variant="ftg"):
+        state_identity = (
+            torch.zeros_like(identity)
+            if variant == "unconditioned_residual"
+            else identity
+        )
         state, gate = self.state_observation(
-            identity, frame_features, anchored=variant == "anchored_ftg"
+            state_identity,
+            frame_features,
+            anchored=variant in {"anchored_ftg", "unconditioned_residual"},
         )
         if variant == "identity_memory":
             tokens = identity[:, None]
@@ -60,6 +67,8 @@ class FactorizedPromptTokens(nn.Module):
         elif variant == "ftg":
             tokens = torch.stack([identity, state], 1)
         elif variant == "anchored_ftg":
+            tokens = (identity + state)[:, None]
+        elif variant == "unconditioned_residual":
             tokens = (identity + state)[:, None]
         else:
             raise ValueError(f"unknown grounding variant: {variant}")

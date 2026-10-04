@@ -9,25 +9,27 @@ SAM3 video tracker. Its released inference path repeats one monolithic language
 embedding on every frame before propagation. FTG preserves these pretrained
 weights but assigns two representations to different responsibilities:
 
-- `z_id` is computed once from the query and global video context. It owns the
-  tracker object ID and remains attached to persistent SAM memory.
+- `z_id` is the checkpoint's pretrained `[SEG]` projection, computed from the
+  query and video context. It is the persistent identity anchor.
 - `z_state_t` is produced by using `z_id` as a single cross-attention query over
   the current frame's native SAM3 spatial features. It is therefore both
   target-conditioned and frame-dependent.
 
-For frame `t`, SAM3 receives two distinct sparse language tokens
-`[z_id, z_state_t]`; identity is not recomputed independently per frame and
-state is not added to identity. The frozen native tracker then carries object
-ownership through its recurrent memory. Qwen LoRA, the existing `[SEG]`
-projection, and the small state cross-attention are trainable. Ground truth
-supervises masks during training but never initializes memory, chooses an
-anchor, or selects a prediction at evaluation time.
+For frame `t`, the prompt is
+`p_t = z_id + sigmoid(g_t) * residual(z_id, z_state_t)`. The residual's last
+projection is zero-initialized, making the initial model exactly equal to the
+public foundation rather than a randomly perturbed prompt. Qwen, the existing
+`[SEG]` projection, and SAM3 are frozen; only 592,897 parameters in the state
+branch and gate are optimized in the controlled pilot. Ground truth supervises
+masks during training but never initializes memory, chooses an anchor, or
+selects a prediction at evaluation time.
 
 The decisive Frame Prompt control receives the same frame observations and
 trainable budget but has no persistent identity variable. Identity Memory uses
 the persistent representation without frame reconditioning. State Only restarts
-from frame-dependent evidence without carrying an identity. The old vector-sum
-variant is retained as a negative architectural control.
+from frame-dependent evidence without carrying an identity. The earlier broad
+two-token FTG and random prompt-replacement variants are negative architectural
+controls.
 
 ## Rejected scratch implementation
 
@@ -51,10 +53,15 @@ prompt-vector addition and one-shot anchor propagation.
   Qwen3-VL/SAM3 foundation evaluation with explicit public-dataset path
   overrides and deterministic smoke subsets.
 - `projects/sa2va/configs/ftg/ftg_qwen3_4b_sam3_video_pilot.py`: public
-  MeViS-v2 + Long-RVOS temporal gate, with the old existence/Faithful head
-  explicitly disabled.
+  MeViS-v2 + Long-RVOS broad-adaptation negative control.
+- `projects/sa2va/configs/ftg/anchored_ftg_qwen3_4b_sam3_video_pilot.py`:
+  foundation-preserving primary FTG pilot.
 - `projects/evoseg/ftg/strong_interface.py`: identity-query spatial
   cross-attention and controlled prompt variants.
+- `projects/evoseg/eval/eval_mevis_jf.py`: official native-resolution MeViS
+  J/F evaluation.
+- `projects/evoseg/eval/eval_long_rvos.py`: official Long-RVOS J/F, tIoU, and
+  vIoU with Static/Dynamic/Hybrid reporting.
 - `python -m projects.evoseg.ftg.evaluate_sam31_video_baseline`: frozen official
   SAM3.1 detector-to-tracker diagnostic.
 - `python -m projects.evoseg.ftg.evaluate_qwen_seeded_tracker`: rejected
