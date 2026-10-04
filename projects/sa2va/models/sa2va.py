@@ -185,6 +185,31 @@ class Sa2VAModel(BaseModel):
         self.seg_token_idx = tokenizer("[SEG]", add_special_tokens=False).input_ids[0] # required to make add_special_tokens to be False to avoid <bos> or <eos>
 
     def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
+        # Older HF -> training conversions of the SAM3 checkpoint retained the
+        # HF-only ``g_weight`` spelling for CXBlock layer-scale parameters.  The
+        # vendored training model calls the same parameters ``gamma``.  Loading
+        # with ``strict=False`` used to silently leave those two tensors at their
+        # random initialization, which is enough to corrupt video propagation
+        # even when the entire foundation is frozen.  Normalize only when the
+        # source key is absent from this model and the corresponding destination
+        # key really exists, so native checkpoints are unchanged.
+        own_keys = {name for name, _ in self.named_parameters()}
+        own_keys.update(name for name, _ in self.named_buffers())
+        remapped = []
+        for key in state_dict:
+            if '.g_weight' not in key or key in own_keys:
+                continue
+            candidate = key.replace('.g_weight', '.gamma')
+            if candidate in own_keys:
+                remapped.append((key, candidate))
+        if remapped:
+            normalized = OrderedDict(state_dict)
+            if hasattr(state_dict, '_metadata'):
+                normalized._metadata = state_dict._metadata
+            for source, destination in remapped:
+                normalized[destination] = normalized.pop(source)
+            state_dict = normalized
+            print(f'Remapped {len(remapped)} SAM3 g_weight keys to gamma.')
         return super().load_state_dict(state_dict, strict, assign)
 
     def _merge_lora(self):

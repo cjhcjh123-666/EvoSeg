@@ -1,5 +1,27 @@
 # FTG pilot findings log
 
+## Checkpoint-conversion correction (2026-10-04)
+
+The initial SAM3 training-format checkpoint retained the HF-only `g_weight`
+names for the two CXBlock layer-scale tensors under
+`maskmem_backbone.fuser.layers.{0,1}`, while the training model expects
+`gamma`. Because foundation loading used `strict=False`, both keys were silently
+ignored and the two video-memory tensors remained randomly initialized. All
+training-format SAM3 results recorded below (broad FTG, Frame Prompt, Anchored
+FTG, and the unconditioned residual) are therefore **invalid until re-exported
+with the corrected foundation weights**. They must not be used in paper tables
+or method decisions. The public HF foundation baseline is unaffected.
+
+The loader now conditionally maps a source `g_weight` key to `gamma` only when
+that destination exists. A tensor-level audit after repair found zero differences
+across all 1,459 public-foundation tensors after the normal dtype cast. As an
+end-to-end check, the repaired Anchored export forced to `identity_memory`
+exactly reproduced the public checkpoint on the same evenly spaced 128-expression
+MeViS-v2 subset: both obtained J&F=64.813826%. Re-evaluation of the learned
+Anchored FTG interface on those same keys obtained J&F=64.634527%, a controlled
+change of -0.179299 points rather than the previously reported -16.12 points.
+The complete 907-expression re-evaluation is in progress.
+
 This file records pilot outcomes, including negative evidence. Values are held-out
 J&F percentages on a 48-expression development pilot (36 train, 12 validation),
 not benchmark results.
@@ -26,7 +48,7 @@ Frame Prompt pilot. The strong public checkpoint is therefore the primary
 foundation; scratch Qwen remains a foundation ablation. This comparison changes
 the initialization and is not evidence for FTG itself.
 
-## Full public-data FTG run on the strong foundation
+## Invalidated: initial full public-data FTG export
 
 The first strong-foundation FTG run trained for one epoch on the complete public
 MeViS-v2 and Long-RVOS train splits (3,517 samples, 440 distributed optimizer
@@ -57,7 +79,7 @@ adaptation is therefore remapping which instance the language denotes, not
 learning a controlled frame-state correction. Reproducible four-frame sheets
 and their manifest are stored beside the FTG metric file under `qualitatives/`.
 
-## Full-split frame-prompt and foundation-preserving controls
+## Invalidated: initial frame-prompt and foundation-preserving exports
 
 The same-budget Frame Prompt control reached J=22.85, F=26.84, and J&F=24.84
 on all 907 MeViS-v2 `val^u` expressions. Its target-present J&F was 24.24. The

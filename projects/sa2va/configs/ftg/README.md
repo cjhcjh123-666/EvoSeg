@@ -6,6 +6,12 @@ historical existence/faithfulness head. The initialization checkpoint is a
 lossless training-format conversion of the public local
 `Sa2VA-Qwen3-VL-4B-SAM3` Hugging Face export.
 
+The loader normalizes legacy SAM3 HF `g_weight` layer-scale keys to the
+training model's `gamma` spelling. This compatibility step is required for the
+two mask-memory fuser blocks: silently missing them changes video propagation
+even when SAM3 is frozen. A valid export must reproduce the public checkpoint
+under `identity_memory` before a learned interface is scored.
+
 The pilot keeps SAM3 frozen so the controlled comparison changes only Qwen LoRA,
 the pretrained `[SEG]` projection, and the FTG state module. After the temporal
 gate, the full Public-SegMix run adds RefCOCO/+/g and Ref-Youtube-VOS without
