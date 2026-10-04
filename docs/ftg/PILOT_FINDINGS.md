@@ -69,3 +69,27 @@ inference with a single predetermined official SAM query slot used identically
 for supervision and inference. This is an interface alignment: it adds no
 inference module, does not search candidates, and never uses ground truth to
 choose an output.
+
+## Fixed-query-slot test
+
+The fixed-slot interface also failed the cross-seed gate. At seed 11, FTG
+reached 19.21 overall J&F versus 7.36 for Frame Prompt, but Long-RVOS Dynamic
+dropped by 15.38 points. At seed 23, FTG and Frame Prompt were effectively tied
+at 18.03 and 18.00, with Dynamic again lower by 3.12 points. The direction of
+the result is therefore inconsistent with the identity/state motivation.
+
+Qualitative inspection exposed two initialization-dependent failure modes on
+the same MeViS clip: one run predicted nearly empty masks, while another spread
+foreground across the boat body and windshield instead of the small referred
+person. State Only reached 18.87 overall at seed 11, but its category scores
+were similarly uneven (25.00 Static, 34.38 Dynamic, and 3.12 Hybrid). A fixed
+slot removes permutation mismatch but does not provide a stable semantic
+mapping from the learned prompt to that slot.
+
+The score-head audit also identified a loss-semantics mismatch. SAM3.1 emits an
+independent binary objectness logit for every query, whereas the pilot had
+treated query indices as mutually exclusive classes with softmax cross-entropy.
+The next controlled run keeps matched-query mask supervision and score-based
+inference, but uses SAM3.1-aligned binary objectness targets: the matched query
+is positive and all remaining queries are negatives. The legacy softmax loss
+is retained as an explicit ablation.
