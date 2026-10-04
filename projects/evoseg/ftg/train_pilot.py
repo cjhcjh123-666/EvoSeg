@@ -343,6 +343,10 @@ def run(args: argparse.Namespace) -> dict:
                 "prompt_cross_frame_std": output["prompt_cross_frame_std"].detach().float().item(),
                 "gate_mean": output["gate_mean"].detach().float().item(),
                 "gradient_norms": latest_gradients,
+                "native_residual_scale": (
+                    output["native_residual_scale"].detach().float().item()
+                    if "native_residual_scale" in output else None
+                ),
                 "sam_parameter_grad_count": sam_grad_count,
                 "elapsed_seconds": time.perf_counter() - before,
             }
@@ -397,6 +401,7 @@ def run(args: argparse.Namespace) -> dict:
         "query_policy": args.query_policy,
         "match_scope": args.match_scope,
         "sam_interface": args.sam_interface,
+        "native_residual_scale": model.native_residual_scale.detach().float().item(),
         "sam_visual_chunk_size": args.sam_visual_chunk_size,
         "sam_decode_chunk_size": args.sam_decode_chunk_size,
         "validation": {
@@ -415,6 +420,7 @@ def run(args: argparse.Namespace) -> dict:
         "grounding": {
             key: value.detach().cpu() for key, value in model.grounding.state_dict().items()
         },
+        "native_residual_scale": model.native_residual_scale.detach().cpu(),
         "result": result,
     }
     torch.save(checkpoint, args.output / "lightweight_checkpoint.pt")

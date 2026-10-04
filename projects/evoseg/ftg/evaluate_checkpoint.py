@@ -50,6 +50,13 @@ def run(args: argparse.Namespace) -> dict:
     )
     set_peft_model_state_dict(model.qwen, checkpoint["qwen_lora"])
     model.grounding.load_state_dict(checkpoint["grounding"])
+    if "native_residual_scale" in checkpoint:
+        model.native_residual_scale.data.copy_(
+            checkpoint["native_residual_scale"].to(
+                device=model.native_residual_scale.device,
+                dtype=model.native_residual_scale.dtype,
+            )
+        )
     payload = {
         "variant": variant,
         "checkpoint": str(args.checkpoint),
