@@ -117,3 +117,26 @@ test therefore uses one training-time query assignment for the entire video,
 chosen by mean mask loss over frames. Inference remains the frozen SAM3.1 score
 argmax; no candidate matcher, verifier, or ground-truth inference selection is
 added.
+
+## Query-slot consistency tests
+
+The frame-wise FTG checkpoint changed its training-time matched query on 80.56%
+of adjacent frame pairs, while the query selected by SAM3.1's score changed on
+55.00%. This directly quantifies the slot permutation visible as identity drift
+in crowded-video qualitative results.
+
+Hard consistency did not solve the task. With one video-level training
+assignment, FTG reached 28.77 versus 31.82 for Frame Prompt at seed 11 and 24.02
+versus 28.80 at seed 23. Under the eight-frame budget it reached 29.15 versus
+29.67. Selecting one inference query from the clip-averaged SAM score forced the
+predicted switch rate to zero but further reduced seed-11 FTG from 28.77 to
+26.06. State Only with video-level matching reached 23.99. A decoder query is
+therefore not a reliable persistent identity carrier: unconstrained selection
+switches identities, while fixing a slot suppresses legitimate per-frame mask
+adaptation.
+
+The next interface test removes the large, permutation-symmetric detector query
+bank. It injects each learned prompt into one official SAM3.1 tracker object
+slot and retains only the tracker's small multimask ambiguity set. This path is
+an architectural grounding-interface control, not post-hoc matching, and uses
+about half the pilot memory of the detector path.
