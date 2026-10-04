@@ -317,10 +317,18 @@ def run(args: argparse.Namespace) -> dict:
             latest_gradients = {
                 name: _grad_norm(parameters) for name, parameters in groups.items()
             }
-            if any(
-                not torch.isfinite(torch.tensor(value)) or value <= 0
+            non_finite = any(
+                not torch.isfinite(torch.tensor(value))
                 for value in latest_gradients.values()
-            ):
+            )
+            zero_gradient = any(value <= 0 for value in latest_gradients.values())
+            expected_first_step_zero = (
+                args.sam_interface == "native_factorized_residual"
+                and epoch == 0
+                and position == 0
+                and latest_gradients["grounding"] > 0
+            )
+            if non_finite or (zero_gradient and not expected_first_step_zero):
                 raise RuntimeError(f"non-positive/non-finite gradient: {latest_gradients}")
             sam_grad_count = sum(
                 parameter.grad is not None for parameter in model.executor.assembled.parameters()
