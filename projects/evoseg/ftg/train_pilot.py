@@ -463,7 +463,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--sam-interface",
-        choices=("detector_grounding", "tracker_slot"),
+        choices=("detector_grounding", "native_text_residual", "tracker_slot"),
         default="detector_grounding",
     )
     parser.add_argument("--sam-visual-chunk-size", type=int, default=4)

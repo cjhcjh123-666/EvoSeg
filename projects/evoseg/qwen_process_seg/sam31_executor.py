@@ -126,10 +126,24 @@ class FrozenSAM31Executor(nn.Module):
             "vision_pos_enc": [torch.cat(level) for level in pos_by_level],
         }
 
+    def extract_native_text_features(
+        self, query: str, batch_size: int, device: torch.device
+    ) -> dict[str, torch.Tensor]:
+        """Encode one expression with SAM3.1's frozen native language backbone."""
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            encoded = self.detector.backbone.forward_text([query], device=device)
+        features = encoded["language_features"].detach()
+        mask = encoded["language_mask"].detach()
+        return {
+            "language_features": features.expand(-1, batch_size, -1),
+            "language_mask": mask.expand(batch_size, -1),
+        }
+
     def decode_grounding_prompts(
         self,
         frame_prompts: torch.Tensor,
         grounding_features: dict[str, list[torch.Tensor]],
+        native_text_features: dict[str, torch.Tensor] | None = None,
         decode_chunk_size: int | None = None,
         return_all_queries: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
@@ -149,16 +163,24 @@ class FrozenSAM31Executor(nn.Module):
         if decode_chunk_size <= 0:
             raise ValueError("decode_chunk_size must be positive")
         total = frame_prompts.shape[0]
-        backbone_out = {
-            **grounding_features,
-            "language_features": torch.zeros(
+        if native_text_features is None:
+            text_features = torch.zeros(
                 0, total, self.prompt_dim,
                 device=frame_prompts.device,
                 dtype=frame_prompts.dtype,
-            ),
-            "language_mask": torch.zeros(
+            )
+            text_mask = torch.zeros(
                 total, 0, device=frame_prompts.device, dtype=torch.bool
-            ),
+            )
+        else:
+            text_features = native_text_features["language_features"]
+            text_mask = native_text_features["language_mask"]
+            if text_features.shape[1] != total or text_mask.shape[0] != total:
+                raise ValueError("native text feature batch must match frame prompts")
+        backbone_out = {
+            **grounding_features,
+            "language_features": text_features,
+            "language_mask": text_mask,
         }
         predicted_masks = []
         predicted_scores = []
@@ -187,7 +209,7 @@ class FrozenSAM31Executor(nn.Module):
                     geometry,
                     visual_prompt_embed=visual_prompt,
                     visual_prompt_mask=visual_prompt_mask,
-                    encode_text=False,
+                    encode_text=native_text_features is not None,
                 )
                 current_backbone, encoder_out, _ = self.detector._run_encoder(
                     current_backbone, find_input, prompt, prompt_mask

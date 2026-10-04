@@ -197,6 +197,19 @@ class QwenSegSAM31(nn.Module):
             all_logits, scores = self.executor.decode_grounding_prompts(
                 prompts, visual, return_all_queries=True
             )
+        elif self.sam_interface == "native_text_residual":
+            visual = sam_visual_features or self.executor.extract_grounding_features(
+                frames, prompts.device
+            )
+            native_text = self.executor.extract_native_text_features(
+                query, len(frames), prompts.device
+            )
+            all_logits, scores = self.executor.decode_grounding_prompts(
+                prompts,
+                visual,
+                native_text_features=native_text,
+                return_all_queries=True,
+            )
         elif self.sam_interface == "tracker_slot":
             visual = sam_visual_features or self.executor.extract_visual_features(
                 frames, prompts.device

@@ -45,6 +45,10 @@ class FTGQwenSAM31(QwenSegSAM31):
             variant=variant,
         )
         self.variant = variant
+        # A near-zero (rather than exactly zero) scale preserves the native
+        # SAM3.1 text baseline while allowing gradients to reach Qwen/FTG on
+        # the first optimization step.
+        self.native_residual_scale = nn.Parameter(torch.tensor(1e-3))
         self.grounding.activate_variant_parameters()
 
     def encode_qwen(
@@ -52,6 +56,9 @@ class FTGQwenSAM31(QwenSegSAM31):
     ) -> tuple[torch.Tensor, dict]:
         frame_states, query_state, diagnostics = self.encode_qwen_context(frames, query)
         prompts, grounding_diagnostics = self.grounding(frame_states, query_state)
+        if getattr(self, "sam_interface", "detector_grounding") == "native_text_residual":
+            prompts = self.native_residual_scale * prompts
+            grounding_diagnostics["native_residual_scale"] = self.native_residual_scale
         diagnostics.update(grounding_diagnostics)
         return prompts, diagnostics
 
@@ -64,4 +71,5 @@ class FTGQwenSAM31(QwenSegSAM31):
             parameter for parameter in self.grounding.parameters()
             if parameter.requires_grad
         ]
+        grounding.append(self.native_residual_scale)
         return {"qwen_lora": qwen_lora, "grounding": grounding}
