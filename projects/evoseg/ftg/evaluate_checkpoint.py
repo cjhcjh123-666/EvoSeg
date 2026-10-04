@@ -57,6 +57,8 @@ def run(args: argparse.Namespace) -> dict:
                 dtype=model.native_residual_scale.dtype,
             )
         )
+    if args.native_residual_scale is not None:
+        model.native_residual_scale.data.fill_(args.native_residual_scale)
     payload = {
         "variant": variant,
         "checkpoint": str(args.checkpoint),
@@ -64,6 +66,7 @@ def run(args: argparse.Namespace) -> dict:
         "query_policy": model.query_policy,
         "match_scope": model.match_scope,
         "sam_interface": model.sam_interface,
+        "native_residual_scale": model.native_residual_scale.detach().float().item(),
         "orders": {},
     }
     for order in args.eval_orders:
@@ -93,6 +96,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=11)
     parser.add_argument("--qwen-pixels", type=int, default=100352)
     parser.add_argument("--visualize-count", type=int, default=12)
+    parser.add_argument("--native-residual-scale", type=float)
     parser.add_argument(
         "--query-policy",
         choices=("predicted_score", "consistent_score", "fixed_slot"),
