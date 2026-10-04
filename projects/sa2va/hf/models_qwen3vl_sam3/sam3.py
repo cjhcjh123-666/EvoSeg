@@ -158,6 +158,7 @@ class SAM3(nn.Module):
                 start_frame_idx=0,
                 max_frame_num_to_track=inference_state["num_frames"],
                 reverse=False,
+                tqdm_disable=True,
                 propagate_preflight=True,
             ):
                 out_mask_logits = out[3]
