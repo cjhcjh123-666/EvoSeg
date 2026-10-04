@@ -130,7 +130,7 @@ class FrozenSAM31Executor(nn.Module):
         self,
         frame_prompts: torch.Tensor,
         grounding_features: dict[str, list[torch.Tensor]],
-        decode_chunk_size: int = 4,
+        decode_chunk_size: int | None = None,
         return_all_queries: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Decode learned prompt tokens through SAM3.1's official grounding path.
@@ -144,6 +144,10 @@ class FrozenSAM31Executor(nn.Module):
 
         if frame_prompts.ndim != 2 or frame_prompts.shape[-1] != self.prompt_dim:
             raise ValueError("frame prompts must be [T, official_prompt_dim]")
+        if decode_chunk_size is None:
+            decode_chunk_size = int(getattr(self, "decode_chunk_size", 4))
+        if decode_chunk_size <= 0:
+            raise ValueError("decode_chunk_size must be positive")
         total = frame_prompts.shape[0]
         backbone_out = {
             **grounding_features,
