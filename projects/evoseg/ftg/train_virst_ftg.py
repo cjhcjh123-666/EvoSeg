@@ -12,8 +12,6 @@ import json
 import os
 import random
 import time
-from dataclasses import asdict
-from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -72,6 +70,23 @@ def move_to_device(value, device):
     if isinstance(value, dict):
         return {key: move_to_device(item, device) for key, item in value.items()}
     return value
+
+
+def pad_video_frames_to_multiple(
+    frames: torch.Tensor,
+    multiple: int = 4,
+) -> torch.Tensor:
+    """Repeat the final VLM frame for VideoChat's fixed local-frame groups."""
+    if frames.ndim < 1 or len(frames) == 0:
+        raise ValueError("video frame tensor must be non-empty")
+    if multiple <= 0:
+        raise ValueError("frame multiple must be positive")
+    missing = (-len(frames)) % multiple
+    if missing == 0:
+        return frames
+    repeat_shape = (missing,) + (1,) * (frames.ndim - 1)
+    padding = frames[-1:].repeat(repeat_shape)
+    return torch.cat([frames, padding], dim=0)
 
 
 def atomic_torch_save(value: dict, path: Path) -> None:
@@ -223,12 +238,22 @@ def build_loader(args, tokenizer, data_args, remaining_steps: int) -> DataLoader
         rvos_root=str(data_args.rvos_root),
         train=True,
     )
+    def collate_with_short_video_padding(batch):
+        padded = []
+        for item in batch:
+            item = dict(item)
+            item["images_clip"] = pad_video_frames_to_multiple(
+                item["images_clip"], multiple=4
+            )
+            padded.append(item)
+        return collate_fn(padded, tokenizer=tokenizer)
+
     return DataLoader(
         dataset,
         batch_size=1,
         shuffle=False,
         num_workers=0,
-        collate_fn=partial(collate_fn, tokenizer=tokenizer),
+        collate_fn=collate_with_short_video_padding,
     )
 
 

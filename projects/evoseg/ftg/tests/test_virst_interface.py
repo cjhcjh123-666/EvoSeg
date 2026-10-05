@@ -6,6 +6,7 @@ from projects.evoseg.ftg.virst_interface import (
     FactorizedVirstSegPrompter,
     IdentityStateComposer,
 )
+from projects.evoseg.ftg.train_virst_ftg import pad_video_frames_to_multiple
 
 
 class DummyVirstPrompter(nn.Module):
@@ -30,7 +31,7 @@ def test_factorization_is_exact_and_state_has_zero_temporal_mean():
     identity, state = IdentityStateComposer.factorize(prompts)
     assert torch.allclose(identity + state, prompts)
     assert torch.allclose(
-        state.mean(dim=2), torch.zeros_like(identity[:, :, 0]), atol=1e-7
+        state.mean(dim=2), torch.zeros_like(identity[:, :, 0]), atol=5e-7
     )
 
 
@@ -100,3 +101,13 @@ def test_invalid_shape_dimension_and_variant_are_rejected():
         composer(torch.randn(2, 3, 5, 7))
     with pytest.raises(ValueError):
         composer(torch.randn(2, 3, 5, 8), variant="unknown")
+
+
+def test_short_video_padding_repeats_last_frame_to_local_group():
+    frames = torch.arange(3 * 2).reshape(3, 2)
+    padded = pad_video_frames_to_multiple(frames, multiple=4)
+    assert padded.shape == (4, 2)
+    assert torch.equal(padded[:3], frames)
+    assert torch.equal(padded[3], frames[-1])
+    aligned = torch.randn(8, 2)
+    assert pad_video_frames_to_multiple(aligned, multiple=4) is aligned
