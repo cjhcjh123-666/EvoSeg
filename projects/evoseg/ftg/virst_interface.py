@@ -16,6 +16,23 @@ import torch
 from torch import Tensor, nn
 
 
+def pad_video_frames_to_multiple(
+    frames: Tensor,
+    multiple: int = 4,
+) -> Tensor:
+    """Repeat the final VLM frame for VideoChat's fixed local-frame groups."""
+    if frames.ndim < 1 or len(frames) == 0:
+        raise ValueError("video frame tensor must be non-empty")
+    if multiple <= 0:
+        raise ValueError("frame multiple must be positive")
+    missing = (-len(frames)) % multiple
+    if missing == 0:
+        return frames
+    repeat_shape = (missing,) + (1,) * (frames.ndim - 1)
+    padding = frames[-1:].repeat(repeat_shape)
+    return torch.cat([frames, padding], dim=0)
+
+
 VirstGroundingVariant = Literal[
     "public_virst",
     "identity_only",

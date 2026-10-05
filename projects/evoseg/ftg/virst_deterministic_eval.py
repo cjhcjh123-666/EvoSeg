@@ -9,6 +9,8 @@ import runpy
 
 import numpy as np
 
+from projects.evoseg.ftg.virst_interface import pad_video_frames_to_multiple
+
 
 def sampling_seed(video_id: str, base_seed: int = 42) -> int:
     payload = f"evoseg-virst-ftg-v1/{base_seed}/{video_id}".encode()
@@ -29,7 +31,11 @@ def main() -> None:
         random.seed(seed)
         np.random.seed(seed)
         try:
-            return original_get_item(dataset, index)
+            item = original_get_item(dataset, index)
+            item["images_clip"] = pad_video_frames_to_multiple(
+                item["images_clip"], multiple=4
+            )
+            return item
         finally:
             random.setstate(python_state)
             np.random.set_state(numpy_state)

@@ -21,7 +21,10 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from transformers import AutoConfig, AutoTokenizer
 
-from projects.evoseg.ftg.virst_interface import install_virst_ftg
+from projects.evoseg.ftg.virst_interface import (
+    install_virst_ftg,
+    pad_video_frames_to_multiple,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,23 +73,6 @@ def move_to_device(value, device):
     if isinstance(value, dict):
         return {key: move_to_device(item, device) for key, item in value.items()}
     return value
-
-
-def pad_video_frames_to_multiple(
-    frames: torch.Tensor,
-    multiple: int = 4,
-) -> torch.Tensor:
-    """Repeat the final VLM frame for VideoChat's fixed local-frame groups."""
-    if frames.ndim < 1 or len(frames) == 0:
-        raise ValueError("video frame tensor must be non-empty")
-    if multiple <= 0:
-        raise ValueError("frame multiple must be positive")
-    missing = (-len(frames)) % multiple
-    if missing == 0:
-        return frames
-    repeat_shape = (missing,) + (1,) * (frames.ndim - 1)
-    padding = frames[-1:].repeat(repeat_shape)
-    return torch.cat([frames, padding], dim=0)
 
 
 def atomic_torch_save(value: dict, path: Path) -> None:

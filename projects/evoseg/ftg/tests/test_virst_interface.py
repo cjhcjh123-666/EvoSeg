@@ -5,8 +5,8 @@ from torch import nn
 from projects.evoseg.ftg.virst_interface import (
     FactorizedVirstSegPrompter,
     IdentityStateComposer,
+    pad_video_frames_to_multiple,
 )
-from projects.evoseg.ftg.train_virst_ftg import pad_video_frames_to_multiple
 
 
 class DummyVirstPrompter(nn.Module):
