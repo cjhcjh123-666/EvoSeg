@@ -2,6 +2,10 @@ import pytest
 import torch
 from torch import nn
 
+from projects.evoseg.ftg.virst_ftg_eval import (
+    SegmentationOnlyLanguageHead,
+    enable_segmentation_only_language_path,
+)
 from projects.evoseg.ftg.virst_interface import (
     FactorizedVirstSegPrompter,
     IdentityStateComposer,
@@ -111,3 +115,40 @@ def test_short_video_padding_repeats_last_frame_to_local_group():
     assert torch.equal(padded[3], frames[-1])
     aligned = torch.randn(8, 2)
     assert pad_video_frames_to_multiple(aligned, multiple=4) is aligned
+
+
+def test_segmentation_only_eval_removes_unused_language_logits_and_labels():
+    class Inner(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.seg_prompter = nn.Identity()
+
+        def forward(self, hidden_states, *, labels=None):
+            return hidden_states + 1, labels
+
+    class VideoChatFlashQwenForCausalLM(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.model = Inner()
+            self.lm_head = nn.Linear(8, 32, bias=False)
+
+        def forward(self, hidden_states, *, labels=None):
+            outputs, returned_labels = self.model(
+                hidden_states, labels=labels
+            )
+            return outputs, returned_labels, self.lm_head(outputs)
+
+    class DummyVirst(VideoChatFlashQwenForCausalLM):
+        seg_token_idx = 7
+
+    model = nn.Sequential(DummyVirst())
+    enable_segmentation_only_language_path(model)
+    core = model[0]
+    hidden = torch.randn(2, 3, 8)
+    outputs, returned_labels, logits = core(
+        hidden, labels=torch.tensor([1])
+    )
+    assert torch.equal(outputs, hidden + 1)
+    assert returned_labels is None
+    assert logits.shape == (2, 3, 1)
+    assert isinstance(core.lm_head, SegmentationOnlyLanguageHead)

@@ -19,11 +19,47 @@ import json
 import os
 import runpy
 import sys
+import types
 from pathlib import Path
 
 import torch
+from torch import nn
 
-from projects.evoseg.ftg.virst_interface import install_virst_ftg
+from projects.evoseg.ftg.virst_interface import find_virst_core, install_virst_ftg
+
+
+class SegmentationOnlyLanguageHead(nn.Module):
+    """Keep the unused logits field tiny during mask-only evaluation."""
+
+    def forward(self, hidden_states):
+        return hidden_states[..., :1]
+
+
+def enable_segmentation_only_language_path(model: nn.Module) -> None:
+    """Remove language-loss/logit memory without changing segmentation states.
+
+    VIRST consumes only ``output.hidden_states`` after its inherited language
+    forward in mask evaluation.  The public implementation nevertheless builds
+    full-vocabulary FP32 logits and a language loss, which costs more than a
+    GiB and can OOM on shared GPUs.  Preserve the transformer forward and its
+    label-dependent visual-token compression exactly, but suppress the returned
+    LM-loss labels and replace the now-unused head with a one-channel view.
+    Generation is intentionally outside this evaluation-only launcher.
+    """
+    core = find_virst_core(model)
+    original_decoder_forward = core.model.forward
+
+    def segmentation_decoder_forward(self, *args, **kwargs):
+        # Labels participate in VIRST's internal visual-token compression, so
+        # they must reach the decoder.  Drop only the labels returned for the
+        # unused language-loss branch after hidden states have been computed.
+        outputs, _compressed_labels = original_decoder_forward(*args, **kwargs)
+        return outputs, None
+
+    core.model.forward = types.MethodType(
+        segmentation_decoder_forward, core.model
+    )
+    core.lm_head = SegmentationOnlyLanguageHead()
 
 
 def append_jsonl(path: Path, value: dict) -> None:
@@ -57,6 +93,11 @@ def main() -> None:
 
     def ftg_load(model, checkpoint):
         loaded = original_load(model, checkpoint)
+        segmentation_only = os.environ.get(
+            "VIRST_SEGMENTATION_ONLY", "1"
+        ).lower() not in {"0", "false", "no"}
+        if segmentation_only:
+            enable_segmentation_only_language_path(loaded)
         adapter = (
             torch.load(adapter_path, map_location="cpu", weights_only=False)
             if adapter_path
@@ -112,6 +153,7 @@ def main() -> None:
                     "virst_ftg_installed": True,
                     "variant": configured_variant,
                     "adapter": adapter_path,
+                    "segmentation_only_language_path": segmentation_only,
                     "trainable_parameters": sum(
                         parameter.numel() for parameter in wrapper.composer.parameters()
                     ),
