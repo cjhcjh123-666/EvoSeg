@@ -76,6 +76,47 @@ Ten asset/protocol unit tests pass. Native image transforms, frame compression,
 SEG prompts and mask inference are unchanged. Do not launch full evaluation
 until all shards are ready and complete loading has passed.
 
+## User-requested overnight first run (09:00 Beijing target)
+
+`python -m projects.evoseg.restart.overnight --detach` creates one detached,
+locked supervisor. Inspect `OVERNIGHT_STATUS.json`, actual child PIDs and logs;
+do not infer success from a launch marker. It never terminates foreign GPU jobs.
+The first target is the nearest 09:00 Asia/Shanghai after launch (2026-10-06 for
+this late-night session), reserving the last two hours for evaluation. Completion
+by that target is an aim, not a measured runtime guarantee.
+
+Chain: pinned assets ready -> strict complete native loading -> held-out native
+diagnostic -> full MeViS-v2 907-expression baseline -> 20-update pilot -> held-out
+gate -> continue the same optimizer/checkpoint up to 200 total updates or the
+reserved evaluation window -> held-out and full 907-expression final evaluation.
+A >3-point target-present held-out drop after the pilot withholds full training.
+No score is called SOTA. An incomplete or failed stage records a failure instead
+of silently advancing.
+
+Fine-tuning is deliberately conservative: LoRA rank 32, alpha 64, dropout .05,
+LR 2e-6, batch one video per GPU, accumulation two, native 100-frame training
+wrap sampling and 20 compressed 448px images, ten 1024px keyframes, five public
+expressions per video. Language LoRA, the released text-to-SAM projector and
+native SAM mask decoder train; the original visual encoders, multimodal projector
+and other SAM weights remain frozen. Native CE x2, Dice x.5 and assistant-token
+language loss are retained. This is a **plain released-model fine-tune**, not the
+discarded FTG method or a new paper contribution by itself.
+
+The deterministic split contains 1579 fine-tune videos and 83 held-out videos.
+Those held-out videos may have been seen by the released model's prior training.
+Training sample and special-token alignment checks passed on actual public data.
+Non-reentrant activation checkpointing is selected in the dedicated process to
+support DDP unused-parameter handling without changing the native architecture.
+The upstream evaluator omitted `<image>` for question expressions; MeViS-v2
+has such questions. The new runner retains their exact public text and adds the
+mandatory image placeholder identically for baseline and adapted inference.
+
+Artifacts: `native_finetune/checkpoint_NNNNN.pth`, `LATEST.json`, training status,
+per-expression full-frame prediction RLEs, before/after metrics, and
+`FIRST_RUN_REPORT.json` only after all planned evaluation coverage passes.
+Unit guards cover data splits, frame compression, loss gradients, deadline
+calculation, unique evaluation shards and rejection of missing frame coverage.
+
 ## Recoverable cleanup completed
 
 Thirteen explicitly selected retired prototypes/invalid pre-repair exports were
