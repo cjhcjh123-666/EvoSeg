@@ -4,6 +4,8 @@ from torch import nn
 
 from projects.evoseg.ftg.virst_ftg_eval import (
     SegmentationOnlyLanguageHead,
+    concatenate_batch_tree,
+    enable_chunked_sam_image_encoder,
     enable_cpu_video_storage,
     enable_segmentation_only_language_path,
 )
@@ -181,3 +183,43 @@ def test_long_video_eval_forces_sam_cpu_frame_storage():
     )
     assert result["offload_video_to_cpu"] is True
     assert result["offload_state_to_cpu"] is False
+
+
+def test_chunked_sam_encoder_preserves_nested_batch_outputs():
+    class Tracker(nn.Module):
+        def forward_image(self, images):
+            return {
+                "vision_features": images * 2,
+                "backbone_fpn": [images + 1, images + 2],
+                "vision_pos_enc": (images - 1,),
+            }
+
+    class Inner(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.seg_prompter = nn.Identity()
+            self.seg_model = Tracker()
+
+    class DummyVirst(nn.Module):
+        seg_token_idx = 7
+
+        def __init__(self):
+            super().__init__()
+            self.model = Inner()
+
+    images = torch.randn(11, 3, 4, 4)
+    model = nn.Sequential(DummyVirst())
+    expected = model[0].model.seg_model.forward_image(images)
+    enable_chunked_sam_image_encoder(model, chunk_size=4)
+    actual = model[0].model.seg_model.forward_image(images)
+    assert torch.equal(actual["vision_features"], expected["vision_features"])
+    assert all(
+        torch.equal(left, right)
+        for left, right in zip(actual["backbone_fpn"], expected["backbone_fpn"])
+    )
+    assert torch.equal(actual["vision_pos_enc"][0], expected["vision_pos_enc"][0])
+
+
+def test_batch_tree_rejects_unmergeable_metadata():
+    with pytest.raises(TypeError):
+        concatenate_batch_tree(["left", "right"])

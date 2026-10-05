@@ -80,6 +80,51 @@ def enable_cpu_video_storage(model: nn.Module) -> None:
     tracker.init_state = types.MethodType(cpu_video_init_state, tracker)
 
 
+def concatenate_batch_tree(values):
+    """Concatenate SAM image-encoder outputs without changing their structure."""
+    first = values[0]
+    if isinstance(first, torch.Tensor):
+        return torch.cat(values, dim=0)
+    if isinstance(first, dict):
+        return {
+            key: concatenate_batch_tree([value[key] for value in values])
+            for key in first
+        }
+    if isinstance(first, list):
+        return [
+            concatenate_batch_tree([value[index] for value in values])
+            for index in range(len(first))
+        ]
+    if isinstance(first, tuple):
+        return tuple(
+            concatenate_batch_tree([value[index] for value in values])
+            for index in range(len(first))
+        )
+    if all(value is first or value == first for value in values):
+        return first
+    raise TypeError(f"cannot concatenate SAM output type {type(first)!r}")
+
+
+def enable_chunked_sam_image_encoder(model: nn.Module, chunk_size: int) -> None:
+    """Evaluate independent SAM keyframes in small, output-equivalent batches."""
+    if chunk_size <= 0:
+        raise ValueError("SAM image-encoder chunk size must be positive")
+    core = find_virst_core(model)
+    tracker = core.model.seg_model
+    original_forward_image = tracker.forward_image
+
+    def chunked_forward_image(self, img_batch):
+        if len(img_batch) <= chunk_size:
+            return original_forward_image(img_batch)
+        outputs = [
+            original_forward_image(img_batch[start : start + chunk_size])
+            for start in range(0, len(img_batch), chunk_size)
+        ]
+        return concatenate_batch_tree(outputs)
+
+    tracker.forward_image = types.MethodType(chunked_forward_image, tracker)
+
+
 def append_jsonl(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
@@ -121,6 +166,8 @@ def main() -> None:
         ).lower() not in {"0", "false", "no"}
         if cpu_video_storage:
             enable_cpu_video_storage(loaded)
+        image_encoder_chunk = int(os.environ.get("VIRST_IMAGE_ENCODER_CHUNK", "4"))
+        enable_chunked_sam_image_encoder(loaded, image_encoder_chunk)
         adapter = (
             torch.load(adapter_path, map_location="cpu", weights_only=False)
             if adapter_path
@@ -178,6 +225,7 @@ def main() -> None:
                     "adapter": adapter_path,
                     "segmentation_only_language_path": segmentation_only,
                     "cpu_video_storage": cpu_video_storage,
+                    "sam_image_encoder_chunk": image_encoder_chunk,
                     "trainable_parameters": sum(
                         parameter.numel() for parameter in wrapper.composer.parameters()
                     ),
