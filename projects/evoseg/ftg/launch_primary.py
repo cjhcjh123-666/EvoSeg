@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -14,6 +15,7 @@ def main():
     parser.add_argument("--processes", type=int, default=8)
     parser.add_argument("--frame-budget", type=int, default=16)
     parser.add_argument("--max-updates", type=int, default=0)
+    parser.add_argument("--manifest", type=Path)
     args = parser.parse_args()
     if not 1 <= args.processes <= 8 or args.frame_budget < 1 or args.max_updates < 0:
         parser.error("invalid process/frame/update count")
@@ -22,8 +24,19 @@ def main():
     launch_path = args.output / "LAUNCH.json"
     if launch_path.exists() or (args.output / "training.jsonl").exists():
         raise RuntimeError("existing launch/run detected; use a new run directory, do not overwrite it")
+    if args.manifest:
+        prepared = json.loads(args.manifest.read_text())
+        if prepared["frame_budget"] != args.frame_budget or prepared.get("purpose") != "main_training":
+            raise RuntimeError("incompatible prepared training manifest")
+        destination = args.output / "manifest.json"
+        if destination.exists():
+            raise RuntimeError("refusing to overwrite an existing manifest")
+        shutil.copyfile(args.manifest, destination)
     environment = os.environ.copy()
     environment.update({"OMP_NUM_THREADS": "4", "MKL_NUM_THREADS": "4", "TOKENIZERS_PARALLELISM": "false", "PYTHONUNBUFFERED": "1"})
+    subprocess.run([sys.executable, "-m", "projects.evoseg.ftg.train_primary", "--prepare-only",
+                    "--output", str(args.output), "--frame-budget", str(args.frame_budget)],
+                   cwd=root, env=environment, check=True)
     command = [sys.executable, "-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={args.processes}",
                "-m", "projects.evoseg.ftg.train_primary", "--output", str(args.output),
                "--frame-budget", str(args.frame_budget), "--max-updates", str(args.max_updates)]

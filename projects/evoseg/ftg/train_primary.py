@@ -42,6 +42,7 @@ def build_manifest(long_root, mevis_root, frame_budget, seed=42):
             if not all(path.is_file() for path in paths):
                 rejected.append({"dataset": name, "video_id": video_id, "reason": "missing_sampled_image"})
                 continue
+            mask_cache = {}
             for expression_id, expression in sorted(video["expressions"].items()):
                 record = {"dataset": name, "split": "train", "video_id": video_id,
                           "expression_id": str(expression_id), "expression": expression["exp"],
@@ -51,8 +52,16 @@ def build_manifest(long_root, mevis_root, frame_budget, seed=42):
                           "pilot_partition": "validation" if video_id in held_out else "train"}
                 if name == "long_rvos":
                     record["object_id"] = str(expression["obj_id"])
-                    masks = [root / "Annotations" / video_id / record["object_id"] / f"{frame}.png" for frame in frame_names]
-                    record["mask_paths"] = [str(path) if path.is_file() else None for path in masks]
+                    object_id = record["object_id"]
+                    if object_id not in mask_cache:
+                        directory = root / "Annotations" / video_id / object_id
+                        if not directory.is_dir():
+                            raise RuntimeError(f"missing annotation directory, cannot label as absent: {directory}")
+                        # One readdir per object instead of NFS stat calls for
+                        # every frame of every repeated referring expression.
+                        available = {entry.name for entry in directory.iterdir()}
+                        mask_cache[object_id] = [str(directory / f"{frame}.png") if f"{frame}.png" in available else None for frame in frame_names]
+                    record["mask_paths"] = mask_cache[object_id]
                 else:
                     record["annotation_ids"] = [str(i) for i in expression.get("anno_id", [])]
                     record["object_id"] = "+".join(map(str, expression.get("obj_id", [])))
@@ -105,21 +114,28 @@ def run(args):
     world = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-    torch.cuda.set_device(local_rank)
     torch.set_num_threads(4)
-    device = torch.device("cuda", local_rank)
-    if world > 1:
-        dist.init_process_group("nccl")
     args.output.mkdir(parents=True, exist_ok=True)
     manifest_path = args.output / "manifest.json"
+    configuration = {key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()}
     if rank == 0:
+        atomic_json(args.output / "CONFIG.json", configuration)
+        atomic_json(args.output / "STATUS.json", {"status": "PREPARING_DATA", "world_size": world, "pid": os.getpid(), "configuration": configuration})
         if manifest_path.exists():
             existing = json.loads(manifest_path.read_text())
             if existing["frame_budget"] != args.frame_budget:
                 raise RuntimeError("existing manifest has a different frame budget")
         else:
             atomic_json(manifest_path, build_manifest(args.long_root, args.mevis_root, args.frame_budget))
-        atomic_json(args.output / "STATUS.json", {"status": "LOADING", "world_size": world, "pid": os.getpid(), "configuration": vars(args) | {key: str(value) for key, value in vars(args).items() if isinstance(value, Path)}})
+        atomic_json(args.output / "STATUS.json", {"status": "DATA_READY" if args.prepare_only else "LOADING", "world_size": world, "pid": os.getpid(), "configuration": configuration})
+    if args.prepare_only:
+        if world != 1:
+            raise RuntimeError("prepare-only is a single-process operation")
+        return
+    torch.cuda.set_device(local_rank)
+    device = torch.device("cuda", local_rank)
+    if world > 1:
+        dist.init_process_group("nccl", device_id=device)
     if world > 1:
         dist.barrier()
     manifest = json.loads(manifest_path.read_text())
@@ -270,6 +286,7 @@ def parse_args():
     parser.add_argument("--development-count", type=int, default=8)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resume", type=Path)
+    parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
     if min(args.accumulation, args.frame_budget, args.save_every, args.epochs) < 1 or min(args.max_updates, args.development_count) < 0:
         parser.error("training counts must be positive (max-updates may be zero)")
