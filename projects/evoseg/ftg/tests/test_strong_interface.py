@@ -28,15 +28,28 @@ def test_ftg_keeps_identity_token_fixed_across_frame_states():
         ("anchored_ftg", 1),
         ("unconditioned_residual", 1),
         ("bounded_ftg", 1),
+        ("normalized_ftg", 1),
+        ("centered_ftg", 1),
+        ("gated_centered_ftg", 1),
+        ("vector_gated_centered_ftg", 1),
     ],
 )
 def test_variant_shapes_and_gate_range(variant, token_count):
     module = FactorizedPromptTokens(hidden_dim=4)
+    kwargs = (
+        {"group_shape": (5, 1)}
+        if variant in {
+            "centered_ftg", "gated_centered_ftg",
+            "vector_gated_centered_ftg",
+        }
+        else {}
+    )
     tokens, gate = module(
-        torch.randn(5, 4), torch.randn(5, 7, 4), variant=variant
+        torch.randn(5, 4), torch.randn(5, 7, 4), variant=variant, **kwargs
     )
     assert tokens.shape == (5, token_count, 4)
-    assert gate.shape == (5, 1)
+    expected_gate_width = 4 if variant == "vector_gated_centered_ftg" else 1
+    assert gate.shape == (5, expected_gate_width)
     assert torch.all((gate >= 0) & (gate <= 1))
 
 
@@ -102,6 +115,97 @@ def test_bounded_ftg_limits_functional_prompt_displacement():
     assert torch.all(displacement <= bound + 1e-6)
 
 
+def test_normalized_ftg_uses_the_allocated_prompt_budget():
+    ratio = 0.02
+    module = FactorizedPromptTokens(hidden_dim=4, max_residual_ratio=ratio)
+    identity = torch.randn(3, 4)
+    frame_features = torch.randn(3, 7, 4)
+    with torch.no_grad():
+        module.anchored_state_mlp[-1].weight.fill_(0.1)
+        module.anchored_state_mlp[-1].bias.fill_(0.1)
+    tokens, _ = module(identity, frame_features, variant="normalized_ftg")
+    displacement = (tokens[:, 0] - identity).float().norm(dim=-1)
+    budget = ratio * identity.float().norm(dim=-1)
+    assert torch.allclose(displacement, budget, atol=1e-5, rtol=1e-4)
+
+
+def test_centered_ftg_uses_temporal_context_and_exact_budget():
+    ratio = 0.02
+    module = FactorizedPromptTokens(hidden_dim=4, max_residual_ratio=ratio)
+    identity = torch.randn(6, 4)
+    frame_features = torch.randn(6, 7, 4)
+    with torch.no_grad():
+        module.anchored_state_mlp[-1].weight.fill_(0.1)
+        module.anchored_state_mlp[-1].bias.fill_(0.1)
+    tokens, _ = module(
+        identity,
+        frame_features,
+        variant="centered_ftg",
+        group_shape=(3, 2),
+    )
+    displacement = (tokens[:, 0] - identity).float().norm(dim=-1)
+    budget = ratio * identity.float().norm(dim=-1)
+    assert torch.allclose(displacement, budget, atol=1e-5, rtol=1e-4)
+
+    with pytest.raises(ValueError):
+        module(identity, frame_features, variant="centered_ftg")
+
+
+def test_gated_centered_ftg_has_zero_mean_state_and_gated_budget():
+    ratio = 0.02
+    module = FactorizedPromptTokens(hidden_dim=4, max_residual_ratio=ratio)
+    identity = torch.randn(6, 4)
+    frame_features = torch.randn(6, 7, 4)
+    with torch.no_grad():
+        module.anchored_state_mlp[-1].weight.fill_(0.1)
+        module.anchored_state_mlp[-1].bias.fill_(0.1)
+    state, gate = module.state_observation(
+        identity,
+        frame_features,
+        anchored=True,
+        centered=True,
+        center_output=True,
+        group_shape=(3, 2),
+    )
+    assert torch.allclose(
+        state.reshape(3, 2, 4).mean(dim=0),
+        torch.zeros(2, 4),
+        atol=1e-6,
+    )
+    tokens, actual_gate = module(
+        identity,
+        frame_features,
+        variant="gated_centered_ftg",
+        group_shape=(3, 2),
+    )
+    displacement = (tokens[:, 0] - identity).float().norm(dim=-1)
+    budget = ratio * identity.float().norm(dim=-1) * gate[:, 0]
+    assert torch.equal(gate, actual_gate)
+    assert torch.allclose(displacement, budget, atol=1e-5, rtol=1e-4)
+
+
+def test_vector_gated_centered_ftg_is_channelwise_and_bounded():
+    ratio = 0.02
+    module = FactorizedPromptTokens(hidden_dim=4, max_residual_ratio=ratio)
+    identity = torch.randn(6, 4)
+    frame_features = torch.randn(6, 7, 4)
+    with torch.no_grad():
+        module.anchored_state_mlp[-1].weight.fill_(0.1)
+        module.anchored_state_mlp[-1].bias.fill_(0.1)
+        module.state_vector_gate[-1].weight.fill_(0.1)
+    tokens, gate = module(
+        identity,
+        frame_features,
+        variant="vector_gated_centered_ftg",
+        group_shape=(3, 2),
+    )
+    assert gate.shape == identity.shape
+    assert gate.std() > 0
+    displacement = (tokens[:, 0] - identity).float().norm(dim=-1)
+    bound = ratio * identity.float().norm(dim=-1)
+    assert torch.all(displacement <= bound + 1e-6)
+
+
 def test_invalid_shapes_and_variant_are_rejected():
     module = FactorizedPromptTokens(hidden_dim=4)
     with pytest.raises(ValueError):
@@ -126,6 +230,48 @@ def test_exported_hf_composer_is_weight_and_output_compatible():
     )
     actual, actual_gate = exported(
         identity, frames, variant="bounded_ftg"
+    )
+    assert torch.equal(expected, actual)
+    assert torch.equal(expected_gate, actual_gate)
+
+    expected, expected_gate = training(
+        identity, frames, variant="normalized_ftg"
+    )
+    actual, actual_gate = exported(
+        identity, frames, variant="normalized_ftg"
+    )
+    assert torch.equal(expected, actual)
+    assert torch.equal(expected_gate, actual_gate)
+
+    expected, expected_gate = training(
+        identity, frames, variant="centered_ftg", group_shape=(2, 1)
+    )
+    actual, actual_gate = exported(
+        identity, frames, variant="centered_ftg", group_shape=(2, 1)
+    )
+    assert torch.equal(expected, actual)
+    assert torch.equal(expected_gate, actual_gate)
+
+    expected, expected_gate = training(
+        identity, frames, variant="gated_centered_ftg", group_shape=(2, 1)
+    )
+    actual, actual_gate = exported(
+        identity, frames, variant="gated_centered_ftg", group_shape=(2, 1)
+    )
+    assert torch.equal(expected, actual)
+    assert torch.equal(expected_gate, actual_gate)
+
+    expected, expected_gate = training(
+        identity,
+        frames,
+        variant="vector_gated_centered_ftg",
+        group_shape=(2, 1),
+    )
+    actual, actual_gate = exported(
+        identity,
+        frames,
+        variant="vector_gated_centered_ftg",
+        group_shape=(2, 1),
     )
     assert torch.equal(expected, actual)
     assert torch.equal(expected_gate, actual_gate)

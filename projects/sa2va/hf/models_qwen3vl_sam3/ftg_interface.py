@@ -33,19 +33,51 @@ class FactorizedPromptTokens(nn.Module):
             nn.GELU(),
             nn.Linear(hidden_dim, 1),
         )
+        self.state_vector_gate = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        nn.init.zeros_(self.state_vector_gate[-1].weight)
+        nn.init.zeros_(self.state_vector_gate[-1].bias)
 
-    def state_observation(self, identity, frame_features, *, anchored=False):
+    def state_observation(
+        self, identity, frame_features, *, anchored=False, centered=False,
+        center_output=False, vector_gate=False, gate_after_norm=False,
+        group_shape=None,
+    ):
         query = self.identity_norm(identity)[:, None]
         frame_features = self.frame_norm(frame_features)
         observation, _ = self.state_attention(
             query, frame_features, frame_features, need_weights=False
         )
-        inputs = torch.cat([self.identity_norm(identity), observation[:, 0]], -1)
-        gate = self.state_gate(inputs).sigmoid()
+        observation = observation[:, 0]
+        if centered:
+            if group_shape is None or group_shape[0] * group_shape[1] != len(identity):
+                raise ValueError(
+                    "centered state requires group_shape=(num_frames, num_objects)"
+                )
+            num_frames, num_objects = group_shape
+            observation = observation.reshape(num_frames, num_objects, -1)
+            observation = observation - observation.mean(dim=0, keepdim=True)
+            observation = observation.flatten(0, 1)
+        inputs = torch.cat([self.identity_norm(identity), observation], -1)
+        gate_module = self.state_vector_gate if vector_gate else self.state_gate
+        gate = gate_module(inputs).sigmoid()
         state_mlp = self.anchored_state_mlp if anchored else self.state_mlp
-        return gate * state_mlp(inputs), gate
+        state = state_mlp(inputs)
+        if not gate_after_norm:
+            state = gate * state
+        if center_output:
+            num_frames, num_objects = group_shape
+            state = state.reshape(num_frames, num_objects, -1)
+            state = state - state.mean(dim=0, keepdim=True)
+            state = state.flatten(0, 1)
+        return state, gate
 
-    def forward(self, identity, frame_features, variant="ftg"):
+    def forward(
+        self, identity, frame_features, variant="ftg", group_shape=None
+    ):
         state_identity = (
             torch.zeros_like(identity)
             if variant == "unconditioned_residual"
@@ -55,8 +87,22 @@ class FactorizedPromptTokens(nn.Module):
             state_identity,
             frame_features,
             anchored=variant in {
-                "anchored_ftg", "unconditioned_residual", "bounded_ftg"
+                "anchored_ftg", "unconditioned_residual", "bounded_ftg",
+                "normalized_ftg",
+                "centered_ftg",
+                "gated_centered_ftg",
+                "vector_gated_centered_ftg",
             },
+            centered=variant in {
+                "centered_ftg", "gated_centered_ftg",
+                "vector_gated_centered_ftg",
+            },
+            center_output=variant in {
+                "gated_centered_ftg", "vector_gated_centered_ftg",
+            },
+            vector_gate=variant == "vector_gated_centered_ftg",
+            gate_after_norm=variant == "vector_gated_centered_ftg",
+            group_shape=group_shape,
         )
         if variant == "identity_memory":
             tokens = identity[:, None]
@@ -83,6 +129,38 @@ class FactorizedPromptTokens(nn.Module):
                 max_norm / state_norm.clamp_min(1e-6), max=1.0
             ).to(state.dtype)
             tokens = (identity + residual_scale * state)[:, None]
+        elif variant == "normalized_ftg":
+            identity_norm = identity.float().norm(dim=-1, keepdim=True)
+            state_norm = state.float().norm(dim=-1, keepdim=True)
+            residual_scale = (
+                self.max_residual_ratio * identity_norm
+                / state_norm.clamp_min(1e-6)
+            ).to(state.dtype)
+            tokens = (identity + residual_scale * state)[:, None]
+        elif variant == "centered_ftg":
+            identity_norm = identity.float().norm(dim=-1, keepdim=True)
+            state_norm = state.float().norm(dim=-1, keepdim=True)
+            residual_scale = (
+                self.max_residual_ratio * identity_norm
+                / state_norm.clamp_min(1e-6)
+            ).to(state.dtype)
+            tokens = (identity + residual_scale * state)[:, None]
+        elif variant == "gated_centered_ftg":
+            identity_norm = identity.float().norm(dim=-1, keepdim=True)
+            state_norm = state.float().norm(dim=-1, keepdim=True)
+            residual_scale = (
+                self.max_residual_ratio * identity_norm
+                / state_norm.clamp_min(1e-6)
+            ).to(state.dtype)
+            tokens = (identity + gate * residual_scale * state)[:, None]
+        elif variant == "vector_gated_centered_ftg":
+            identity_norm = identity.float().norm(dim=-1, keepdim=True)
+            state_norm = state.float().norm(dim=-1, keepdim=True)
+            residual_scale = (
+                self.max_residual_ratio * identity_norm
+                / state_norm.clamp_min(1e-6)
+            ).to(state.dtype)
+            tokens = (identity + gate * residual_scale * state)[:, None]
         else:
             raise ValueError(f"unknown grounding variant: {variant}")
         return tokens, gate

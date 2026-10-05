@@ -1,12 +1,9 @@
 import os
 import json
-
-import mmengine
+import pickle
 
 from PIL import Image
 import copy
-
-from mmengine.dist import master_only
 
 from .base_eval_dataset import BaseEvalDataset
 
@@ -61,7 +58,12 @@ class RefVOSDataset(BaseEvalDataset):
                 vid2metaid[vid_name].append(len(metas) - 1)
 
         if mask_file is not None:
-            mask_dict = mmengine.load(mask_file)
+            if mask_file.lower().endswith('.json'):
+                with open(mask_file, 'r') as f:
+                    mask_dict = json.load(f)
+            else:
+                with open(mask_file, 'rb') as f:
+                    mask_dict = pickle.load(f)
         else:
             mask_dict = None
         return vid2metaid, metas, mask_dict

@@ -50,6 +50,7 @@ class Sa2VAModel(BaseModel):
                  use_existence_head: bool=True,
                  freeze_foundation: bool=False,
                  pretrained_ignore_prefixes: tuple[str, ...]=(),
+                 pretrained_overlay_pth: str | None=None,
                  ):
         super().__init__()
         if special_tokens is None:
@@ -95,7 +96,9 @@ class Sa2VAModel(BaseModel):
         )
         if self.factorized_grounding is not None:
             if grounding_variant in {
-                    'anchored_ftg', 'unconditioned_residual', 'bounded_ftg'}:
+                    'anchored_ftg', 'unconditioned_residual', 'bounded_ftg',
+                    'normalized_ftg', 'centered_ftg',
+                    'gated_centered_ftg', 'vector_gated_centered_ftg'}:
                 self.factorized_grounding.state_mlp.requires_grad_(False)
             else:
                 self.factorized_grounding.anchored_state_mlp.requires_grad_(False)
@@ -142,6 +145,37 @@ class Sa2VAModel(BaseModel):
                     print(f"Successfully updated lm_head weight from key: {lm_head_key}")
                 else:
                     print(f"Warning: lm_head weight key '{lm_head_key}' not found in pretrained_state_dict.")
+
+        if pretrained_overlay_pth is not None:
+            # Lightweight stage checkpoints contain only parameters returned
+            # by ``state_dict`` (the trainable FTG module when the foundation
+            # is frozen). Load them before DeepSpeed wraps the model; passing a
+            # regular MMEngine .pth through Runner.load_from makes DeepSpeed
+            # incorrectly interpret it as a sharded checkpoint directory.
+            # This is a locally produced MMEngine checkpoint whose metadata
+            # includes HistoryBuffer objects. PyTorch 2.6's default
+            # ``weights_only=True`` rejects that metadata, so load this trusted
+            # file explicitly and immediately discard everything but weights.
+            overlay_checkpoint = torch.load(
+                pretrained_overlay_pth, map_location='cpu', weights_only=False
+            )
+            overlay_state_dict = overlay_checkpoint.get(
+                'state_dict', overlay_checkpoint
+            )
+            invalid_overlay_keys = [
+                key for key in overlay_state_dict
+                if not key.startswith('factorized_grounding.')
+            ]
+            if invalid_overlay_keys:
+                raise ValueError(
+                    'FTG overlay checkpoint contains non-factorized keys: '
+                    f'{invalid_overlay_keys[:5]}'
+                )
+            self.load_state_dict(overlay_state_dict, strict=False)
+            print(
+                f'Loaded {len(overlay_state_dict)} FTG overlay tensors from '
+                f'{pretrained_overlay_pth}'
+            )
 
         self.loss_sample_points = loss_sample_points
         self.num_points = num_points
@@ -379,6 +413,7 @@ class Sa2VAModel(BaseModel):
                 identity_embeddings.squeeze(1),
                 frame_features,
                 variant=self.grounding_variant,
+                group_shape=(num_frames, num_objs),
             )
         pred_masks = self.grounding_encoder.inject_language_embd(sam_states, language_embeddings, nf_nobj=(num_frames, num_objs))
 

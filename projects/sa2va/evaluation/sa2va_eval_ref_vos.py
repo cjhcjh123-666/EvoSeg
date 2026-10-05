@@ -2,7 +2,6 @@ import argparse
 import json
 import os
 
-import mmengine
 import numpy as np
 from PIL import Image
 
@@ -63,7 +62,7 @@ def mask_save(item, mask_prediction, work_dir):
     vid_id = item['video_id']
     exp_id = item['exp_id']
     save_path = os.path.join(work_dir, 'Annotations', vid_id, exp_id)
-    mmengine.mkdir_or_exist(save_path)
+    os.makedirs(save_path, exist_ok=True)
     for id_m, mask in enumerate(mask_prediction):
         mask = Image.fromarray(mask.astype(np.float32) * 255).convert('L')
         file_name = item['frames'][id_m]
@@ -155,6 +154,19 @@ def parse_args():
                         help='Optional runtime grounding-interface override.')
     parser.add_argument('--residual-ratio', type=float, default=None,
                         help='Optional runtime FTG residual/identity norm bound.')
+    parser.add_argument('--record-grounding-gates', action='store_true',
+                        help='Store per-frame FTG gate values for diagnostics.')
+    parser.add_argument('--temporal-sampling', choices=['first', 'uniform'],
+                        default=None,
+                        help='Backward-compatible override for both identity and state frames.')
+    parser.add_argument('--identity-temporal-sampling',
+                        choices=['first', 'uniform'], default=None,
+                        help='Frames shown to the VLM to infer persistent identity.')
+    parser.add_argument('--state-temporal-sampling',
+                        choices=['first', 'uniform'], default=None,
+                        help='Frames supplying FTG state features and SAM prompts.')
+    parser.add_argument('--temporal-budget', type=int, default=None,
+                        help='Number of conditioning frames at inference.')
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -197,6 +209,20 @@ if __name__ == '__main__':
         if not 0 < args.residual_ratio <= 1:
             raise ValueError('--residual-ratio must be in (0, 1]')
         model.factorized_grounding.max_residual_ratio = args.residual_ratio
+    if args.temporal_sampling is not None:
+        model.temporal_sampling = args.temporal_sampling
+        model.identity_temporal_sampling = args.temporal_sampling
+        model.state_temporal_sampling = args.temporal_sampling
+    if args.identity_temporal_sampling is not None:
+        model.identity_temporal_sampling = args.identity_temporal_sampling
+    if args.state_temporal_sampling is not None:
+        if model.factorized_grounding is None:
+            raise ValueError('state temporal sampling requires a factorized model')
+        model.state_temporal_sampling = args.state_temporal_sampling
+    if args.temporal_budget is not None:
+        if args.temporal_budget <= 0:
+            raise ValueError('--temporal-budget must be positive')
+        model.temporal_budget = args.temporal_budget
 
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_path,
@@ -286,6 +312,11 @@ if __name__ == '__main__':
             'prediction_masks': encoded_mask,
 
         }
+        if args.record_grounding_gates:
+            result['grounding_gates'] = [
+                gate.tolist()
+                for gate in getattr(model, 'last_grounding_gates', [])
+            ]
         results.append(result)
 
 
@@ -293,7 +324,11 @@ if __name__ == '__main__':
     print(f'[Rank {rank}] : Finished.')
     
     if not args.submit:
-        results = collect_results_cpu(results, len(dataset))
+        results = collect_results_cpu(
+            results,
+            len(dataset),
+            tmpdir=os.path.join(work_dir, f'.{args.dataset}_dist_results'),
+        )
         if get_rank() == 0:
             final_results = {}
             for item in results:

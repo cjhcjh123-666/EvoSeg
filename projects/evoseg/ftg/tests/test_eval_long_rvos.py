@@ -46,6 +46,13 @@ def test_long_rvos_official_temporal_metrics(tmp_path):
     assert row["tiou"] == 1 / 3
     assert row["viou"] == 1 / 3
 
+    chunks = [
+        eval_long_rvos.evaluate_frame_chunk((video, expression_id, 0, 1)),
+        eval_long_rvos.evaluate_frame_chunk((video, expression_id, 1, 3)),
+    ]
+    chunked_row = eval_long_rvos.merge_frame_chunks(chunks)[0]
+    assert chunked_row == row
+
 
 def test_long_rvos_summary_is_expression_averaged():
     rows = [

@@ -1,5 +1,144 @@
 # FTG pilot findings log
 
+## Jointly adapted identity and dynamic-state composition (2026-10-05)
+
+The corrected broad FTG checkpoint contains a stronger identity readout than
+its direct two-token output: on the fixed 128-expression MeViS-v2 gate,
+Identity reached 65.371 J&F while the original two-token FTG reached 64.705.
+We therefore froze that jointly adapted foundation and trained only a fresh
+592,897-parameter state branch on the same public MeViS-v2 + Long-RVOS mix.
+The norm-bounded residual preserved the identity result (65.366 J&F and 68.214
+target-present, versus 65.371/68.219 for Identity) but did not improve it.
+Increasing the runtime cap did not change predictions because the learned
+residual naturally remained below the bound.
+
+Two inference-only diagnostics then tested why the residual was inert. Exact
+normalization of its learned direction to a 2% prompt budget reached 64.899
+J&F, showing that the absolute-frame state direction was harmful when exposed.
+Temporal centering improved that diagnostic slightly to 65.000 J&F, but it was
+still 0.371 points below Identity. This is not a trained centered-state result:
+the residual weights had been optimized on absolute frame observations. A
+formal centered-state stage therefore starts from the non-zero bounded residual,
+subtracts each object's across-frame observation mean, freezes the complete
+foundation, and retrains only the factorized module. It reached 65.097 J&F and
+67.931 target-present J&F on the same gate. This improves the inference-only
+centered diagnostic by 0.097 points, but remains 0.274/0.288 below the
+65.371/68.219 Identity readout and is not advanced to the complete split.
+
+Inspection then exposed an implementation-level mismatch with the intended
+equation. Exact state normalization cancels any positive scalar already
+multiplied into that state, so the learned temporal gate could not control the
+residual magnitude; every non-zero frame received exactly the full 2% budget.
+The gated-centered follow-up centers both observation and produced state, then
+applies the learned gate *after* direction normalization. Its actual prompt
+displacement is therefore `gate_t * 0.02 * ||identity||`, allowing harmful
+frames to fall back toward the persistent identity while useful frames retain
+a bounded dynamic correction. It reached 65.121 J&F and 67.956 target-present
+J&F, only +0.024/+0.025 over centered FTG and still -0.250/-0.263 below the
+identity readout. Its 640 recorded scalar gates had mean 0.609 and standard
+deviation 0.029, but the mean within-expression temporal range was only 0.0011.
+The scalar gate therefore learned an expression-level residual scale rather
+than a dynamic frame selector. The final interface pilot implements the
+paper's actual elementwise equation with a 256-dimensional per-channel gate,
+`g_t \odot state_t`, while retaining the same 2% hard prompt-space bound. This
+vector-gated FTG reached 65.345 J&F and 68.192 target-present J&F: +0.225/+0.236
+over the scalar gate and only -0.026/-0.027 below Identity. It therefore repairs
+the scalar composition regression but does not claim a MeViS gain over Identity.
+Across the recorded `[5 frames, 256 channels]` gates, 57.1% of values moved
+more than 0.01 from their 0.5 initialization and the overall standard deviation
+was 0.00285. However, the mean within-expression range of frame-averaged gates
+was only 0.000022. The learned gate acts primarily as channel selection; the
+temporally varying signal remains the centered state itself. This closes the
+interface search. Vector-gated FTG and its Identity readout now advance to the
+Long-RVOS type-stratified controlled comparison.
+
+On the deterministic 192-expression Long-RVOS gate (71 Static, 60 Dynamic,
+61 Hybrid), the legacy First-5 inference protocol did not produce a selective
+gain. Identity reached 60.057 overall J&F (63.380 Static, 53.706 Dynamic,
+62.435 Hybrid), whereas vector-gated FTG reached 59.948 (63.156, 53.639,
+62.421), for deltas of -0.108 overall, -0.224 Static, -0.067 Dynamic, and
+-0.014 Hybrid. tIoU and vIoU were also essentially unchanged and slightly
+lower. Long-RVOS gates repeated the MeViS diagnostic: only 0.74% of channels
+varied at all across the five frames after bfloat16 quantization. This result
+does not support the factorization claim under the released inference path.
+
+Code audit identified a separate train/test mismatch in that path. Public-video
+training samples five sorted frames randomly across the complete clip, but HF
+inference supplied Qwen and the FTG state branch with only the first five video
+frames. The legacy First-5 result is retained, and Identity/FTG are next compared
+under the same Uniform-5 full-range indices. This sampling repair is reported as
+a separate axis and is not counted as an FTG gain.
+
+Identity under Uniform-5 made the tradeoff explicit. Relative to Identity
+First-5, Dynamic improved from 53.706 to 55.589 J&F (+1.883), while Static fell
+from 63.380 to 59.025 (-4.355) and Hybrid fell from 62.435 to 55.687 (-6.747);
+overall fell from 60.057 to 56.891. Full-range evidence is useful for dynamic
+expressions, but replacing the early identity evidence also destabilizes static
+and mixed referents. Uniform sampling is therefore not presented as a generic
+gain. Under the identical Uniform-5 indices, vector-gated FTG reached 56.917
+overall J&F: 58.937 Static, 56.238 Dynamic, and 55.234 Hybrid. Relative to
+Uniform-5 Identity this is +0.026 overall, -0.088 Static, +0.649 Dynamic, and
+-0.453 Hybrid. Per-expression medians were near zero and only 3/192 expressions
+improved by more than ten points, while 4/192 regressed by more than ten points.
+The mean change is therefore driven by a few large corrections rather than a
+broadly active temporal mechanism. Gate diagnostics agree: only 1.79% of
+channels varied across the five frames after bfloat16 quantization.
+The Dynamic mean is nevertheless positive under a 10,000-sample source-video
+cluster bootstrap: +0.649 points with 95% CI [+0.066, +1.443]. Its median is
+only +0.004 points and 51.7% of Dynamic expressions improve, so this is evidence
+of sparse dynamic corrections, not a general solution. Overall, Static, and
+Hybrid confidence intervals cross zero.
+
+Metric-selected qualitative sheets make the sparse effect concrete. In one
+crowded indoor video, two Dynamic expressions refer to different seated men.
+FTG corrects Identity for the man preparing to pour wine (+17.49 points) but
+switches to the wrong plausible man for the expression describing the observer
+holding a glass (-10.54 points). The largest Static regression is dominated by
+missed presence/reappearance frames, while a Hybrid small-ball regression is
+mask instability rather than a clean identity correction. These are not
+boundary-only changes: the residual can alter referent selection, but does so
+without a sufficiently stable identity constraint. The automatically selected
+sheets and manifest are stored beside the result under `qualitatives/`.
+
+This comparison also reveals that the shared Uniform-5 protocol does not
+actually implement the intended persistent identity: it replaces the frames
+used to produce both the Qwen identity and the SAM state observations. The next
+strict control separates the sources within one forward pass. Qwen computes
+`z_id` from the stable First-5 anchor, while `z_state_t` and SAM prompt injection
+use Uniform-5 full-video frames. No checkpoint, frame budget, sample, or decoder
+weight changes. This dual-source control tests whether state can retain the
+Dynamic coverage gain without overwriting the identity evidence.
+
+The dual-source control decisively failed. On the same 192 expressions it
+reached 49.559 overall J&F (50.098 Static, 50.385 Dynamic, 48.119 Hybrid).
+Against First-5 Identity, the paired deltas were -10.498 overall, -13.282
+Static, -3.321 Dynamic, and -14.316 Hybrid points. The source-video cluster
+bootstrap 95% interval for the overall delta was [-15.097, -6.161]; Static and
+Hybrid were also significantly negative, while Dynamic crossed zero. All 192
+pairs were present and the explicit prompt-frame indices were within the source
+video, so this is not missing-output or scorer failure. The Qwen identity and
+SAM state observations from different temporal views do not share a stable
+prompt geometry. This closes the Qwen/SAM3 interface as a negative controlled
+study rather than escalating it to Public-SegMix.
+
+The active foundation is therefore the public VIRST checkpoint already present
+on this server. VIRST's trained frame prompts are factorized *after* its public
+SegPrompter: `z_id = mean_t(p_t)` and `z_state_t = p_t - z_id`. A bounded
+identity-conditioned gate learns only a zero-mean correction to `z_state_t`.
+Its final projection is zero-initialized, making the initial output bit-exact to
+public VIRST, and the correction is re-centered so training cannot change the
+persistent temporal mean. This is an architectural grounding-interface change,
+not a candidate bank, verifier, tracker post-processing step, or Faithful data
+recipe.
+
+For context, the archival `EvoSeg-Qwen3-VL-8B-MultiTask` model on this server is
+not a stronger video foundation. Its own 2026-08 summary reports 46.4 MeViS
+J&F and 57.9 on the local Ref-YT-VOS subset, below the Sa2VA-4B controls used at
+that time. It also predates the corrected SAM3.1 foundation path and scorer.
+Consequently it is retained as historical evidence, not substituted for the
+currently reproduced 61.95 full-split Qwen3-VL-4B + SAM3.1 baseline or the
+63.06 jointly adapted identity checkpoint.
+
 ## Checkpoint-conversion correction (2026-10-04)
 
 The initial SAM3 training-format checkpoint retained the HF-only `g_weight`

@@ -16,28 +16,28 @@ the VLM without being exposed to the mask decoder through the right interface.
 ## Method claim
 
 **Factorized Temporal Grounding (FTG)** separates one video-level persistent
-identity from frame-dependent state observations. The released checkpoint's
-pretrained segmentation prompt is retained as the persistent identity anchor;
-an identity-conditioned state branch can only add a gated residual:
+identity from frame-dependent state observations. The released VIRST
+SegPrompter is first run unchanged, then its prompts are factorized into a
+temporal mean and a zero-mean residual:
 
 \[
-z^{id}=F_{\mathrm{pretrained}}(q,V),\qquad
-z_t^{state}=F_{state}(z^{id},H_t^{SAM}),
+z^{id}=\frac{1}{T}\sum_t x_t,\qquad z_t^{state}=x_t-z^{id},
 \]
 
 \[
-p_t=z^{id}+\sigma(G(z^{id},z_t^{state}))\odot R(z^{id},z_t^{state}),
-\qquad M_t=\operatorname{SAM3}(I_{1:T},p_t).
+p_t=x_t+\operatorname{center}_t\left(
+\rho\tanh G([z^{id};z_t^{state}])\odot z_t^{state}\right),
+\qquad M_t=\operatorname{SAM2.1}(I_{1:T},p_t).
 \]
 
-Here \(F_{state}\) is one identity-query cross-attention block over the native
-SAM3 spatial feature map. \(R\)'s final projection is initialized to exactly
-zero, so FTG is bit-for-bit the public foundation at initialization. Qwen, the
-pretrained `[SEG]` projection, and SAM3 are frozen in the controlled pilot; only
-the small state residual and gate are learned. The persistent prompt supplies a
-stable identity base while the residual expresses current appearance and
-location. The implementation adds no verifier, refusal path, candidate bank,
-process compiler, GRU, RL objective, or post-hoc matcher.
+The gate's final projection is zero-initialized, so step zero is bit-exact to
+public VIRST. Re-centering guarantees that the temporal mean remains the
+persistent identity throughout training. The complete public
+VideoChat/VIRST/SAM2.1 foundation and keyframe scores are frozen; only the small
+composer is learned. The persistent mean supplies a stable identity base while
+the centered residual expresses current appearance and location.
+The implementation adds no verifier, refusal path, candidate bank, process
+compiler, GRU, RL objective, or post-hoc matcher.
 
 The earlier randomly initialized two-token and broadly adapted implementations
 are retained only as rejected controls. They changed the pretrained language-to-
@@ -46,15 +46,15 @@ paper method.
 
 ## Fixed model and data
 
-- VLM: Qwen3-VL-4B.
-- Primary initialization: the public trained
-  `Sa2VA-Qwen3-VL-4B-SAM3` checkpoint; no Faithful, refusal, verifier, or
-  synthetic-data checkpoint is used.
-- Pixel decoder: the checkpoint's native SAM3 video model, frozen for the first
-  controlled study.
-- Scratch initialization from `Qwen3-VL-4B-Instruct` plus official SAM3.1 is a
-  controlled foundation ablation, not the main full-scale model.
-- Default temporal budget: 16 uniformly sampled full-range frames.
+- VLM foundation: public VIRST (VideoChat-Flash Qwen2-7B).
+- Pixel decoder: VIRST's native SAM2.1 video model.
+- Primary initialization: the released VIRST checkpoint; no Faithful, refusal,
+  verifier, synthetic-data, or generated-data checkpoint is used.
+- The complete public foundation is frozen for the first controlled stage; only
+  the exact-initialized FTG composer is updated.
+- Qwen3-VL-4B + SAM3.1 remains a foundation ablation and negative interface
+  study, not the primary full-scale model.
+- The full-run temporal-budget ablation is T=8/16/32.
 - Pilot data: public Long-RVOS train plus public MeViS-v2 train.
 - Full training mix: RefCOCO/+/g, Ref-Youtube-VOS train, MeViS-v2 train, and
   Long-RVOS train.
@@ -63,25 +63,25 @@ paper method.
 
 ## Controlled comparison
 
-The primary strong-foundation comparison keeps the checkpoint, public data,
-frame budget, frozen Qwen/SAM3 scope, loss, optimizer, steps, and evaluation
-code fixed. Only the residual's access to persistent identity changes:
+The primary strong-foundation comparison keeps the VIRST checkpoint, public
+data, frame budget, frozen foundation, loss, optimizer, steps, and evaluation
+code fixed. Only prompt factorization/composition changes:
 
 | Variant | Frozen identity base | State residual | Identity-conditioned state |
 |---|---:|---:|---:|
-| Public Foundation / Identity Only | yes | no | no |
-| Unconditioned Frame Residual | yes | yes | no |
-| ID + State without gate | yes | yes | yes |
-| Anchored FTG | yes | yes | yes |
+| Public VIRST | implicit | released frame prompt | n/a |
+| Identity Only | yes | no | no |
+| State Only | no | yes | no |
+| Factorized without gate | yes | yes | no learned gate |
+| Unconditioned FTG | yes | yes | no |
+| Scalar FTG | yes | yes | yes, scalar |
+| **Channel-gated FTG** | yes | yes | yes, vector |
 
-The decisive factorization comparison is **Unconditioned Frame Residual versus
-Anchored FTG**; the public foundation establishes whether either learned
-residual improves rather than merely changes predictions. The ungated variant
-tests whether adaptive residual control is necessary. The broadly adapted
-Frame Prompt and two-token FTG runs are retained as explicitly labeled negative
-diagnostics, not parameter-matched primary controls. The scratch-Qwen suite
-still reports Global/Frame/Identity/State/FTG under an exactly shared trainable
-scope as a separate foundation ablation.
+The decisive final comparison is **public VIRST versus channel-gated FTG** from
+an exactly identical step-zero function. Identity/State controls validate the
+roles, while unconditioned and scalar gates isolate identity conditioning and
+elementwise composition. The Qwen suite is reported separately as a foundation
+ablation.
 
 ## Evaluation
 

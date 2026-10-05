@@ -1,74 +1,134 @@
-"""Ref-YT-VOS J&F (official-style Jaccard + Contour F), native resolution."""
-import json, sys, os, numpy as np
+"""Official Ref-Youtube-VOS J/F evaluation from Sa2VA result JSON.
+
+Metrics use the same DAVIS region-J and boundary-F implementation as the
+Long-RVOS evaluator. Scores are averaged over annotated frames per expression
+and then over expressions, matching the public RVOS evaluation convention.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
 from multiprocessing import Pool
-from pycocotools import mask as mask_utils
-from scipy import ndimage
+from pathlib import Path
+
+import numpy as np
 from PIL import Image
+from pycocotools import mask as mask_utils
 
-RESULTS = sys.argv[1] if len(sys.argv) > 1 else None
-ANNO = "/9950backfile/chenjiahui/evo_artifacts/datasets/ref_youtube_vos/extracted/valid/Annotations"
+from projects.evoseg.temporal_seg.official_metrics import (
+    db_eval_boundary,
+    db_eval_iou,
+)
 
-def db_eval_boundary(fg, gt, bound_th=0.008):
-    fg = fg.astype(np.float64); gt = gt.astype(np.float64)
-    if np.sum(fg) == 0 and np.sum(gt) == 0: return 1.0
-    if np.sum(fg) == 0 or np.sum(gt) == 0: return 0.0
-    fg_b = (fg - ndimage.binary_erosion(fg > 0).astype(float)) > 0
-    gt_b = (gt - ndimage.binary_erosion(gt > 0).astype(float)) > 0
-    fg_d = ndimage.distance_transform_edt(np.logical_not(fg_b))
-    gt_d = ndimage.distance_transform_edt(np.logical_not(gt_b))
-    max_dist = bound_th * np.sqrt(fg.shape[0]**2 + fg.shape[1]**2)
-    fg_d = np.minimum(fg_d, max_dist); gt_d = np.minimum(gt_d, max_dist)
-    prec = np.mean(fg_d[gt_b > 0]) if np.sum(gt_b) > 0 else 0.0
-    rec  = np.mean(gt_d[fg_b > 0]) if np.sum(fg_b) > 0 else 0.0
-    prec = 1.0 - prec / max_dist; rec = 1.0 - rec / max_dist
-    return 2 * prec * rec / (prec + rec + 1e-10)
+
+DEFAULT_ANNOTATIONS = Path(
+    "/9950backfile/chenjiahui/evo_artifacts/datasets/"
+    "ref_youtube_vos/extracted/valid/Annotations"
+)
+WORKER_RESULTS = {}
+WORKER_ANNOTATIONS = DEFAULT_ANNOTATIONS
+
 
 def decode_bool(rle):
-    if rle is None: return None
-    return mask_utils.decode(rle).astype(bool)
+    return None if rle is None else mask_utils.decode(rle).astype(bool)
 
-def eval_video(args):
-    vid, exps = args
-    out = []
-    for exp_id, item in exps.items():
-        pred = item["prediction_masks"]
-        frames = item["frames"]
-        inst_dir = os.path.join(ANNO, vid, str(exp_id))
-        Js, Fs = [], []
-        try:
-            for fi, fr in enumerate(frames):
-                p = decode_bool(pred[fi]) if fi < len(pred) else None
-                if p is None: continue
-                gt_path = os.path.join(inst_dir, fr + ".png")
-                if not os.path.exists(gt_path): continue
-                gt = np.array(Image.open(gt_path).convert('L')) > 0
-                if gt.sum() == 0: continue
-                if p.shape != gt.shape:
-                    # Ref-YT-VOS has videos with inconsistent frame sizes;
-                    # resize prediction to GT resolution (official-style).
-                    from PIL import Image as _I
-                    p = np.array(_I.fromarray(p.astype(np.uint8) * 255).resize(
-                        (gt.shape[1], gt.shape[0]), _I.NEAREST)) > 0
-                inter = np.logical_and(p, gt).sum(); u = np.logical_or(p, gt).sum()
-                Js.append(inter / (u + 1e-10))
-                Fs.append(db_eval_boundary(p, gt))
-        except Exception as e:
-            print(f"  [warn] {vid}/{exp_id}: {e}", flush=True)
+
+def evaluate_expression(task):
+    video, expression_id = task
+    item = WORKER_RESULTS[video][expression_id]
+    predictions = item["prediction_masks"]
+    frames = item["frames"]
+    if len(predictions) != len(frames):
+        raise ValueError(
+            f"{video}/{expression_id}: {len(predictions)} predictions for "
+            f"{len(frames)} frames"
+        )
+
+    js, fs = [], []
+    annotation_dir = WORKER_ANNOTATIONS / video / str(expression_id)
+    for frame, encoded_prediction in zip(frames, predictions):
+        annotation_path = annotation_dir / f"{frame}.png"
+        # Ref-Youtube-VOS evaluates the sparsely annotated object frames.
+        if not annotation_path.exists():
             continue
-        if Js:
-            out.append((np.mean(Js), np.mean(Fs)))
-    return out
+        prediction = decode_bool(encoded_prediction)
+        if prediction is None:
+            raise ValueError(f"{video}/{expression_id}/{frame}: missing prediction")
+        annotation = np.asarray(Image.open(annotation_path).convert("L")) != 0
+        if prediction.shape != annotation.shape:
+            prediction = np.asarray(
+                Image.fromarray(prediction.astype(np.uint8)).resize(
+                    (annotation.shape[1], annotation.shape[0]),
+                    Image.Resampling.NEAREST,
+                )
+            ).astype(bool)
+        js.append(float(db_eval_iou(annotation, prediction)))
+        fs.append(float(db_eval_boundary(annotation, prediction)))
 
-results = json.load(open(RESULTS))
-tasks = list(results.items())
-print(f"tasks: {len(tasks)}", flush=True)
-pairs = []
-with Pool(processes=4) as pool:
-    for i, res in enumerate(pool.imap_unordered(eval_video, tasks)):
-        pairs.extend(res)
-        if (i+1) % 20 == 0: print(f"  {i+1}/{len(tasks)} videos", flush=True)
-all_J = [p[0] for p in pairs]; all_F = [p[1] for p in pairs]
-print(f"evaluated {len(pairs)} expressions", flush=True)
-print(f"Mean J: {np.mean(all_J):.4f}", flush=True)
-print(f"Mean F: {np.mean(all_F):.4f}", flush=True)
-print(f"J&F:    {(np.mean(all_J)+np.mean(all_F))/2:.4f}", flush=True)
+    if not js:
+        return None
+    return {
+        "video": video,
+        "expression_id": expression_id,
+        "j": float(np.mean(js)),
+        "f": float(np.mean(fs)),
+        "annotated_frames": len(js),
+    }
+
+
+def summarize(rows):
+    mean_j = float(np.mean([row["j"] for row in rows]))
+    mean_f = float(np.mean([row["f"] for row in rows]))
+    return {
+        "protocol": "Official Ref-Youtube-VOS per-expression DAVIS J&F",
+        "evaluated_pairs": len(rows),
+        "evaluated_annotated_frames": int(
+            sum(row["annotated_frames"] for row in rows)
+        ),
+        "mean_j": mean_j,
+        "mean_f": mean_f,
+        "j_and_f": (mean_j + mean_f) / 2,
+    }
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("results", type=Path)
+    parser.add_argument("--annotations", type=Path, default=DEFAULT_ANNOTATIONS)
+    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--output", type=Path)
+    return parser.parse_args()
+
+
+def main():
+    global WORKER_RESULTS, WORKER_ANNOTATIONS
+    args = parse_args()
+    WORKER_RESULTS = json.loads(args.results.read_text())
+    WORKER_ANNOTATIONS = args.annotations
+    tasks = [
+        (video, expression_id)
+        for video, expressions in WORKER_RESULTS.items()
+        for expression_id in expressions
+    ]
+    print(f"tasks: {len(tasks)}", flush=True)
+    rows = []
+    with Pool(processes=args.workers) as pool:
+        for index, row in enumerate(pool.imap_unordered(evaluate_expression, tasks)):
+            if row is not None:
+                rows.append(row)
+            if (index + 1) % 100 == 0:
+                print(f"  {index + 1}/{len(tasks)} expressions", flush=True)
+    if not rows:
+        raise ValueError("no annotated Ref-Youtube-VOS expressions were evaluated")
+
+    summary = summarize(rows)
+    summary["results"] = str(args.results)
+    print(json.dumps(summary, indent=2), flush=True)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(summary, indent=2) + "\n")
+
+
+if __name__ == "__main__":
+    main()

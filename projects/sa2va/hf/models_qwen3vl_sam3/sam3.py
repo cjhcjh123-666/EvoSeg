@@ -129,17 +129,32 @@ class SAM3(nn.Module):
         return mask_out
 
     @torch.no_grad()
-    def language_embd_inference(self, inference_state, language_embd):
+    def language_embd_inference(
+        self,
+        inference_state,
+        language_embd,
+        frame_indices=None,
+    ):
         # SAM3's ViT uses a fused perflib kernel that asserts grad is disabled, so
         # the whole grounding-encoder forward must run under no_grad.
         num_frame = len(language_embd)
         num_obj = len(language_embd[0])
+        if frame_indices is None:
+            frame_indices = list(range(num_frame))
+        if len(frame_indices) != num_frame:
+            raise ValueError(
+                "frame_indices and language_embd must have the same length"
+            )
+        if any(
+                frame_idx < 0 or frame_idx >= inference_state["num_frames"]
+                for frame_idx in frame_indices):
+            raise ValueError("conditioning frame index is outside the video")
         mask_out = []
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-            for frame_idx in range(num_frame):
+            for prompt_idx, frame_idx in enumerate(frame_indices):
                 for obj_idx in range(num_obj):
                     _language_embd = self._as_sparse_tokens(
-                        language_embd[frame_idx][obj_idx]
+                        language_embd[prompt_idx][obj_idx]
                     )
                     self.sam2_model.add_language_embd(
                         inference_state,
