@@ -4,6 +4,7 @@ from torch import nn
 
 from projects.evoseg.ftg.virst_ftg_eval import (
     SegmentationOnlyLanguageHead,
+    enable_cpu_video_storage,
     enable_segmentation_only_language_path,
 )
 from projects.evoseg.ftg.virst_interface import (
@@ -152,3 +153,31 @@ def test_segmentation_only_eval_removes_unused_language_logits_and_labels():
     assert returned_labels is None
     assert logits.shape == (2, 3, 1)
     assert isinstance(core.lm_head, SegmentationOnlyLanguageHead)
+
+
+def test_long_video_eval_forces_sam_cpu_frame_storage():
+    class Tracker(nn.Module):
+        def init_state(self, **kwargs):
+            return kwargs
+
+    class Inner(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.seg_prompter = nn.Identity()
+            self.seg_model = Tracker()
+
+    class DummyVirst(nn.Module):
+        seg_token_idx = 7
+
+        def __init__(self):
+            super().__init__()
+            self.model = Inner()
+
+    model = nn.Sequential(DummyVirst())
+    enable_cpu_video_storage(model)
+    result = model[0].model.seg_model.init_state(
+        offload_video_to_cpu=False,
+        offload_state_to_cpu=False,
+    )
+    assert result["offload_video_to_cpu"] is True
+    assert result["offload_state_to_cpu"] is False

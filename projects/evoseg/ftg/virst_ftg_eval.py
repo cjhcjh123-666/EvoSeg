@@ -62,6 +62,24 @@ def enable_segmentation_only_language_path(model: nn.Module) -> None:
     core.lm_head = SegmentationOnlyLanguageHead()
 
 
+def enable_cpu_video_storage(model: nn.Module) -> None:
+    """Keep decoded full-video frames on CPU in SAM2's inference state.
+
+    Long-RVOS clips can exceed 500 frames.  The released VIRST wrapper forces
+    every decoded frame to remain resident on the GPU, although the public SAM2
+    tracker has an output-preserving CPU-storage mode intended for this case.
+    """
+    core = find_virst_core(model)
+    tracker = core.model.seg_model
+    original_init_state = tracker.init_state
+
+    def cpu_video_init_state(self, *args, **kwargs):
+        kwargs["offload_video_to_cpu"] = True
+        return original_init_state(*args, **kwargs)
+
+    tracker.init_state = types.MethodType(cpu_video_init_state, tracker)
+
+
 def append_jsonl(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
@@ -98,6 +116,11 @@ def main() -> None:
         ).lower() not in {"0", "false", "no"}
         if segmentation_only:
             enable_segmentation_only_language_path(loaded)
+        cpu_video_storage = os.environ.get(
+            "VIRST_OFFLOAD_VIDEO_TO_CPU", "1"
+        ).lower() not in {"0", "false", "no"}
+        if cpu_video_storage:
+            enable_cpu_video_storage(loaded)
         adapter = (
             torch.load(adapter_path, map_location="cpu", weights_only=False)
             if adapter_path
@@ -154,6 +177,7 @@ def main() -> None:
                     "variant": configured_variant,
                     "adapter": adapter_path,
                     "segmentation_only_language_path": segmentation_only,
+                    "cpu_video_storage": cpu_video_storage,
                     "trainable_parameters": sum(
                         parameter.numel() for parameter in wrapper.composer.parameters()
                     ),
