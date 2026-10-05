@@ -1,8 +1,7 @@
 # Factorized Temporal Grounding implementation
 
-> Current main route (2026-10-05): pretrained Qwen3-VL-4B + official SAM3.1;
-> see [the active implementation and training plan](PRIMARY_TRAINING_20261005.md).
-> The VIRST/SAM2.1 implementation below is retained as historical evidence.
+> Historical implementation, not the current training route. See the
+> [user-approved 2026-10-06 restart](../EVOSEG_CURRENT.md).
 
 ## Active strong-foundation design
 

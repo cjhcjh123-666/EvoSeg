@@ -2,14 +2,15 @@
 
 Own additions on top of the Pixel-LLM/Sa2VA base.
 
-The active method is `ftg/`: Qwen3-VL frame/query states are factorized into one
-persistent identity representation and dynamic state representations, then sent
-through the audited official SAM3.1 `visual_prompt_embed` path.
+The active restart is documented in [EVOSEG_CURRENT.md](../../docs/EVOSEG_CURRENT.md).
+Start from the released strong segmentation VLM with its original SAM and
+inference protocol; the first candidate is SaSaSa2VA-26B with native SAM2.
+Do not resume the previous FTG primary job or replace its pixel foundation now.
 
 Key directories:
 
-- `ftg/`: active factorized grounding model, public pilot data, training, metrics,
-  and controlled tests.
-- `qwen_process_seg/`: audited Qwen3-VL/SAM3.1 foundation plumbing reused by FTG.
+- `restart/`: pinned strong-foundation preparation for the new execution chain.
+- `ftg/`: historical factorized grounding experiments and diagnostics, not active.
+- `qwen_process_seg/`: historical audited Qwen3-VL/SAM3.1 foundation plumbing.
 - earlier faithfulness/process directories: retained for provenance, not active in
   the FTG paper story.

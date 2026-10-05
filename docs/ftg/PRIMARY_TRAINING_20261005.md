@@ -1,5 +1,8 @@
 # Main-model-first execution plan (2026-10-05)
 
+> Historical, stopped run. Superseded by the [2026-10-06 restart](../EVOSEG_CURRENT.md).
+> Do not resume this job as the new main experiment.
+
 This supersedes the VIRST/SAM2.1 main-route decision in PROJECT_SPEC.md.
 Previous negative results remain recorded in PILOT_FINDINGS.md.
 

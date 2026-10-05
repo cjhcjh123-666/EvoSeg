@@ -1,5 +1,8 @@
 # Continuous primary training (approximately 20 hours)
 
+> Historical queue, stopped by user request. The [2026-10-06 restart](../EVOSEG_CURRENT.md)
+> uses a released strong foundation with its original SAM; this queue is not active.
+
 The user requests genuine continuous eight-GPU training, not GPU reservation
 through idle memory holders, and asks to inspect quality before queuing work.
 

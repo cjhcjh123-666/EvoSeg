@@ -1,9 +1,8 @@
 # FTG: locked project specification
 
-> Superseded on 2026-10-05: the active main route is trained Qwen3-VL-4B +
-> official **SAM3.1**, with main-model optimization before ablations. See
-> [the current execution specification](PRIMARY_TRAINING_20261005.md).
-> The VIRST/SAM2.1 choices below are historical, not current instructions.
+> Historical specification. On 2026-10-06 the user approved a strong-foundation
+> restart with the foundation's original SAM. See [EvoSeg's current plan](../EVOSEG_CURRENT.md).
+> Neither the VIRST route below nor the later primary FTG run should be resumed.
 
 ## Research question
 
