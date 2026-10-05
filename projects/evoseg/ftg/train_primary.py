@@ -9,6 +9,7 @@ import os
 import random
 import time
 from pathlib import Path
+from contextlib import nullcontext
 
 import torch
 import torch.distributed as dist
@@ -74,43 +75,82 @@ def build_manifest(long_root, mevis_root, frame_budget, seed=42):
             "no_synthetic_annotations": True}
 
 
+def select_development_indices(records, count, seed=42):
+    """Balance sources/types, with one expression per held-out video."""
+    groups = {}
+    order = list(range(len(records)))
+    random.Random(seed).shuffle(order)
+    for index in order:
+        record = records[index]
+        groups.setdefault((record["dataset"], record["expression_type"]), []).append(index)
+    sources = sorted({key[0] for key in groups})
+    selected, used, turns = [], set(), {source: 0 for source in sources}
+    while len(selected) < count:
+        progress = False
+        for source in sources:
+            kinds = sorted(key for key in groups if key[0] == source)
+            for offset in range(len(kinds)):
+                key = kinds[(turns[source] + offset) % len(kinds)]
+                while groups[key]:
+                    index = groups[key].pop()
+                    video = (records[index]["dataset"], records[index]["video_id"])
+                    if video not in used:
+                        used.add(video)
+                        selected.append(index)
+                        turns[source] += offset + 1
+                        progress = True
+                        break
+                else:
+                    continue
+                break
+            if len(selected) == count:
+                break
+        if not progress:
+            break
+    return selected
+
+
 @torch.no_grad()
-def evaluate_development(model, dataset, device, output, update, count=8):
+def evaluate_development(model, dataset, device, output, update, count=32):
     """Sampled train-holdout monitoring; never report as official benchmark J&F."""
     model.eval()
-    # Interleave datasets so a short check does not contain only Long-RVOS.
-    by_source = {}
-    for index, record in enumerate(dataset.records):
-        by_source.setdefault(record["dataset"], []).append(index)
-    indices = []
-    for position in range(count):
-        for source in sorted(by_source):
-            if position < len(by_source[source]) and len(indices) < count:
-                indices.append(by_source[source][position])
+    rank = dist.get_rank() if dist.is_initialized() else 0
+    world = dist.get_world_size() if dist.is_initialized() else 1
+    indices = select_development_indices(dataset.records, count)
     records = []
-    for index in indices:
+    for position in range(rank, len(indices), world):
+        index = indices[position]
         sample = dataset[index]
         source_indices = torch.tensor(sample["source_frame_indices"], device=device).float()
         times = (source_indices - source_indices.min()) / (source_indices.max() - source_indices.min()).clamp_min(1)
-        with torch.autocast("cuda", dtype=torch.bfloat16):
-            logits, presence, diagnostics = model.predict(sample["frames"], sample["expression"], times)
-        logits = torch.where(presence[:, None, None] > 0, logits, -32.0)
+        # Every rank traverses the DDP wrapper, rather than only rank 0 calling
+        # an aliased module. Disable cached no-grad casts before resuming train.
+        with torch.autocast("cuda", dtype=torch.bfloat16, cache_enabled=False):
+            prediction_output = model(sample["frames"], sample["expression"], sample["masks"], times)
+        logits = prediction_output["predicted_mask_logits"]
         prediction = logits_to_masks(logits, sample["masks"])
-        record = {"dataset": sample["dataset"], "video_id": sample["video_id"], "expression_id": sample["expression_id"],
+        record = {"position": position, "dataset": sample["dataset"], "video_id": sample["video_id"], "expression_id": sample["expression_id"],
                   "expression": sample["expression"], **evaluate_masks(sample["masks"], prediction)}
         records.append(record)
-        if len(records) <= 4:
+        if position < 8:
             from .train_pilot import _save_qualitative
             _save_qualitative(sample["frames"], sample["masks"], prediction,
-                              output / "qualitative" / f"update_{update:06d}_{len(records):02d}.jpg")
+                              output / "qualitative" / f"update_{update:06d}_{position + 1:02d}.jpg")
+    if world > 1:
+        gathered = [None] * world
+        dist.all_gather_object(gathered, records)
+        records = sorted([record for shard in gathered for record in shard], key=lambda record: record["position"])
     result = {"purpose": "sampled_train_video_holdout_monitoring_not_official_benchmark", "update": update,
               "count": len(records), "mean_jf": sum(r["jf"] for r in records) / max(1, len(records)), "records": records}
-    atomic_json(output / f"development_{update:06d}.json", result)
+    if rank == 0:
+        atomic_json(output / f"development_{update:06d}.json", result)
     model.train()
+    torch.clear_autocast_cache()
     return result
 
 
 def run(args):
+    run_started = time.monotonic()
     world = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -163,6 +203,14 @@ def run(args):
     sampler = DistributedSampler(data, num_replicas=world, rank=rank, shuffle=True, seed=args.seed)
     updates_per_epoch = math.ceil(len(sampler) / args.accumulation)
     total_updates = args.max_updates or updates_per_epoch * args.epochs
+    if start_update >= total_updates:
+        raise RuntimeError("resume update is already at or beyond the requested endpoint")
+    phases = [
+        {"name": "first_epoch_recovery", "end_update": min(updates_per_epoch, total_updates)},
+        {"name": "main_convergence", "end_update": min(3 * updates_per_epoch, total_updates)},
+        {"name": "low_lr_refinement", "end_update": total_updates},
+    ]
+    phases = [phase for i, phase in enumerate(phases) if i == 0 or phase["end_update"] > phases[i - 1]["end_update"]]
     status = {"status": "RUNNING", "stage": "primary_model_training", "world_size": world,
               "train_expressions": len(data), "held_out_expressions": sum(r["pilot_partition"] == "validation" for r in manifest["records"]),
               "frame_budget": args.frame_budget, "global_batch": world * args.accumulation,
@@ -176,6 +224,9 @@ def run(args):
               "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest()}
     if rank == 0:
         atomic_json(args.output / "STATUS.json", status)
+        atomic_json(args.output / "QUEUE_PLAN.json", {"kind": "persistent_real_training_phases", "wall_limit_hours": args.wall_limit_hours,
+                    "epochs": args.epochs, "world_size": world, "resume_update": start_update, "phases": phases,
+                    "no_dummy_gpu_holders": True, "gpu_exclusivity_guaranteed": False})
     started = time.time()
     optimizer.zero_grad(set_to_none=True)
     wrapped.train()
@@ -200,14 +251,19 @@ def run(args):
                 sample = data[sample_index]
                 source_indices = torch.tensor(sample["source_frame_indices"], device=device).float()
                 times = (source_indices - source_indices.min()) / (source_indices.max() - source_indices.min()).clamp_min(1)
-                with torch.autocast("cuda", dtype=torch.bfloat16):
-                    output = wrapped(sample["frames"], sample["expression"], sample["masks"], times)
-                    loss = output["loss"] / len(batch_indices)
-                if not torch.isfinite(loss):
-                    raise RuntimeError(f"non-finite loss at {sample['dataset']}/{sample['video_id']}/{sample['expression_id']}")
-                loss.backward()
+                synchronization = wrapped.no_sync() if world > 1 and micro < len(batch_indices) - 1 else nullcontext()
+                with synchronization:
+                    with torch.autocast("cuda", dtype=torch.bfloat16, cache_enabled=False):
+                        output = wrapped(sample["frames"], sample["expression"], sample["masks"], times)
+                        loss = output["loss"] / len(batch_indices)
+                    if not torch.isfinite(loss):
+                        raise RuntimeError(f"non-finite loss at {sample['dataset']}/{sample['video_id']}/{sample['expression_id']}")
+                    loss.backward()
                 record_losses.append(output["loss"].detach().float())
             norms = {}
+            missing = [name for name, p in model.named_parameters() if p.requires_grad and p.grad is None]
+            if missing:
+                raise RuntimeError(f"trainable parameters lost gradients: {missing}")
             for name, parameters in groups.items():
                 squared = sum((p.grad.detach().float().square().sum() for p in parameters if p.grad is not None), torch.zeros((), device=device))
                 norms[name] = squared.sqrt().item()
@@ -222,6 +278,13 @@ def run(args):
             mean_loss = torch.stack(record_losses).mean()
             if world > 1:
                 dist.all_reduce(mean_loss, op=dist.ReduceOp.AVG)
+            budget_reached = torch.tensor(int(args.wall_limit_hours > 0 and time.monotonic() - run_started >= args.wall_limit_hours * 3600), device=device)
+            if world > 1:
+                dist.all_reduce(budget_reached, op=dist.ReduceOp.MAX)
+            budget_reached = bool(budget_reached.item())
+            evaluation_due = args.development_count > 0 and (update % args.evaluate_every == 0 or update == total_updates or budget_reached or
+                             (args.evaluate_after_resume and update == start_update + 1))
+            checkpoint_due = update % args.save_every == 0 or update == total_updates or budget_reached or evaluation_due
             if rank == 0:
                 elapsed = time.time() - started
                 progress = {"update": update, "epoch": epoch, "loss": mean_loss.item(), "gradient_norms": norms,
@@ -233,12 +296,13 @@ def run(args):
                             "learning_rates": [group["lr"] for group in optimizer.param_groups],
                             "elapsed_seconds": elapsed, "peak_memory_gib": torch.cuda.max_memory_allocated() / 1024**3,
                             "eta_seconds": elapsed / (update - start_update) * (total_updates - update)}
+                progress["active_phase"] = next(phase["name"] for phase in phases if update <= phase["end_update"])
                 with (args.output / "training.jsonl").open("a") as handle:
                     handle.write(json.dumps(progress) + "\n")
                 status.update(progress | {"completed_updates": update})
                 atomic_json(args.output / "STATUS.json", status)
                 print(json.dumps(progress), flush=True)
-                if update % args.save_every == 0 or update == total_updates:
+                if checkpoint_due:
                     trainable_names = {name for name, p in model.named_parameters() if p.requires_grad}
                     payload = {"trainable_state": {key: value.detach().cpu() for key, value in model.state_dict().items() if key in trainable_names},
                                "optimizer": optimizer.state_dict(), "update": update, "status": status,
@@ -248,19 +312,20 @@ def run(args):
                     temporary = path.with_suffix(".tmp")
                     torch.save(payload, temporary)
                     os.replace(temporary, path)
-                    if args.development_count:
-                        development_result = evaluate_development(model, development, device, args.output, update, args.development_count)
-                        status["sampled_development_jf_not_official"] = development_result["mean_jf"]
-                        atomic_json(args.output / "STATUS.json", status)
-            if world > 1 and (update % args.save_every == 0 or update == total_updates):
+            if evaluation_due:
+                development_result = evaluate_development(wrapped, development, device, args.output, update, args.development_count)
+                if rank == 0:
+                    status["sampled_development_jf_not_official"] = development_result["mean_jf"]
+                    atomic_json(args.output / "STATUS.json", status)
+            if world > 1 and (checkpoint_due or evaluation_due):
                 dist.barrier()
-            if update >= total_updates:
+            if update >= total_updates or budget_reached:
                 stop = True
                 break
         if stop:
             break
     if rank == 0:
-        status.update({"status": "COMPLETE", "completed_updates": update, "elapsed_seconds": time.time() - started})
+        status.update({"status": "COMPLETE" if update >= total_updates else "WALL_BUDGET_COMPLETE", "completed_updates": update, "elapsed_seconds": time.time() - started})
         atomic_json(args.output / "STATUS.json", status)
     if world > 1:
         dist.destroy_process_group()
@@ -284,11 +349,14 @@ def parse_args():
     parser.add_argument("--grounding-lr", type=float, default=2e-4)
     parser.add_argument("--save-every", type=int, default=100)
     parser.add_argument("--development-count", type=int, default=8)
+    parser.add_argument("--evaluate-every", type=int, default=500)
+    parser.add_argument("--wall-limit-hours", type=float, default=0.0)
+    parser.add_argument("--evaluate-after-resume", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resume", type=Path)
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
-    if min(args.accumulation, args.frame_budget, args.save_every, args.epochs) < 1 or min(args.max_updates, args.development_count) < 0:
+    if min(args.accumulation, args.frame_budget, args.save_every, args.epochs, args.evaluate_every) < 1 or min(args.max_updates, args.development_count, args.wall_limit_hours) < 0:
         parser.error("training counts must be positive (max-updates may be zero)")
     return args
 

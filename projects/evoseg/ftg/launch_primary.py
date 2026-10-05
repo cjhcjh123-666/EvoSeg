@@ -16,8 +16,14 @@ def main():
     parser.add_argument("--frame-budget", type=int, default=16)
     parser.add_argument("--max-updates", type=int, default=0)
     parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--resume", type=Path)
+    parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--wall-limit-hours", type=float, default=0.0)
+    parser.add_argument("--evaluate-every", type=int, default=500)
+    parser.add_argument("--development-count", type=int, default=32)
+    parser.add_argument("--evaluate-after-resume", action="store_true")
     args = parser.parse_args()
-    if not 1 <= args.processes <= 8 or args.frame_budget < 1 or args.max_updates < 0:
+    if not 1 <= args.processes <= 8 or min(args.frame_budget, args.epochs, args.evaluate_every) < 1 or min(args.max_updates, args.wall_limit_hours, args.development_count) < 0:
         parser.error("invalid process/frame/update count")
     root = Path(__file__).resolve().parents[3]
     args.output.mkdir(parents=True, exist_ok=True)
@@ -39,7 +45,15 @@ def main():
                    cwd=root, env=environment, check=True)
     command = [sys.executable, "-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={args.processes}",
                "-m", "projects.evoseg.ftg.train_primary", "--output", str(args.output),
-               "--frame-budget", str(args.frame_budget), "--max-updates", str(args.max_updates)]
+               "--frame-budget", str(args.frame_budget), "--max-updates", str(args.max_updates),
+               "--epochs", str(args.epochs), "--wall-limit-hours", str(args.wall_limit_hours),
+               "--evaluate-every", str(args.evaluate_every), "--development-count", str(args.development_count)]
+    if args.resume:
+        if not args.resume.is_file():
+            raise RuntimeError("resume checkpoint does not exist")
+        command.extend(["--resume", str(args.resume)])
+    if args.evaluate_after_resume:
+        command.append("--evaluate-after-resume")
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     with (args.output / "console.log").open("a") as log:
         process = subprocess.Popen(command, cwd=root, env=environment, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)
