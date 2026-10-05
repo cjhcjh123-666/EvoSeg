@@ -1,5 +1,10 @@
 # FTG: locked project specification
 
+> Superseded on 2026-10-05: the active main route is trained Qwen3-VL-4B +
+> official **SAM3.1**, with main-model optimization before ablations. See
+> [the current execution specification](PRIMARY_TRAINING_20261005.md).
+> The VIRST/SAM2.1 choices below are historical, not current instructions.
+
 ## Research question
 
 FTG studies **Referring Video Object Segmentation with Segmentation VLMs**. The
