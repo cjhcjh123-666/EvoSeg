@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import runpy
+import sys
 from pathlib import Path
 
 import torch
@@ -37,9 +38,18 @@ def append_jsonl(path: Path, value: dict) -> None:
 
 
 def main() -> None:
+    official_eval = os.environ.get("VIRST_FTG_OFFICIAL_EVAL_PATH", "eval.py")
+    # When this launcher is executed by absolute path, Python otherwise places
+    # ``projects/evoseg/ftg`` before the public checkout and resolves our local
+    # ``model.py`` instead of VIRST's ``model`` package.
+    public_virst_eval = os.environ.get("VIRST_OFFICIAL_EVAL_PATH", official_eval)
+    official_root = str(Path(public_virst_eval).resolve().parent)
+    if official_root in sys.path:
+        sys.path.remove(official_root)
+    sys.path.insert(0, official_root)
+
     import model.builder as builder
 
-    official_eval = os.environ.get("VIRST_FTG_OFFICIAL_EVAL_PATH", "eval.py")
     variant = os.environ.get("VIRST_FTG_VARIANT", "ftg")
     adapter_path = os.environ.get("VIRST_FTG_CHECKPOINT")
     diagnostic_value = os.environ.get("VIRST_FTG_DIAGNOSTICS")
