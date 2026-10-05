@@ -13,6 +13,7 @@ import tqdm
 from transformers import AutoModel, AutoTokenizer
 
 from projects.sasasa2va.evaluation.dataset import RefVOSDataset
+from projects.sasasa2va.evaluation.protocol import INFERENCE_MODES, resolve_dataset_info
 from projects.sasasa2va.evaluation.utils import _init_dist_pytorch, _init_dist_slurm, get_dist_info, get_rank, collect_results_cpu
 
 import concurrent.futures
@@ -77,7 +78,13 @@ def parse_args():
         help='job launcher')
     parser.add_argument('--local_rank', '--local-rank', type=int, default=0)
     parser.add_argument('--submit', action='store_true')
-    parser.add_argument('--mode', type=str, default='default')
+    parser.add_argument('--mode', choices=INFERENCE_MODES, default='uniform')
+    parser.add_argument('--data-root', type=str, default=None,
+                        help='Split directory containing JPEGImages and meta_expressions.json')
+    parser.add_argument('--expression-file', type=str, default=None,
+                        help='Explicit expression metadata, e.g. meta_expressions_v2.json')
+    parser.add_argument('--selected-frame-file', type=str, default=None,
+                        help='Pre-selected frame JSON; q_frame mode only')
     parser.add_argument('--print_answer', action='store_true', default=False)
     parser.add_argument('--work_dir', type=str, default=None)
     parser.add_argument('--deepspeed', type=str, default=None) # dummy
@@ -91,6 +98,10 @@ def parse_args():
 
 if __name__ == '__main__':
     args = parse_args()
+    dataset_info = resolve_dataset_info(
+        DATASETS_INFO[args.dataset], mode=args.mode,
+        data_root=args.data_root, expression_file=args.expression_file,
+        selected_frame_file=args.selected_frame_file)
 
     work_dir = args.work_dir
     if work_dir is None:
@@ -118,7 +129,6 @@ if __name__ == '__main__':
         args.model_path,
         trust_remote_code=True,
     )
-    dataset_info = DATASETS_INFO[args.dataset]
 
 
     dataset = RefVOSDataset(
@@ -203,4 +213,3 @@ if __name__ == '__main__':
 
     if rank == 0:
         print('Done')
-

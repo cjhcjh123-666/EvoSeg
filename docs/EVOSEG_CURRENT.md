@@ -54,6 +54,28 @@ ReVOS require verified evaluation protocols before joining the paper table.
 - Asset preparation: `python -m projects.evoseg.restart.prepare_foundation --detach`.
   `ASSETS_READY` means download checks passed, not training or benchmark success.
 
+## Native evaluation preparation
+
+The released config and the repository's native model class construct successfully
+under empty-weight initialization: 25,778,005,682 parameters and 1,838 state
+tensors. This checks imports and architecture only, **not checkpoint loading**.
+The download is approximately 92.04 GB, including mixed source tensor dtypes.
+
+Use the existing `envs/virst/bin/python` with the independent
+`envs/sasasa2va_native_overlay` directory first on `PYTHONPATH` (and the clean
+repository root included). The overlay pins the model author's recommended
+`transformers==4.42.3` and supplies missing native evaluation dependencies;
+it does not modify the existing VIRST environment.
+
+The official evaluation entry now accepts `--data-root`, defaults to the native
+`uniform` mode, and reads selected-frame JSON only in `q_frame` mode. The initial
+split root is `/9950backfile/chenjiahui/evo_artifacts/datasets/mevis_v2/valid_u`.
+Pass `--expression-file` pointing to that split's `meta_expressions_v2.json`
+explicitly; the local v2 metadata does not use the upstream v1 filename.
+Ten asset/protocol unit tests pass. Native image transforms, frame compression,
+SEG prompts and mask inference are unchanged. Do not launch full evaluation
+until all shards are ready and complete loading has passed.
+
 ## Recoverable cleanup completed
 
 Thirteen explicitly selected retired prototypes/invalid pre-repair exports were
