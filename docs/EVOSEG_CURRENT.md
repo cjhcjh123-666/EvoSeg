@@ -1,6 +1,158 @@
-# EvoSeg: current multi-turn interaction project, 2026-10-06
+# EvoSeg segmentation hallucination project
 
-## Active user-approved direction (supersedes the RVOS restart below)
+## Active research scope
+
+As of 2026-10-07, the user chose segmentation hallucination mitigation as a
+**method-only** project using existing public training data and benchmarks.
+Do not create another benchmark, generate new annotated dialogues/expressions,
+or resume the multi-turn/FTG/RVOS-restart training queues. Historical models,
+checkpoints, negative results and user edits remain protected.
+
+Public evaluation covers gRefCOCO, FP-RefCOCO/+/g, HalluSegBench and MeViS v2.
+RefCOCO/+/g and standard RVOS scores measure positive-target preservation.
+Every hallucination score must accompany positive segmentation/recall: rejecting
+everything is not a solution. Report each author's metric definitions and full
+split coverage; our native prompts and pretrained-data exposure are disclosed.
+
+Old Faithful-4B and released Sa2VA-4B are preserved baseline controls only.
+The user explicitly rejected inheriting the old Faithful model. Fresh training
+starts from pinned `zhouyik/Qwen3-VL-8B-SAMTok` with its original SAM2.1 codec,
+not any retired dialog LoRA, Faithful or FTG checkpoint. First-run training uses
+original RefCOCO/+/g TRAIN and gRefCOCO TRAIN only. HalluSegBench is evaluation
+only: its edited images are not mixed into this run. No SAM3.1 replacement.
+
+## Grounding interface hypothesis
+
+The working hypothesis is that a mixed grounding representation can retain
+query-only or scene-only priors without sufficiently encoding their visual
+compatibility. A four-view diagnostic compares full evidence, neutral query,
+neutral visual input, and both neutral. The factorial difference
+`h(I,q) - h(I,q0) - h(I0,q) + h(I0,q0)` cancels additive unimodal components.
+This algebra does **not** establish causal identification in a nonlinear VLM;
+neutral-input distribution shift, additional compute and inference consistency
+must be controlled experimentally.
+
+`hallucination/interaction.py` maps this interaction to a residual SAM prompt
+and an empty-target logit. The residual is zero-initialized and initial empty
+bias is -4. `train_fresh.py` now feeds the adapted prompt through the frozen
+native SAM decoder and backpropagates real human-mask loss; `eval_fresh.py`
+uses the same head and prompt path in actual prediction. Two actual gradient
+updates and a native mask-generation check passed. These are execution checks,
+not benchmark gains. GT masks/target identities never construct inference
+neutral views, and inference accepts only public image/query inputs.
+
+Refusal tokens, counterfactual SFT and instance competition already appear in
+[GSVA](https://arxiv.org/abs/2312.10103),
+[RobustSeg](https://arxiv.org/abs/2506.21546),
+[PropVG](https://openaccess.thecvf.com/content/ICCV2025/html/Dai_PropVG_End-to-End_Proposal-Driven_Visual_Grounding_with_Multi-Granularity_Discrimination_ICCV_2025_paper.html)
+and [InstAlign](https://arxiv.org/abs/2411.15087). No first-of-kind claim follows
+merely from adding a null token, contrastive loss or another proposal head.
+
+## Public baseline execution
+
+`python -m projects.evoseg.hallucination.run_public_baselines --detach` audits
+public assets, checks six complete four-combination pairs per model, then
+evaluates all 1,739 public HalluSegBench pairs / 6,956 predictions per model.
+The two native models use 4 + 4 GPUs, identical exact public queries and native
+image wrappers. Source coverage is 1,340 referring pairs plus 74 and 325
+reasoning pairs; the reasoning result combines both released evaluation folders.
+Missing assets, incomplete caches or incompatible checkpoint identities stop
+the run, rather than silently removing cases.
+
+The [official HalluSegBench scripts](https://github.com/PLAN-Lab/HalluSegBench)
+use CMS with alpha 3 and textual/visual delta-IoU. Native outputs are unioned
+across masks, measured by actual foreground pixels, and saved as PNGs with
+per-pair provenance. A returned all-zero mask array is not a nonempty prediction.
+This replaces the old two-combination/array-count diagnostic, which cannot be
+used as the official benchmark headline. Raw Faithful/QTV Ref-YT-VOS files
+using corrected all-frame official-style metrics give J&F 67.0846 / 65.1462
+at QTV threshold .005; older stride-5 values 59.16 / 58.58 are invalidated.
+
+Results: `/9950backfile/chenjiahui/evo_artifacts/results/evoseg_hallucination_20261007/public_baselines`.
+`RUN_STATUS.json` records actual stage PIDs. Full completion requires both
+6,956-prediction reports; asset download or small smoke is not method success.
+HalluSegBench TRAIN assets are not yet present locally; public gRefCOCO TRAIN
+is present. No unseen-data or SOTA claim is made from this preparation.
+
+The asset audit confirms all public pair files and gRefCOCO images. One public
+GT mask is empty; it remains in the full denominator with the author's zero-area
+metric convention, rather than being silently removed. Public gRefCOCO has
+209,344 train expressions including 19,140 no-target expressions; validation
+contains 14,229 expressions including 8,905 no-target expressions. The old 8,905
+image diagnostic therefore used a real validation split, but its array-count
+definition still requires pixel-based reproduction.
+
+`python -m projects.evoseg.hallucination.run_probe --detach` queues a mechanism
+diagnostic after both full baselines succeed, using one genuinely free GPU.
+It selects 32 public TRAIN images, each with two existing positive and two
+existing no-target expressions; no expressions or labels are generated.
+All official gRefCOCO val/test images are excluded. Eight images form the
+image-disjoint probe holdout. A fixed SEG assistant prefix extracts four
+representations without exposing the GT label, mask or target ID. Neutral
+RGB-127 images preserve the image grid; the neutral query is `an object`.
+These neutral views are model-internal diagnostic interventions, not a newly
+annotated training dataset. They may introduce distribution shift.
+
+Equal-size linear probes compare full, image-only, query-only and factorial
+features with the same 100 optimizer updates and train-fitted normalization.
+AUROC/balanced accuracy are diagnostics on pretrained-public-train images,
+not segmentation benchmark scores or evidence of an integrated SAM method.
+The diagnostic model remained frozen. Its 32-case holdout AUROC was .9766 for
+full features, .9297 for query-only and .9844 for factorial interaction. The
+small sample and high query-only score cannot establish causal visual grounding
+or method superiority. Larger matched training and neutral-view controls remain
+required even though the new SAM prompt path is now connected.
+
+## Fresh public training until the user deadline
+
+The user confirmed **2026-10-07 14:00 Asia/Shanghai** as the stop/monitoring
+deadline. `hallucination/nightly.py --detach` owns the detached supervisor,
+checkpoints, stage logs and 15-second status heartbeat. It reserves the last
+two hours for evaluation and never terminates foreign jobs or starts GPU holders.
+OOM, nonfinite losses, broken gradient paths or failed child processes record
+failure and stop uncontrolled continuation. Results already ready before the
+deadline are monitored with a CPU heartbeat, not artificial GPU occupancy.
+
+Fresh foundation revision: `b78aef1105d6a94049a2ba109f814dfcf21bec8e`.
+Author-linked gRefCOCO mirror: `FudanCVL/gRefCOCO`, revision
+`81eede59b3ac070049f597d023c0ff08d1fb80e9`. Its grefs and instances bytes were
+verified against the official published LFS SHA-256. RefCOCO parquet masks
+were checked against original COCO instance annotations; original sentences
+are unchanged. The isolated PyArrow-17 dependency overlay does not replace
+the existing Torch/Transformers environment.
+
+The bounded first-run corpus has 16,384 records: 15,697 train and 687
+image-disjoint train-holdout records. Validation/test image exclusion spans
+all four referring datasets and HalluSegBench factual images (6,549 image IDs).
+RefCOCO/+/g contribute 8,192 records; gRefCOCO contributes 8,192, including
+4,096 official no-target records. There are no new queries, pseudo masks or
+HalluSegBench training images. GT PNGs and native code targets are deterministic
+format conversions of original human annotations, not model-generated labels.
+
+Two 4-GPU jobs start independently from the released model. Full-view and
+factorial-interaction adapters have the same parameter count, four forward
+views, data order, LoRA rank 8/alpha 16, accumulation 2, effective batch 8,
+language LR 1e-6 and head LR 5e-5. Frozen SAM2.1 pixel weights remain unchanged.
+Language loss, empty-target BCE, mask BCE and Dice train both variants. Mask
+training uses GT native codes as teacher targets; inference uses generated
+codes only. This teacher/inference distinction must remain explicit.
+
+The run first checks 20 updates, then conditionally continues to 100, 300,
+600, 1200 and 2000 cumulative updates, saving adapters, grounding heads and
+optimizer state. Advancement requires train-holdout positive gIoU, target
+recall and no-target accuracy to remain within one point of the released
+checkpoint. A failed guard withholds further training rather than selecting
+on public test scores. Full public gRefCOCO-val and HalluSegBench evaluations
+are attempted within the remaining deadline; incomplete coverage is flagged.
+
+Artifacts: `/9950backfile/chenjiahui/evo_artifacts/results/evoseg_hallucination_20261007/new_public_run`.
+`NIGHTLY_STATUS.json`, `FIRST_RUN_REPORT.json` and any `FAILURE_REPORT.json`
+are execution evidence. Execution completion is not a SOTA claim.
+
+## Historical multi turn interaction experiments
+
+The remainder records the earlier, superseded direction and its experiments;
+it is provenance, not an instruction to launch those jobs.
 
 The user explicitly approved moving to **multi-turn language-interactive
 segmentation**: first pursue comparable public-benchmark improvements, while
