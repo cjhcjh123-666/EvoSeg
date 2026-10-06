@@ -96,7 +96,59 @@ turn motion-dependent video descriptions into single-image instructions.
   edits/undo, overlapping masks and public conversation parsing. The public
   `*_hard_train` files provide an external visual cue at turn one; those are
   valid visual-reference tasks, not unobserved conversational history.
-- Actual model training has **not** started for this new direction yet.
+- No main method-training experiment has started. A separate **one-update**
+  public-data gradient probe passed for native LoRA, history-role routing and
+  spatial scope. `training_probe/PROBE_REPORT.json` is not a trained method score
+  or a benchmark checkpoint; the edit branch has no supervised examples in it.
+
+### Current multi-round baseline and training preparation
+
+`dialog/eval_multiturn.py` evaluates all public raw validation dialogues with
+the released native model, quantizer and mask decoder. Primary reporting is
+foreground cIoU **by round**, with equal-dataset averages for MR-RefCOCO/+/g;
+gIoU and invalid-output counts are included. Invalid output tokens contribute
+an empty prediction and remain in the denominator, never silently disappearing.
+
+History protocols are explicit and separate:
+
+- `gt_history`: GT prior masks and GT prior answers are encoded with the native
+  VQ mask-plus-normalized-bbox encoder.
+- `predicted_history`: previous generated mask codes and actual assistant
+  outputs are recycled. Unit tests forbid invoking GT-history callbacks in
+  this mode; full predictions also record zero GT mask encodings for history.
+
+Raw SegLLM mask/box markers are reconstructed as native VQ mask tokens. The
+normalized box participates in mask encoding, not an invented language-level
+coordinate format. Original SAMTok sampled/preprocessed files are not available
+in the checked public data release, so exact source-table comparability remains
+**pending**. Results here are reproducible full-public-file baselines, not an
+automatic claim to reproduce Table 2 or SOTA. Main controls must use this exact
+same protocol; externally reported numbers retain their source/protocol labels.
+
+`python -m projects.evoseg.dialog.run_baselines --detach` is running a durable
+chain: two complete-dialogue diagnostics -> eight-GPU GT-history evaluation of
+all 17,349 rounds -> eight-GPU predicted-history evaluation of all 17,349 rounds.
+Inspect `public_baselines/BASELINE_STATUS.json` and real child PIDs. The 16-round
+diagnostic passed without invalid mask output, but its scores are not benchmarks.
+
+`dialog/cache_training.py` has prepared a bounded public-only pilot cache of
+768 dialogues / 3024 rounds (256 dialogues from each referring dataset), excluding
+all public validation images. It caches original-GT mask codes and frozen image
+features, never synthetic masks or our unreviewed draft dialogues. Current public
+supervision covers new referents and witness references; it does **not** validate
+the edit/preservation branch of SCCS.
+
+### Additional image edit drafts
+
+The initial 500 video drafts remain unchanged. `dialog/build_image_edit_pilot.py`
+has additionally generated 500 **image** draft dialogues / 2500 rounds using
+public MRSeg training requests and original COCO masks. All 2701 distinct image
+names present in public validation were excluded before choosing source pairs.
+Instructions are templates plus verbatim original first-turn requests. Their
+new/add/remove/undo/replace masks are exact object-set unions, not pixel subtraction
+that would destroy an overlapping retained object. Partial-refine supervision is
+not yet available. `IMAGE_REVIEW_QUEUE.json` and `IMAGE_EDIT_MANIFEST.json` both
+mark human review pending. These drafts are not mixed into the main training run.
 
 ---
 
