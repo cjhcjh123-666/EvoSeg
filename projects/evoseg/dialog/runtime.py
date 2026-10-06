@@ -73,7 +73,9 @@ class NativeRuntime:
                 raise RuntimeError(f'incomplete language loading: {problems}')
             if adapter_dir is not None:
                 from peft import PeftModel
-                model = PeftModel.from_pretrained(model, adapter_dir, is_trainable=False)
+                # Bare 'cuda' in safetensors resolves to GPU 0 even when the
+                # current rank uses another GPU. Load on CPU then move once.
+                model = PeftModel.from_pretrained(model, adapter_dir, is_trainable=False, torch_device='cpu')
             self.model = model.cuda().eval()
             self.processor = AutoProcessor.from_pretrained(directory, local_files_only=True)
             self.loading = loading

@@ -12,7 +12,7 @@ import time
 
 import numpy as np
 from PIL import Image
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, PeftModel, get_peft_model
 import torch
 import torch.distributed as dist
 from torch import nn
@@ -23,6 +23,29 @@ from projects.evoseg.restart.prepare_foundation import atomic_json
 from .pilot_data import DATASETS, SPLIT_VERSION, cache_records
 from .protocol import decode_annotation
 from .scope_head import TypedScopeHead
+
+
+def continuation_manifest(directory, variant, seed, effective_batch, records):
+    if directory is None:
+        return None, 0
+    parent = Path(directory)
+    manifest = json.loads((parent / 'TRAINING_MANIFEST.json').read_text())
+    expected = {'variant': variant, 'seed': seed, 'effective_batch': effective_batch,
+                'split': SPLIT_VERSION, 'foundation_revision': records[0]['foundation_revision'],
+                'generated_drafts_included': False, 'editing_branch_supervised': False}
+    if any(manifest.get(k) != v for k, v in expected.items()):
+        raise RuntimeError('continuation checkpoint has incompatible data, model or budget')
+    if manifest.get('status') not in ('PUBLIC_PILOT_TRAINING_COMPLETE', 'INTERMEDIATE_CHECKPOINT'):
+        raise RuntimeError('continuation requires a completed checkpoint')
+    if manifest.get('status') == 'INTERMEDIATE_CHECKPOINT' and not (parent / 'OPTIMIZER.pth').exists():
+        raise RuntimeError('intermediate continuation requires a saved optimizer')
+    if set(manifest['train_images']) != {r['image'] for r in records}:
+        raise RuntimeError('continuation train images differ')
+    if not (parent / 'adapter/adapter_model.safetensors').exists():
+        raise RuntimeError('continuation adapter missing')
+    if variant == 'witness_scope_aux' and not (parent / 'AUX_SCOPE_HEAD.pth').exists():
+        raise RuntimeError('continuation scope head missing')
+    return manifest, manifest.get('cumulative_model_updates', manifest['optimizer_updates'])
 
 
 class PublicAlignment(nn.Module):
@@ -123,24 +146,41 @@ def run(args):
     assert not ({r['image'] for r in records} & {r['image'] for r in heldout})
     by_dataset = {d: [r for r in records if r['dataset'] == d] for d in DATASETS}
     auxiliary = args.variant == 'witness_scope_aux'
+    parent_manifest, initial_updates = continuation_manifest(args.initialize_from, args.variant,
+        args.seed, world * args.accumulation, records)
     model, info = Qwen3VLForConditionalGeneration.from_pretrained(args.model_dir,
         dtype=torch.bfloat16, attn_implementation='sdpa', local_files_only=True, output_loading_info=True)
     if any(info.get(k) for k in ('missing_keys', 'unexpected_keys', 'mismatched_keys', 'error_msgs')):
         raise RuntimeError('incomplete native language checkpoint')
     model.requires_grad_(False)
-    model = get_peft_model(model, LoraConfig(r=8, lora_alpha=16, lora_dropout=0.,
-        target_modules=['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'],
-        task_type='CAUSAL_LM'))
+    if args.initialize_from:
+        model = PeftModel.from_pretrained(model, Path(args.initialize_from) / 'adapter',
+                                         is_trainable=True, torch_device='cpu')
+    else:
+        model = get_peft_model(model, LoraConfig(r=8, lora_alpha=16, lora_dropout=0.,
+            target_modules=['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'],
+            task_type='CAUSAL_LM'))
     if any('visual' in n and p.requires_grad for n, p in model.named_parameters()):
         raise RuntimeError('pixel encoder must remain frozen')
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
     model.enable_input_require_grads()
     module = PublicAlignment(model, auxiliary).cuda().train()
+    if auxiliary and args.initialize_from:
+        module.head.load_state_dict(torch.load(Path(args.initialize_from) / 'AUX_SCOPE_HEAD.pth',
+                                               map_location='cpu', weights_only=True), strict=True)
     processor = AutoProcessor.from_pretrained(args.model_dir, local_files_only=True)
     annotations = ({int(a['id']): a for a in json.loads(Path(args.annotations).read_text())['annotations']}
                    if auxiliary else None)
     params = [p for p in module.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=.01)
+    parameter_names = [n for n, p in module.named_parameters() if p.requires_grad]
+    optimizer_restored = False
+    if args.initialize_from and (Path(args.initialize_from) / 'OPTIMIZER.pth').exists():
+        saved = torch.load(Path(args.initialize_from) / 'OPTIMIZER.pth', map_location='cpu', weights_only=True)
+        if saved['parameter_names'] != parameter_names or parent_manifest['learning_rate'] != args.lr:
+            raise RuntimeError('optimizer parameter order or learning rate mismatch')
+        optimizer.load_state_dict(saved['state'])
+        optimizer_restored = True
     ddp = (torch.nn.parallel.DistributedDataParallel(module, device_ids=[local_rank], find_unused_parameters=auxiliary)
            if world > 1 else module)
     manifest = {'variant': args.variant, 'split': SPLIT_VERSION, 'seed': args.seed,
@@ -155,16 +195,35 @@ def run(args):
                 'lora_rank': 8, 'learning_rate': args.lr, 'max_supervised_round': 6,
                 'foundation_revision': records[0]['foundation_revision'],
                 'training_started': True, 'sota_claimed': False}
+    manifest.update(initial_checkpoint=args.initialize_from, initial_model_updates=initial_updates,
+                    optimizer_restored=optimizer_restored,
+                    optimizer_reset_on_continuation=bool(args.initialize_from and not optimizer_restored))
     if rank == 0:
         atomic_json(output / 'TRAINING_MANIFEST.json', manifest)
     started = time.time()
     sample_trace = hashlib.sha256()
+
+    def save_checkpoint(destination, completed, *, complete=False):
+        if rank != 0:
+            return
+        destination.mkdir(parents=True, exist_ok=True)
+        module.language.save_pretrained(destination / 'adapter')
+        if module.head is not None:
+            torch.save(module.head.state_dict(), destination / 'AUX_SCOPE_HEAD.pth')
+        temporary = destination / 'OPTIMIZER.tmp'
+        torch.save({'state': optimizer.state_dict(), 'parameter_names': parameter_names}, temporary)
+        temporary.replace(destination / 'OPTIMIZER.pth')
+        values = {**manifest, 'status': 'PUBLIC_PILOT_TRAINING_COMPLETE' if complete else 'INTERMEDIATE_CHECKPOINT',
+                  'optimizer_updates': completed, 'cumulative_model_updates': initial_updates + completed,
+                  'training_elapsed_seconds': time.time() - started}
+        atomic_json(destination / 'TRAINING_MANIFEST.json', values)
+
     for step in range(1, args.updates + 1):
         optimizer.zero_grad(set_to_none=True)
         loss_sum = torch.zeros(1, device='cuda')
         details = {}
         for micro in range(args.accumulation):
-            global_slot = ((step - 1) * args.accumulation + micro) * world + rank
+            global_slot = ((initial_updates + step - 1) * args.accumulation + micro) * world + rank
             rng = random.Random(args.seed + global_slot)
             dataset = DATASETS[global_slot % len(DATASETS)]
             record = rng.choice(by_dataset[dataset])
@@ -190,6 +249,7 @@ def run(args):
         elapsed = time.time() - started
         state = {'status': 'TRAINING', 'variant': args.variant, 'rank': rank, 'pid': os.getpid(),
                  'optimizer_updates': step, 'planned_updates': args.updates, 'loss': float(loss_sum),
+                 'cumulative_model_updates': initial_updates + step,
                  'rank_losses': details, 'elapsed_seconds': elapsed,
                  'eta_seconds': elapsed / step * (args.updates - step),
                  'gpu_peak_gb': torch.cuda.max_memory_allocated() / 1e9,
@@ -197,13 +257,11 @@ def run(args):
         atomic_json(output / f'STATUS_rank{rank}.json', state)
         if rank == 0:
             print(json.dumps(state), flush=True)
-    if rank == 0:
-        module.language.save_pretrained(output / 'adapter')
-        if module.head is not None:
-            torch.save(module.head.state_dict(), output / 'AUX_SCOPE_HEAD.pth')
-        manifest.update(status='PUBLIC_PILOT_TRAINING_COMPLETE', optimizer_updates=args.updates,
-                        training_elapsed_seconds=time.time() - started)
-        atomic_json(output / 'TRAINING_MANIFEST.json', manifest)
+        if args.save_every and step % args.save_every == 0 and step < args.updates:
+            save_checkpoint(output / f'checkpoint_{initial_updates + step:06d}', step)
+            if world > 1:
+                dist.barrier()
+    save_checkpoint(output, args.updates, complete=True)
     if world > 1:
         dist.barrier()
     state.update(status='TRAINING_COMPLETE')
@@ -224,8 +282,10 @@ def main():
     p.add_argument('--accumulation', type=int, default=2)
     p.add_argument('--lr', type=float, default=1e-6)
     p.add_argument('--seed', type=int, default=42)
+    p.add_argument('--initialize-from', help='Completed adapter/head checkpoint; optimizer reset if absent')
+    p.add_argument('--save-every', type=int, default=64)
     args = p.parse_args()
-    if args.updates < 1 or args.accumulation < 1 or args.lr <= 0:
+    if args.updates < 1 or args.accumulation < 1 or args.lr <= 0 or args.save_every < 0:
         p.error('positive training budget required')
     run(args)
 

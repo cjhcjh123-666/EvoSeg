@@ -171,6 +171,46 @@ holders or foreign-process termination are used. Their outputs are
 `public_adapter_eval_v1/plain_lora` and `public_adapter_eval_v1/witness_scope_aux`.
 Compare these to `public_baselines`, keeping source-paper comparability pending.
 
+### Full 64-update result and explicit user-requested continuation
+
+Both full public adapter evaluations finished successfully on 2026-10-06.
+Each variant/history protocol covers 17,349 rounds, with invalid outputs retained.
+Mean dataset/round-2--6 cIoU (%):
+
+| Model | GT history | Generated history |
+|---|---:|---:|
+| Released | 81.8281 | 78.0154 |
+| Plain LoRA, 64 updates | 81.9484 | 77.9319 |
+| Witness/scope auxiliary, 64 updates | 82.0125 | 77.7743 |
+
+No stable gain or SOTA: auxiliary is +.1844 with GT history and -.2410 closed-loop.
+This does not validate the full edit/preservation method. Native pixel inference
+remains unchanged. The earlier small train-holdout late-round variance did not
+translate into a large full-public collapse, illustrating why full coverage matters.
+
+The user subsequently explicitly requested continuing work to use the free GPUs.
+Run `public_pilots_v2_continue264` starts from the two original 64-update adapters
+and their matching auxiliary head, adds **200 updates each** on 4 + 4 GPUs, then
+does image-disjoint TRAIN holdout rollout. `public_pilots_v2_continue264_gt_history`
+is queued through `CONTINUATION_GPUS.lock` for the same weights' GT-history
+diagnostic. No GPU dummy holders, foreign-process termination or draft-data mixing.
+The selected bounded chain is expected to last roughly 15--20 minutes; the user
+has been asked asynchronously whether they want a longer run. No indefinite
+training is assumed merely from a temporary request to keep GPUs in use.
+
+Original 64-update runs did not save optimizer state, so their continuation is
+**weight warm-start with a new AdamW optimizer**, not an exact training resume.
+The old checkpoints and foundation remain untouched. The deterministic sampler
+starts after the first 64 updates; both variants retain equal effective batch 8,
+seed, data, LR and added updates. New saves include optimizer, auxiliary head,
+adapter and cumulative-update metadata every 64 new updates and at completion.
+No automatic full-benchmark rerun or further training follows a failed diagnostic.
+
+PEFT adapter reads now explicitly use CPU before moving to the current rank's
+GPU. A read-only reproducer confirmed that safetensors `device='cuda'` loaded on
+GPU 0 even with current GPU 1, leaving ~498 MB there per rank. The explicit CPU
+load avoids that incidental context without changing weights or mask inference.
+
 ### Current multi-round baseline and training preparation
 
 `dialog/eval_multiturn.py` evaluates all public raw validation dialogues with

@@ -1,9 +1,13 @@
 from types import SimpleNamespace
+import json
+
+import pytest
 
 import torch
 from torch import nn
 
-from projects.evoseg.dialog.train_public_pilot import PublicAlignment
+from projects.evoseg.dialog.train_public_pilot import PublicAlignment, continuation_manifest
+from projects.evoseg.dialog.pilot_data import SPLIT_VERSION
 
 
 class FakeCausalLanguage(nn.Module):
@@ -40,3 +44,27 @@ def test_auxiliary_query_does_not_read_current_answer_positions():
     _, after = model(inputs, labels, 2, history, valid, pixels, target, pointer)
     for key in ('witness', 'operation', 'scope'):
         torch.testing.assert_close(before[key], after[key], atol=0., rtol=0.)
+
+
+def test_continuation_uses_total_updates_and_preserves_split(tmp_path):
+    records = [{'image': '/images/a.jpg', 'foundation_revision': 'test-revision'}]
+    manifest = {'variant': 'plain_lora', 'seed': 42, 'effective_batch': 8, 'split': SPLIT_VERSION,
+                'foundation_revision': 'test-revision', 'generated_drafts_included': False,
+                'editing_branch_supervised': False, 'status': 'PUBLIC_PILOT_TRAINING_COMPLETE',
+                'train_images': ['/images/a.jpg'], 'optimizer_updates': 200, 'cumulative_model_updates': 264}
+    (tmp_path / 'TRAINING_MANIFEST.json').write_text(json.dumps(manifest))
+    (tmp_path / 'adapter').mkdir()
+    (tmp_path / 'adapter/adapter_model.safetensors').write_bytes(b'unit test existence fixture only')
+    _, initial = continuation_manifest(tmp_path, 'plain_lora', 42, 8, records)
+    assert initial == 264
+    with pytest.raises(RuntimeError, match='incompatible'):
+        continuation_manifest(tmp_path, 'plain_lora', 42, 16, records)
+    with pytest.raises(RuntimeError, match='images differ'):
+        continuation_manifest(tmp_path, 'plain_lora', 42, 8,
+                              [{'image': '/images/other.jpg', 'foundation_revision': 'test-revision'}])
+    with pytest.raises(RuntimeError, match='incompatible'):
+        continuation_manifest(tmp_path, 'witness_scope_aux', 42, 8, records)
+
+
+def test_no_checkpoint_is_not_a_resume():
+    assert continuation_manifest(None, 'plain_lora', 42, 8, []) == (None, 0)

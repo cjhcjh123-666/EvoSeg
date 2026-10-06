@@ -56,6 +56,11 @@ def execute(args):
             raise RuntimeError(f'{stage} failed')
 
     try:
+        resource_lock = None
+        if args.resource_lock:
+            resource_lock = Path(args.resource_lock).open('a')
+            update(status='WAITING_FOR_EXPERIMENT_GPU_LOCK')
+            fcntl.flock(resource_lock.fileno(), fcntl.LOCK_EX)
         devices = wait_gpus()
         checkpoint_root = Path(args.checkpoint_root) if args.evaluation_only else output
         if not args.evaluation_only:
@@ -64,6 +69,8 @@ def execute(args):
                 command = [args.python, '-m', 'torch.distributed.run', '--standalone', '--nproc_per_node=4',
                            '-m', 'projects.evoseg.dialog.train_public_pilot', '--variant', variant,
                            '--output', str(output / variant), '--updates', str(args.updates), '--cache', args.cache]
+                if args.initialize_root:
+                    command += ['--initialize-from', str(Path(args.initialize_root) / variant)]
                 children.append(launch(variant, command, devices[i * 4:(i + 1) * 4]))
             update(status='MATCHED_TRAINING', gpu_indices=devices, training_started=True)
             wait(children, 'MATCHED_TRAINING')
@@ -133,10 +140,14 @@ def main():
     p.add_argument('--history-mode', choices=['gt_history', 'predicted_history'], default='predicted_history')
     p.add_argument('--evaluation-only', action='store_true', help='Evaluate existing matched adapters; no new updates')
     p.add_argument('--checkpoint-root')
+    p.add_argument('--initialize-root', help='Weight/optimizer continuation roots for both matched variants')
+    p.add_argument('--resource-lock', help='Serialize project training/evaluation chains without GPU holders')
     p.add_argument('--detach', action='store_true')
     args = p.parse_args()
     if args.evaluation_only and not args.checkpoint_root:
         p.error('evaluation-only requires an explicit checkpoint root')
+    if args.evaluation_only and args.initialize_root:
+        p.error('evaluation-only cannot initialize training')
     if args.detach:
         output = Path(args.output)
         output.mkdir(parents=True, exist_ok=True)
@@ -148,6 +159,10 @@ def main():
                    '--train-root', args.train_root, '--history-mode', args.history_mode]
         if args.evaluation_only:
             command += ['--evaluation-only', '--checkpoint-root', args.checkpoint_root]
+        if args.initialize_root:
+            command += ['--initialize-root', args.initialize_root]
+        if args.resource_lock:
+            command += ['--resource-lock', args.resource_lock]
         with (output / 'DRIVER.log').open('a') as log:
             process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         atomic_json(marker, {'pid': process.pid, 'command': command, 'training_started': False})
