@@ -129,6 +129,33 @@ training from loss alone. Results under `public_pilots_v1` are diagnostics, not
 public validation benchmark scores. The released foundation's pretraining
 exposure to these public training images remains possible.
 
+The first matched pilots completed 64 updates each, with identical per-rank
+sample traces. Both closed-loop diagnostics cover 69 dialogues / 237 rounds,
+including 168 rounds after turn one:
+
+| Variant | Multi-round gIoU | Pooled multi-round cIoU | Mean dataset/round 2--6 cIoU | Invalid / 237 |
+|---|---:|---:|---:|---:|
+| Released | 82.0325 | 84.2679 | 84.6353 | 4 |
+| Plain LoRA | 80.8418 | 83.0583 | 77.0693 | 5 |
+| Witness/scope auxiliary | 81.8635 | 83.2852 | 76.6389 | 6 |
+
+Percentages; **train holdout diagnostic only, not benchmark scores**. The
+round-6 equal-dataset average has only 7 examples total (2 / 4 / 1), making it
+especially fragile. Auxiliary training is closer to release on pooled/gIoU but
+is not consistently better across the predefined round metrics. No SOTA or
+stable gain is established and larger training was not launched from these
+results. Both pilot adapter checkpoints exist; pixel weights were not changed.
+
+An evaluation-only follow-up runs the SAME checkpoints with GT history:
+`run_public_pilots --detach --evaluation-only --history-mode gt_history
+--checkpoint-root <public_pilots_v1> --output <public_pilots_v1_gt_history>`.
+It makes no new optimizer updates. Compare both history protocols before
+attributing the decline to lost segmentation capacity or history exposure.
+The native baseline diagnostic visualization also distinguishes selected
+previous-reference failures (sofa/laptop IoU 0) from a selected bus case where
+the referenced previous mask was good (IoU .9564) but the current target failed.
+This is evidence of different failure paths, not a causal proof of the method.
+
 ### Current multi-round baseline and training preparation
 
 `dialog/eval_multiturn.py` evaluates all public raw validation dialogues with
