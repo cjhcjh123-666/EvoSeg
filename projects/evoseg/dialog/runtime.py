@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 import re
 
@@ -34,8 +35,23 @@ def parse_mask_pair(text):
     return [first, second - 256]
 
 
+def adapter_fingerprint(directory):
+    if directory is None:
+        return 'released_native'
+    digest = hashlib.sha256()
+    files = sorted(Path(directory).glob('adapter*'))
+    if not any(path.suffix == '.safetensors' for path in files):
+        raise RuntimeError('adapter weight file missing')
+    for path in files:
+        digest.update(path.name.encode())
+        with path.open('rb') as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b''):
+                digest.update(block)
+    return digest.hexdigest()
+
+
 class NativeRuntime:
-    def __init__(self, model_dir, assets_file, *, load_language=True):
+    def __init__(self, model_dir, assets_file, *, load_language=True, adapter_dir=None):
         directory = Path(model_dir)
         assets = json.loads(Path(assets_file).read_text())
         if assets['status'] != 'ASSETS_DOWNLOADED':
@@ -44,6 +60,7 @@ class NativeRuntime:
             if (directory / file['name']).stat().st_size != file['size']:
                 raise RuntimeError('foundation file size differs from pinned inventory')
         self.revision = assets['model_revision']
+        self.adapter_fingerprint = adapter_fingerprint(adapter_dir)
         self.model = self.processor = None
         self.loading = {}
         if load_language:
@@ -54,6 +71,9 @@ class NativeRuntime:
                         if loading.get(key)}
             if problems:
                 raise RuntimeError(f'incomplete language loading: {problems}')
+            if adapter_dir is not None:
+                from peft import PeftModel
+                model = PeftModel.from_pretrained(model, adapter_dir, is_trainable=False)
             self.model = model.cuda().eval()
             self.processor = AutoProcessor.from_pretrained(directory, local_files_only=True)
             self.loading = loading

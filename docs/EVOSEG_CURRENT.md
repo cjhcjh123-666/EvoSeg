@@ -96,10 +96,38 @@ turn motion-dependent video descriptions into single-image instructions.
   edits/undo, overlapping masks and public conversation parsing. The public
   `*_hard_train` files provide an external visual cue at turn one; those are
   valid visual-reference tasks, not unobserved conversational history.
-- No main method-training experiment has started. A separate **one-update**
+- Before the matched pilot, no main method-training experiment had started. A separate **one-update**
   public-data gradient probe passed for native LoRA, history-role routing and
   spatial scope. `training_probe/PROBE_REPORT.json` is not a trained method score
   or a benchmark checkpoint; the edit branch has no supervised examples in it.
+
+### Complete baseline and bounded matched pilot
+
+Both full native history evaluations completed on 2026-10-06, each covering
+17,349 rounds. Mean equal-dataset cIoU over rounds 2--6 is 81.8282% with GT
+history and 78.0154% with generated history. These are released-model baselines,
+not method gains or exact source-table/SOTA reproduction.
+
+`python -m projects.evoseg.dialog.run_public_pilots --detach` runs two matched
+64-update public-only pilots concurrently (4 GPUs each). Rank-8 LoRA, LR 1e-6,
+accumulation 2, effective batch 8, seed 42, identical sample traces. Pixel weights
+remain frozen. Images are held out by a stable filename hash across all three
+datasets; all public validation images were already excluded from the cache.
+Training samples one current assistant answer with GT history, up to round 6.
+Controls: plain LoRA versus auxiliary witness pointer / operation / spatial
+target alignment. **The auxiliary head is not used at inference and this is not
+full SCCS.** Its inference effect is solely through trained language adapters.
+No edit examples or generated drafts enter this pilot. This tests a component,
+not the final novelty or the edit/preservation hypothesis.
+
+After training, the same image-disjoint TRAIN holdout is evaluated closed-loop
+for release / plain LoRA / auxiliary LoRA. Raw public markers are reconstructed
+at evaluation, never GT-compiled training queries. Adapter hashes isolate
+prediction caches and sample traces must match. A driver report is written only
+after complete identical coverage; it does not automatically launch larger
+training from loss alone. Results under `public_pilots_v1` are diagnostics, not
+public validation benchmark scores. The released foundation's pretraining
+exposure to these public training images remains possible.
 
 ### Current multi-round baseline and training preparation
 
@@ -125,11 +153,19 @@ in the checked public data release, so exact source-table comparability remains
 automatic claim to reproduce Table 2 or SOTA. Main controls must use this exact
 same protocol; externally reported numbers retain their source/protocol labels.
 
-`python -m projects.evoseg.dialog.run_baselines --detach` is running a durable
+`python -m projects.evoseg.dialog.run_baselines --detach` completed its durable
 chain: two complete-dialogue diagnostics -> eight-GPU GT-history evaluation of
 all 17,349 rounds -> eight-GPU predicted-history evaluation of all 17,349 rounds.
 Inspect `public_baselines/BASELINE_STATUS.json` and real child PIDs. The 16-round
 diagnostic passed without invalid mask output, but its scores are not benchmarks.
+
+`dialog/visualize_history.py` renders three largest history-sensitive failures
+and three strongest closed-loop examples from saved predictions. The diagnostic
+sheet is explicitly selected, not representative prevalence or method gain.
+Inspected failures include switching to the opposite sofa/laptop and an
+irrelevant bus; they demonstrate referent errors, not merely rough boundaries.
+These examples alone do not distinguish earlier visual error propagation from
+incorrect current-round history binding and cannot establish SCCS's benefit.
 
 `dialog/cache_training.py` has prepared a bounded public-only pilot cache of
 768 dialogues / 3024 rounds (256 dialogues from each referring dataset), excluding

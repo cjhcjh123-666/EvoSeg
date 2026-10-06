@@ -20,6 +20,7 @@ from projects.evoseg.restart.prepare_foundation import atomic_json
 from .protocol import (PROTOCOL_VERSION, RoundMetrics, assistant_history, decode_annotation, render_query)
 from .public_data import parse_conversation
 from .runtime import NativeRuntime, parse_mask_pair
+from .pilot_data import heldout_source_records
 
 
 DATASETS = ('refcoco', 'refcoco+', 'refcocog')
@@ -35,30 +36,40 @@ def file_digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def evaluation_records(args, dataset):
+    if args.train_cache_holdout:
+        path, records, digest = heldout_source_records(args.train_cache_holdout, dataset, args.dialogue_root)
+    else:
+        path = Path(args.dialogue_root) / f'mr_{dataset}_val.json'
+        records = json.loads(path.read_text())
+        digest = file_digest(path)
+    return (records if args.limit is None else records[:args.limit]), digest
+
+
 def run(args):
     rank, world = int(os.environ.get('RANK', 0)), int(os.environ.get('WORLD_SIZE', 1))
     torch.cuda.set_device(int(os.environ.get('LOCAL_RANK', 0)))
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
-    runtime = NativeRuntime(args.model_dir, args.assets)
+    runtime = NativeRuntime(args.model_dir, args.assets, adapter_dir=args.adapter_dir)
     annotations = {int(item['id']): item for item in json.loads(Path(args.annotations).read_text())['annotations']}
     state = {'rank': rank, 'world_size': world, 'status': 'EVALUATING', 'history_mode': args.history_mode,
              'protocol': PROTOCOL_VERSION, 'started_at_unix': time.time(), 'completed_dialogues': 0,
-             'completed_rounds': 0, 'training_started': False}
+             'completed_rounds': 0, 'training_started': bool(args.adapter_dir),
+             'adapter_fingerprint': runtime.adapter_fingerprint}
     atomic_json(output / f'LOADING_rank{rank}.json', {'language_loading_info': runtime.loading,
                 'specialized_mask_tokenizer_strict': True, 'foundation_revision': runtime.revision})
     for dataset in DATASETS:
-        path = Path(args.dialogue_root) / f'mr_{dataset}_val.json'
-        records = json.loads(path.read_text())
-        selected = records if args.limit is None else records[:args.limit]
-        digest = file_digest(path)
+        selected, digest = evaluation_records(args, dataset)
         for index in range(rank, len(selected), world):
             destination = output / dataset / 'cases' / f'{index:06d}.json'
             turns = parse_conversation(selected[index])
             if destination.exists():
                 previous = json.loads(destination.read_text())
                 if (previous['history_mode'] != args.history_mode or previous['data_sha256'] != digest or
-                    previous['foundation_revision'] != runtime.revision or previous['protocol'] != PROTOCOL_VERSION):
+                    previous['foundation_revision'] != runtime.revision or previous['protocol'] != PROTOCOL_VERSION or
+                    previous.get('adapter_fingerprint', 'released_native') != runtime.adapter_fingerprint or
+                    previous.get('train_cache_holdout') != args.train_cache_holdout):
                     raise RuntimeError('cached dialogue predictions use another model or protocol')
                 if len(previous['rounds']) != len(turns):
                     raise RuntimeError('cached dialogue has incomplete round coverage')
@@ -99,6 +110,8 @@ def run(args):
                     history.append({'codes': previous_codes})
                 save_case(destination, {'dataset': dataset, 'index': index, 'image': str(image_path),
                     'foundation_revision': runtime.revision, 'protocol': PROTOCOL_VERSION,
+                    'adapter_fingerprint': runtime.adapter_fingerprint,
+                    'train_cache_holdout': args.train_cache_holdout,
                     'data_sha256': digest, 'history_mode': args.history_mode, 'rounds': results,
                     'gt_mask_encodings_for_history': len(gt_codes)})
             state.update(completed_dialogues=state['completed_dialogues'] + 1,
@@ -116,17 +129,21 @@ def summarize(args):
     report = {'history_mode': args.history_mode, 'protocol': PROTOCOL_VERSION,
               'official_raw_files': True, 'paper_sampled_preprocessed_subset': False,
               'source_report_comparability': 'pending exact original preprocessing/subset confirmation',
-              'complete_public_evaluation': args.limit is None, 'datasets': {},
-              'training_started': False, 'sota_claimed': False}
+              'complete_public_evaluation': args.limit is None and not args.train_cache_holdout, 'datasets': {},
+              'evaluation_split': 'train_image_disjoint_diagnostic' if args.train_cache_holdout else 'public_validation',
+              'training_started': bool(args.adapter_dir), 'sota_claimed': False}
+    from .runtime import adapter_fingerprint
+    report['adapter_fingerprint'] = adapter_fingerprint(args.adapter_dir)
     for dataset in DATASETS:
-        path = Path(args.dialogue_root) / f'mr_{dataset}_val.json'
-        records = json.loads(path.read_text())
-        selected = records if args.limit is None else records[:args.limit]
+        selected, digest = evaluation_records(args, dataset)
         accumulator = RoundMetrics()
         for index, record in enumerate(selected):
             item = json.loads((output / dataset / 'cases' / f'{index:06d}.json').read_text())
             expected = parse_conversation(record)
-            if len(item['rounds']) != len(expected) or item['history_mode'] != args.history_mode:
+            if (len(item['rounds']) != len(expected) or item['history_mode'] != args.history_mode or
+                item['data_sha256'] != digest or item['protocol'] != PROTOCOL_VERSION or
+                item.get('train_cache_holdout') != args.train_cache_holdout or
+                item.get('adapter_fingerprint', 'released_native') != report['adapter_fingerprint']):
                 raise RuntimeError('evaluation round coverage or history policy differs')
             for values in item['rounds']:
                 target = accumulator.rounds[int(values['round'])]
@@ -155,6 +172,8 @@ def main():
     parser.add_argument('--output', required=True)
     parser.add_argument('--limit', type=int, help='Explicit diagnostic only, never a full benchmark')
     parser.add_argument('--summarize', action='store_true')
+    parser.add_argument('--adapter-dir', help='Explicit trained native LoRA adapter; separate prediction cache')
+    parser.add_argument('--train-cache-holdout', help='Image-disjoint PUBLIC TRAIN diagnostic, never benchmark')
     args = parser.parse_args()
     if args.limit is not None and args.limit < 1:
         parser.error('diagnostic limit must be positive')
