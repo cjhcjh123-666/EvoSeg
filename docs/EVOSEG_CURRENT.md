@@ -1,7 +1,109 @@
-# EvoSeg: active restart, 2026-10-06
+# EvoSeg: current multi-turn interaction project, 2026-10-06
 
-This is the single current execution plan. Historical FTG/faithfulness specs
-are retained for provenance, not instructions to restart their jobs.
+## Active user-approved direction (supersedes the RVOS restart below)
+
+The user explicitly approved moving to **multi-turn language-interactive
+segmentation**: first pursue comparable public-benchmark improvements, while
+preparing a small new dialogue-data pilot in parallel. Do not resume FTG,
+faithfulness/refusal training or the completed RVOS repair runs.
+
+Working method: **Scope-Controlled Conversational Segmentation (SCCS)**.
+This is a research hypothesis, not an established novelty or SOTA claim.
+The central distinction is between a historical mask used as a **witness**
+("segment the person next to instance 1") and a historical mask authorized as
+an **edit target** ("remove instance 1"). A model should infer the edit
+operation, bind the correct history reference and predict the spatial change
+scope, while preserving unaffected selections. Merely storing history or
+adding mask tokens is not a new contribution: SegLLM and SAMTok already do so.
+
+First foundation: released `zhouyik/Qwen3-VL-8B-SAMTok` with its original
+SAMTok/SAM2.1 mask tokenizer and decoder. Keep the pixel foundation fixed in
+the first stage. No scratch VLM or SAM3.1 swap. Public inference exports were
+made lazy so native mask decoding does not require optional training frameworks;
+no mask decoder weights or mathematical operations were changed.
+
+The initial trainable prototype is `dialog/scope_head.py`: operation logits,
+separate witness/edit history pointers, and instruction-conditioned spatial
+scope. `dialog/state.py` provides auditable state/undo and scoped composition
+primitives. These are tested scaffolds, not a trained end-to-end model. Training
+integration, meaningful controls and novelty assessment remain required.
+
+### Public experiments and fairness
+
+- Main: official MR-RefCOCO, MR-RefCOCO+, MR-RefCOCOg; add MR-PACO when the
+  exact image and annotation assets are complete.
+- Published baselines: SegLLM and SAMTok. ConverSeg/ReasonSeg can supply
+  single-turn reasoning checks, not substitute for multi-turn evaluation.
+- PRIST is optional until complete data access and its exact protocol are verified.
+- Some official scripts encode GT masks in conversational history. Reproduce
+  this setting for like-for-like reported-table comparisons, and separately run
+  prediction-history closed-loop evaluation. Never compare these as one score.
+- Verify splits, per-round aggregation, full coverage, invalid-output handling,
+  image/annotation-ID consistency, and inherited checkpoint training exposure.
+- First essential controls: public native checkpoint; same-data ordinary LoRA;
+  typed history binding without spatial scope; full SCCS. Larger training and
+  SOTA claims require an actual measured advantage, not added module count.
+
+Sources:
+- https://github.com/berkeley-hipie/segllm/blob/main/DATASET.md
+- https://github.com/berkeley-hipie/segllm/blob/main/scripts/eval/eval_mr_refcoco.sh
+- https://github.com/bytedance/Sa2VA/tree/main/projects/samtok
+- https://huggingface.co/zhouyik/Qwen3-VL-8B-SAMTok
+
+### Parallel self-built data pilot
+
+`dialog/build_edit_pilot.py` has generated **500 draft video dialogues / 2500
+turns** from public MeViS-v2 train videos only, excluding the 83 prior fine-tune
+held-out videos. Operations are select/add/remove/undo/replace, expressed by
+deterministic templates and verbatim public referring expressions. Correct
+masks are exact object-set unions of original annotation tracks, not model
+predictions or generated masks. Object-level removal preserves retained targets
+even where their pixel masks overlap.
+
+Every record marks private supervision (not an inference input), source video,
+original expression IDs, mask recipes and generated-language provenance.
+`REVIEW_QUEUE.json` reserves 100 dialogues for review. **No human review has
+been completed.** Drafts are neither an official benchmark nor human dialogues,
+and are not yet mixed into primary public-benchmark training. Video use is a
+later extension after the image multi-turn route is verified; do not silently
+turn motion-dependent video descriptions into single-image instructions.
+
+### Current assets and execution
+
+- Run: `/9950backfile/chenjiahui/evo_artifacts/results/evoseg_dialog_20261006`.
+- Foundation: `models/Qwen3-VL-8B-SAMTok-official`, pinned revision
+  `b78aef1105d6a94049a2ba109f814dfcf21bec8e` (about 19.35 GB including pixel weights).
+- Public conversations: `datasets/SegLLM-official`, pinned revision
+  `848a4eb469ef8ea56e6d02f0e2c0f3f91eea61a5`.
+- Draft data: `datasets/EvoSeg-Dialog-Pilot-v0` with `MANIFEST.json` and review queue.
+- Preparation: `python -m projects.evoseg.dialog.prepare_assets --detach`.
+  `ASSETS_DOWNLOADED` is only file inventory completion, not full model loading,
+  benchmark reproduction or training completion.
+- Initial GRefCOCO subset had incomplete RefCOCOg annotation coverage. Original
+  COCO2014 instance GT was subsequently downloaded from the official S3 bucket
+  over certificate-verified HTTPS. `PUBLIC_DATA_AUDIT_COCO_FULL.json` verifies
+  all RefCOCO/+ /g train and validation targets and their image IDs. PACO assets
+  still require their own source-image and part-annotation preparation. Never
+  silently skip missing targets to improve reported metrics.
+- Public validation inventory: MR-RefCOCO 1500 dialogues / 6832 rounds;
+  MR-RefCOCO+ 1500 / 6765; MR-RefCOCOg 1263 / 3752. These are complete downloaded
+  public files, not necessarily any sampled subset used in a different paper.
+- Native first-round GPU smoke passed after strict language and specialized
+  pixel-tokenizer loading. `NATIVE_SMOKE.json` is not a multi-turn baseline score.
+  Initial missing mask-encoder keys while loading the *base* SAM checkpoint are
+  expected; the complete specialized tokenizer state is then loaded strictly.
+- Ten dialog unit tests pass, covering scope/reference gradients, immutable
+  edits/undo, overlapping masks and public conversation parsing. The public
+  `*_hard_train` files provide an external visual cue at turn one; those are
+  valid visual-reference tasks, not unobserved conversational history.
+- Actual model training has **not** started for this new direction yet.
+
+---
+
+## Historical RVOS restart and negative-result provenance
+
+The following plan and artifacts document the completed RVOS restart; they
+are retained for provenance, not instructions to restart its jobs.
 
 ## User-approved scope
 

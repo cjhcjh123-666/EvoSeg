@@ -1,9 +1,26 @@
-from .perceptionlm import PerceptionLM_TokenMask
-from .qwen25vl import QWEN25VL_VQSAM2Model
-from .qwen3vl import QWEN3VL_VQSAM2Model
-from .processing_perception_lm import PerceptionLMProcessor
+"""Native mask inference without importing optional training frameworks."""
+from importlib import import_module
+
 from .sam2 import VQ_SAM2, VQ_SAM2Config, SAM2Config
-from .vq_sam2 import VQ_SAM2Model
+
+_OPTIONAL_EXPORTS = {
+    'PerceptionLM_TokenMask': '.perceptionlm',
+    'QWEN25VL_VQSAM2Model': '.qwen25vl',
+    'QWEN3VL_VQSAM2Model': '.qwen3vl',
+    'PerceptionLMProcessor': '.processing_perception_lm',
+    'VQ_SAM2Model': '.vq_sam2',
+}
+
+
+def __getattr__(name):
+    if name not in _OPTIONAL_EXPORTS:
+        raise AttributeError(name)
+    value = getattr(import_module(_OPTIONAL_EXPORTS[name], __name__), name)
+    globals()[name] = value
+    return value
+
+
+__all__ = ['VQ_SAM2', 'VQ_SAM2Config', 'SAM2Config', 'DirectResize', *_OPTIONAL_EXPORTS]
 
 import numpy as np
 from torchvision.transforms.functional import resize, to_pil_image
