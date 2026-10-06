@@ -39,6 +39,24 @@ def native_train_indices(length):
     return sorted(index % length for index in range(100))
 
 
+def sample_expression_ids(expressions, count, rng, negative_probability=None):
+    ids = sorted(expressions)
+    if not ids or count < 1:
+        raise ValueError('need public expressions and a positive sample count')
+    if negative_probability is None:
+        return [rng.choice(ids) for _ in range(count)]
+    if not 0 <= negative_probability <= 1:
+        raise ValueError('negative expression probability must lie in [0, 1]')
+    positive = [key for key in ids if expressions[key]['anno_id']]
+    negative = [key for key in ids if not expressions[key]['anno_id']]
+    selected = []
+    for _ in range(count):
+        pool = negative if rng.random() < negative_probability else positive
+        # Preserve every public video; no fabricated positive or empty labels.
+        selected.append(rng.choice(pool or ids))
+    return selected
+
+
 def encode_turns(tokenizer, template, expressions, image_tokens, rng):
     ids, labels = [], []
     if tokenizer.bos_token_id is not None:
@@ -89,7 +107,8 @@ def decode_union(mask_dict, anno_ids, frame_index, shape):
 
 
 class PublicMevisNative(Dataset):
-    def __init__(self, root, tokenizer, template, *, seed=42, expressions_per_video=5):
+    def __init__(self, root, tokenizer, template, *, seed=42, expressions_per_video=5,
+                 negative_query_probability=None):
         self.root = Path(root)
         self.videos = json.loads((self.root / 'meta_expressions_v2.json').read_text())['videos']
         self.mask_dict = json.loads((self.root / 'mask_dict.json').read_text())
@@ -97,6 +116,7 @@ class PublicMevisNative(Dataset):
         self.tokenizer, self.template = tokenizer, template
         self.seed, self.epoch = seed, 0
         self.expressions_per_video = expressions_per_video
+        self.negative_query_probability = negative_query_probability
         self.transform = T.Compose([
             T.Resize((448, 448), interpolation=InterpolationMode.BICUBIC),
             T.ToTensor(), T.Normalize((.485, .456, .406), (.229, .224, .225)),
@@ -111,9 +131,9 @@ class PublicMevisNative(Dataset):
         frames = sorted(metadata['frames'])
         indices = native_train_indices(len(frames))
         rng = random.Random(f'{self.seed}:{self.epoch}:{video_id}')
-        expression_ids = sorted(metadata['expressions'])
         # Upstream samples with replacement, including videos with >5 queries.
-        selected = [rng.choice(expression_ids) for _ in range(self.expressions_per_video)]
+        selected = sample_expression_ids(metadata['expressions'], self.expressions_per_video,
+                                         rng, self.negative_query_probability)
         expressions = [metadata['expressions'][key] for key in selected]
         image_cache = {}
         pixels, grounding, targets = [], [], []
@@ -148,4 +168,5 @@ class PublicMevisNative(Dataset):
             raise ValueError('native image-token count mismatch')
         return {'input_ids': ids, 'labels': labels, 'pixel_values': torch.stack(pixels),
                 'grounding_pixels': torch.stack(grounding), 'targets': torch.stack(targets),
-                'video_id': video_id, 'expression_ids': selected}
+                'video_id': video_id, 'expression_ids': selected,
+                'negative_queries': sum(not expression['anno_id'] for expression in expressions)}

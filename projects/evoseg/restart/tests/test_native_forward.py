@@ -26,12 +26,48 @@ class TinyLM(nn.Module):
         return SimpleNamespace(last_hidden_state=self.hidden(inputs_embeds))
 
 
+class TinyPromptEncoder(nn.Module):
+    def forward(self, points, boxes, masks):
+        batch = len(points[0])
+        return torch.zeros(batch, 1, 1), torch.zeros(batch, 1, 1, 1)
+
+    def get_dense_pe(self):
+        return torch.zeros(1, 1, 1, 1)
+
+
+class TinyMaskDecoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv_s0 = nn.Conv2d(1, 1, 1)
+        self.conv_s1 = nn.Conv2d(1, 1, 1)
+
+    def forward(self, image_embeddings, high_res_features, sparse_prompt_embeddings,
+                multimask_output, **kwargs):
+        logits = image_embeddings + high_res_features[0].mean((2, 3), keepdim=True)
+        logits = logits + sparse_prompt_embeddings[:, -1, 0][:, None, None, None]
+        batch = len(logits)
+        if multimask_output:
+            logits = torch.cat([logits, logits + 1, logits + 2], dim=1)
+            ious = torch.tensor([[.1, .9, .2]]).repeat(batch, 1)
+        else:
+            ious = torch.ones(batch, 1)
+        # A negative object score must NOT erase training masks or gradients.
+        return logits, ious, torch.ones(batch, logits.shape[1], 1), -torch.ones(batch, 1)
+
+
 class TinySAM(nn.Module):
     def __init__(self):
         super().__init__()
-        self.sam_mask_decoder = nn.Module()
-        self.sam_mask_decoder.conv_s0 = nn.Conv2d(1, 1, 1)
-        self.sam_mask_decoder.conv_s1 = nn.Conv2d(1, 1, 1)
+        self.sam_mask_decoder = TinyMaskDecoder()
+        self.sam_prompt_encoder = TinyPromptEncoder()
+        self.sam_image_embedding_size = 1
+        self.sam_prompt_embed_dim = 1
+        self.image_size = 4
+        self.pred_obj_scores = True
+        self.soft_no_obj_ptr = False
+        self.fixed_no_obj_ptr = True
+        self.no_obj_ptr = torch.zeros(1, 1)
+        self.obj_ptr_proj = nn.Identity()
         self.hidden_dim = 1
         self.no_mem_embed = nn.Parameter(torch.zeros(1, 1, 1), requires_grad=False)
         self.use_high_res_features_in_sam = True
@@ -46,9 +82,7 @@ class TinySAM(nn.Module):
         return False
 
     def _forward_sam_heads(self, backbone_features, high_res_features, language_embd, **kwargs):
-        logits = backbone_features + high_res_features[0].mean((2, 3), keepdim=True)
-        logits = logits + language_embd[:, :, 0][:, :, None, None]
-        return None, None, None, logits, None, None, None
+        raise AssertionError('Training must not call the hard-gated HF inference head')
 
 
 class TinyFoundation(nn.Module):

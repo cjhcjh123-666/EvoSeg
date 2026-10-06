@@ -13,6 +13,39 @@ from transformers import AutoModel, AutoTokenizer
 from .prepare_foundation import validate_inventory
 
 
+TRAINING_SEMANTICS = 'ungated_native_sam_masks_v2'
+
+
+def native_training_masks(sam, backbone_features, high_res_features, language_embd, multimask_output):
+    """Official training mask path, not HF predictor's hard presence gate.
+
+    Uses the released prompt encoder and decoder unchanged. The upstream
+    training extension omits the `object_score_logits > 0` mask suppression.
+    Keep the original predictor untouched for every evaluation.
+    """
+    batch, _, height, width = backbone_features.shape
+    if height != sam.sam_image_embedding_size or width != sam.sam_image_embedding_size:
+        raise ValueError('native SAM image embedding dimensions differ')
+    coordinates = torch.zeros(batch, 1, 2, device=backbone_features.device)
+    labels = -torch.ones(batch, 1, dtype=torch.int32, device=backbone_features.device)
+    sparse, dense = sam.sam_prompt_encoder(points=(coordinates, labels), boxes=None, masks=None)
+    if sparse.shape[0] != language_embd.shape[0] or sparse.shape[2] != language_embd.shape[2]:
+        raise ValueError('native language/SAM prompt shape mismatch')
+    sparse = torch.cat([sparse, language_embd], dim=1)
+    masks, ious, _, _ = sam.sam_mask_decoder(
+        image_embeddings=backbone_features, image_pe=sam.sam_prompt_encoder.get_dense_pe(),
+        sparse_prompt_embeddings=sparse, dense_prompt_embeddings=dense,
+        multimask_output=multimask_output, repeat_image=False,
+        high_res_features=high_res_features)
+    masks = masks.float()
+    if multimask_output:
+        best = ious.argmax(-1)
+        return masks[torch.arange(batch, device=masks.device), best][:, None]
+    if masks.shape[1] != 1:
+        raise ValueError('single-mask training decoder returned multiple masks')
+    return masks
+
+
 def load_release(model_dir, assets_file, device):
     state = json.loads(Path(assets_file).read_text())
     if state['status'] != 'ASSETS_READY':
@@ -169,12 +202,11 @@ class NativeFineTune(nn.Module):
                         for x, size in zip(backbone[:-1], sizes[:-1])]
             image_embeddings = (backbone[-1] + sam.no_mem_embed).permute(1, 2, 0).reshape(
                 1, sam.hidden_dim, *sizes[-1]).expand(objects, -1, -1, -1)
-            result = sam._forward_sam_heads(
-                backbone_features=image_embeddings, high_res_features=high_res,
-                point_inputs=None, mask_inputs=None,
-                multimask_output=sam._use_multimask(is_init_cond_frame=True, point_inputs=None),
-                language_embd=prompts[frame_index][:, None])
-            ce, dice = native_mask_losses(result[3][:, 0], targets[frame_index])
+            masks = native_training_masks(
+                sam, image_embeddings, high_res,
+                prompts[frame_index][:, None],
+                sam._use_multimask(is_init_cond_frame=True, point_inputs=None))
+            ce, dice = native_mask_losses(masks[:, 0], targets[frame_index])
             mask_ce.append(ce)
             mask_dice.append(dice)
         losses = {'llm': llm_loss, 'mask_ce': torch.stack(mask_ce).mean(),

@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 from pycocotools import mask as mask_utils
 
-from projects.evoseg.restart.native_data import decode_union, encode_turns, native_train_indices, split_video_ids
+from projects.evoseg.restart.native_data import (
+    decode_union, encode_turns, native_train_indices, sample_expression_ids, split_video_ids)
 
 
 def test_split_disjoint_reproducible_and_input_order_independent():
@@ -54,3 +55,23 @@ def test_teacher_forcing_labels_only_assistant_outputs():
     assert output.count('[SEG]') == 20
     assert 'USER' not in output and 'IMAGE' not in output and 'dog' not in output
     assert (ids[labels != -100] == labels[labels != -100]).all()
+
+
+def test_negative_sampling_controls_only_public_expression_selection():
+    expressions = {'positive': {'anno_id': [1]}, 'negative': {'anno_id': []}}
+    assert sample_expression_ids(expressions, 5, random.Random(42), 0) == ['positive'] * 5
+    assert sample_expression_ids(expressions, 5, random.Random(42), 1) == ['negative'] * 5
+    selected = sample_expression_ids(expressions, 10000, random.Random(42), .1)
+    assert .08 < selected.count('negative') / len(selected) < .12
+    assert set(selected) == set(expressions)
+
+
+def test_original_sampling_and_single_pool_videos_remain_valid():
+    expressions = {'p': {'anno_id': [1]}, 'n': {'anno_id': []}}
+    expected_rng = random.Random(42)
+    expected = [expected_rng.choice(sorted(expressions)) for _ in range(5)]
+    assert sample_expression_ids(expressions, 5, random.Random(42)) == expected
+    assert sample_expression_ids({'p': expressions['p']}, 5, random.Random(42), .1) == ['p'] * 5
+    assert sample_expression_ids({'n': expressions['n']}, 5, random.Random(42), .1) == ['n'] * 5
+    with pytest.raises(ValueError, match='probability'):
+        sample_expression_ids(expressions, 5, random.Random(42), 1.1)

@@ -50,7 +50,9 @@ ReVOS require verified evaluation protocols before joining the paper table.
 - Clean main worktree: `/tmp/EvoSeg-ftg-main`. The user's dirty original worktree
   at `/9950backfile/chenjiahui/EvoSeg` is untouched.
 - New weights: `/9950backfile/chenjiahui/evo_artifacts/models/SaSaSa2VA-26B-official`.
-- One active run: `/9950backfile/chenjiahui/evo_artifacts/results/evoseg_restart_20261006`.
+- Current repair run: `/9950backfile/chenjiahui/evo_artifacts/results/evoseg_restart_20261006_repair`.
+- Completed first run / shared asset manifest:
+  `/9950backfile/chenjiahui/evo_artifacts/results/evoseg_restart_20261006`.
 - Asset preparation: `python -m projects.evoseg.restart.prepare_foundation --detach`.
   `ASSETS_READY` means download checks passed, not training or benchmark success.
 
@@ -116,6 +118,49 @@ per-expression full-frame prediction RLEs, before/after metrics, and
 `FIRST_RUN_REPORT.json` only after all planned evaluation coverage passes.
 Unit guards cover data splits, frame compression, loss gradients, deadline
 calculation, unique evaluation shards and rejection of missing frame coverage.
+
+## First-run finding and current repair
+
+The first 200-update run completed all 907 validation expressions before 09:00.
+Released native baseline: **67.6673 J&F**; adapted: **64.3350**, or -3.3323 points.
+Target-present J&F fell 70.0882 -> 65.8563, while no-target rose 12.3045 -> 29.5436.
+Across 51,123 ground-truth-present validation frames, empty predictions rose
+from 1,963 (3.84%) to 3,917 (7.66%). This is a negative result, not SOTA.
+
+Audit identified a real implementation mismatch: the custom fine-tune called
+the HF predictor's SAM head, which hard-suppresses masks using object presence.
+The author's training extension comments out that suppression so mask gradients
+remain available for false-negative presence predictions. The first two sampled
+training epochs also contained approximately 23% no-target expressions. Neither
+finding alone establishes the entire causal attribution without a controlled run.
+
+Repair execution: `python -m projects.evoseg.restart.repair_pilot --detach`.
+The inference function and released weights are untouched. Training directly
+calls the released prompt encoder and mask decoder, selecting masks by native
+IoU but without inference-only suppression. Unit tests compare its tensors to
+the exact author's training method. A real released-SAM GPU audit verifies
+numerical parity, nonzero prompt gradients under forced negative presence, and
+unchanged inference suppression; its dummy tensors are never used in training.
+
+Two 50-update pilots start independently from the public release, keeping seed,
+optimizer, frame compression, loss, batch and the 200-update LR schedule fixed:
+
+- `ungated_only`: training-head fix with the original public expression sampler.
+- `ungated_balanced10`: same fix with a 10% empty-expression sampling probability.
+
+All selected expressions and masks remain public annotations. No labels are
+fabricated; no synthetic data, refusal loss or extra presence head is introduced.
+The expanded diagnostic spans all 83 held-out train videos with up to two positive
+and one no-target expression per video. It is not a benchmark or unseen-pretraining
+claim. Advancement requires overall and target-present diagnostic J&F drops <=.5
+points and empty-on-present growth <=1 point. The selected qualified pilot is
+checked again at 100 and 200 updates; failure stops continuation. Only a surviving
+200-update run proceeds to the full 907-expression benchmark with the unchanged
+native Uniform inference protocol and the verified released-baseline reference.
+
+Old hard-gated checkpoints remain evaluable as historical evidence, but are
+rejected as training resumes for the repaired semantics. The bounded repair
+driver records real child PIDs, sampling fractions, checkpoints and guard results.
 
 ## Recoverable cleanup completed
 

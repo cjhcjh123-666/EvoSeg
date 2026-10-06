@@ -18,7 +18,8 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
 
 from .native_data import PublicMevisNative
-from .native_model import NativeFineTune, load_release, prepare_adaptation, restore_adaptation
+from .native_model import (TRAINING_SEMANTICS, NativeFineTune, load_release,
+                           prepare_adaptation, restore_adaptation)
 from .prepare_foundation import atomic_json
 
 
@@ -26,6 +27,7 @@ def save_checkpoint(model, optimizer, args, step, path, split, epoch, next_batch
     state = {name: parameter.detach().cpu().clone()
              for name, parameter in model.named_parameters() if parameter.requires_grad}
     checkpoint = {'format': 'native_sasasa2va_adaptation_v1', 'trainable_state': state,
+                  'training_semantics': TRAINING_SEMANTICS,
                   'optimizer': optimizer.state_dict(), 'step': step,
                   'lora_rank': args.lora_rank, 'arguments': vars(args),
                   'split': split, 'epoch': epoch, 'next_batch': next_batch, 'micro': micro,
@@ -56,6 +58,11 @@ def run(args):
     resumed = None
     if args.resume:
         resumed = restore_adaptation(model, args.resume)
+        if resumed.get('training_semantics') != TRAINING_SEMANTICS:
+            raise RuntimeError('cannot resume a legacy hard-gated training checkpoint')
+        for key in ('negative_query_probability', 'lr', 'max_updates', 'accumulation', 'seed'):
+            if resumed['arguments'].get(key) != getattr(args, key):
+                raise RuntimeError(f'resume training configuration differs: {key}')
         if resumed['foundation_revision'] != loading['revision'] or resumed['lora_rank'] != args.lora_rank:
             raise RuntimeError('resume foundation or adapter configuration differs')
     else:
@@ -64,7 +71,8 @@ def run(args):
     optimizer = torch.optim.AdamW(trainable, lr=args.lr, betas=(.9, .999), weight_decay=.05)
     if resumed:
         optimizer.load_state_dict(resumed['optimizer'])
-    dataset = PublicMevisNative(args.train_root, tokenizer, model.conv_template, seed=args.seed)
+    dataset = PublicMevisNative(args.train_root, tokenizer, model.conv_template, seed=args.seed,
+                               negative_query_probability=args.negative_query_probability)
     split = {'train_videos': dataset.train_ids, 'held_out_videos': dataset.held_out_ids,
              'held_out_scope': 'excluded from this fine-tune; may be seen by published pretraining'}
     if resumed and resumed['split'] != split:
@@ -88,12 +96,17 @@ def run(args):
     stop_update = min(args.max_updates, args.stop_updates or args.max_updates)
     stop = torch.tensor(0, device=device)
     status_losses = {}
+    sampling = torch.zeros(4, device=device)
     while step < args.max_updates:
         dataset.epoch = epoch
         sampler.set_epoch(epoch)
         for batch_index, sample in enumerate(loader):
             if batch_index < resume_batch:
                 continue
+            sampling += torch.tensor([
+                sample['negative_queries'], len(sample['expression_ids']),
+                int((~sample['targets'].bool().flatten(2).any(2)).sum()),
+                sample['targets'].shape[0] * sample['targets'].shape[1]], device=device)
             sync = (micro + 1) % args.accumulation == 0
             context = network.no_sync() if world > 1 and not sync else nullcontext()
             with context:
@@ -133,6 +146,11 @@ def run(args):
                 dist.all_reduce(scalars)
                 scalars /= world
             status_losses = dict(zip(['total', *losses, 'grad_norm'], scalars.cpu().tolist()))
+            if world > 1:
+                dist.all_reduce(sampling)
+            negative_fraction = float(sampling[0] / sampling[1])
+            gt_empty_fraction = float(sampling[2] / sampling[3])
+            sampling.zero_()
             now = time.time()
             stop = torch.tensor(int(now >= args.stop_at or step >= stop_update), device=device)
             if world > 1:
@@ -141,6 +159,10 @@ def run(args):
             state.update(status='TRAINING', training_started=True, step=step, epoch=epoch,
                          max_updates=args.max_updates, losses=status_losses,
                          seconds_per_update=elapsed / (step - initial_step), updated_at_unix=now,
+                         training_semantics=TRAINING_SEMANTICS,
+                         negative_query_probability=args.negative_query_probability,
+                         sampled_negative_query_fraction=negative_fraction,
+                         sampled_empty_gt_frame_fraction=gt_empty_fraction,
                          gpu_peak_gb=torch.cuda.max_memory_allocated() / 1e9)
             if rank == 0:
                 atomic_json(status_file, state)
@@ -184,6 +206,8 @@ def main():
     parser.add_argument('--stop-at', type=float, required=True, help='Unix deadline; checkpoint then evaluate')
     parser.add_argument('--stop-updates', type=int, help='Temporary pilot gate under the full-run LR schedule')
     parser.add_argument('--resume', help='Continue a trusted local native adaptation checkpoint')
+    parser.add_argument('--negative-query-probability', type=float, default=None,
+                        help='Public empty-target expression sampling; omitted = original per-video sampling')
     args = parser.parse_args()
     if min(args.max_updates, args.accumulation, args.lora_rank, args.save_every) < 1:
         parser.error('update, accumulation, LoRA and save counts must be positive')
@@ -191,6 +215,8 @@ def main():
         parser.error('training window already expired')
     if args.stop_updates is not None and args.stop_updates < 1:
         parser.error('pilot updates must be positive')
+    if args.negative_query_probability is not None and not 0 <= args.negative_query_probability <= 1:
+        parser.error('negative query probability must be in [0, 1]')
     try:
         run(args)
     except Exception as error:
