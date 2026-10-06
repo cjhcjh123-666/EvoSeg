@@ -21,7 +21,8 @@ def execute(args):
     lock = (output / 'BASELINES.lock').open('a')
     fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     status_path = output / 'BASELINE_STATUS.json'
-    state = {'status': 'PREPARING', 'pid': os.getpid(), 'training_started': False,
+    state = {'status': 'PREPARING', 'pid': os.getpid(), 'training_started': bool(args.adapter_dir),
+             'adapter_dir': args.adapter_dir,
              'started_at_unix': time.time(), 'source_report_comparability': 'pending', 'success': False}
     env = dict(os.environ)
     env.update(OMP_NUM_THREADS='4', HF_HUB_OFFLINE='1', TOKENIZERS_PARALLELISM='false',
@@ -59,6 +60,8 @@ def execute(args):
         name = mode if limit is None else mode + '_diagnostic'
         destination = output / name
         arguments = ['--history-mode', mode, '--output', str(destination)]
+        if args.adapter_dir:
+            arguments += ['--adapter-dir', args.adapter_dir]
         if limit is not None:
             arguments += ['--limit', str(limit)]
         if distributed:
@@ -75,6 +78,11 @@ def execute(args):
 
     try:
         update()
+        resource_lock = None
+        if args.resource_lock:
+            resource_lock = Path(args.resource_lock).open('a')
+            update(status='WAITING_FOR_EXPERIMENT_GPU_LOCK')
+            fcntl.flock(resource_lock.fileno(), fcntl.LOCK_EX)
         # Each protocol must first finish full multi-round dialogues, not only
         # the first-round image demo. Diagnostics are never called benchmarks.
         for mode in ('gt_history', 'predicted_history'):
@@ -99,7 +107,8 @@ def execute(args):
             update(completed=completed)
         atomic_json(output / 'BASELINE_REPORT.json', {'protocols': completed, 'sota_claimed': False,
                     'source_report_comparability': 'pending original sampled/preprocessed subset confirmation',
-                    'training_started': False})
+                    'training_started': bool(args.adapter_dir), 'adapter_dir': args.adapter_dir,
+                    'method_stage': 'language adapter; not full SCCS' if args.adapter_dir else 'released native'})
         update(status='PUBLIC_BASELINES_COMPLETE', success=True, finished_at_unix=time.time())
     except Exception as error:
         update(status='FAILED_NEEDS_ATTENTION', error_type=type(error).__name__, error=str(error), success=False)
@@ -113,6 +122,8 @@ def main():
     parser.add_argument('--python', default=str(base / 'envs/qwen_process_seg/bin/python'))
     parser.add_argument('--gpus', type=int, default=8)
     parser.add_argument('--detach', action='store_true')
+    parser.add_argument('--adapter-dir', help='Evaluate a trained native language LoRA, never alter foundation')
+    parser.add_argument('--resource-lock', help='Shared lock to serialize project full-eval GPU jobs')
     args = parser.parse_args()
     if args.gpus < 1:
         parser.error('GPU count must be positive')
@@ -124,6 +135,10 @@ def main():
             raise RuntimeError('baseline launch already exists; inspect before relaunch')
         command = [sys.executable, '-m', 'projects.evoseg.dialog.run_baselines',
                    '--output', args.output, '--python', args.python, '--gpus', str(args.gpus)]
+        if args.adapter_dir:
+            command += ['--adapter-dir', args.adapter_dir]
+        if args.resource_lock:
+            command += ['--resource-lock', args.resource_lock]
         with (output / 'driver.log').open('a') as log:
             process = subprocess.Popen(command, cwd=Path(__file__).resolve().parents[3],
                        stdout=log, stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)

@@ -156,6 +156,21 @@ previous-reference failures (sofa/laptop IoU 0) from a selected bus case where
 the referenced previous mask was good (IoU .9564) but the current target failed.
 This is evidence of different failure paths, not a causal proof of the method.
 
+The same-checkpoint GT-history follow-up is also complete (237 rounds each).
+Across the 168 later turns, gIoU is release 85.4862 / plain 84.8822 / auxiliary
+86.0140; pooled cIoU is 85.7876 / 85.0417 / 86.0663. Round-2--6 equal-dataset
+cIoU is 85.0364 / 84.3269 / 85.1940. This is a small positive auxiliary signal
+under correct history, **not** a consistent closed-loop gain or a SOTA claim.
+
+Next execution: both saved plain and auxiliary adapters receive the complete
+17,349-round public validation, separately under GT and generated history.
+`run_baselines --adapter-dir <adapter> --resource-lock <shared file> --detach`
+reuses the strict native protocol and mask decoder. Two queued jobs serialize
+their eight-GPU evaluation through the shared experiment lock; no dummy GPU
+holders or foreign-process termination are used. Their outputs are
+`public_adapter_eval_v1/plain_lora` and `public_adapter_eval_v1/witness_scope_aux`.
+Compare these to `public_baselines`, keeping source-paper comparability pending.
+
 ### Current multi-round baseline and training preparation
 
 `dialog/eval_multiturn.py` evaluates all public raw validation dialogues with
