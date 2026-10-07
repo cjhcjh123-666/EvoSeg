@@ -26,6 +26,8 @@ EvoSeg 的实验区别是：在同一 Seg-VLM 内保留完整 semantic 表示和
 
 训练监督仍为原始公开 human mask 和官方 no-target 标签。候选的 soft support target 是其前景与原始 GT 的交叠精度，忽略 ReasonSeg 的 ignore 区域；这是一项由人工 mask 计算的训练目标，不是模型预测生成的伪 GT。采用 precision 而不是 union IoU，避免把合法的单实例 mask 因多目标 query 的其他实例而标为不支持。
 
+这里区分两个问题：目标是否存在，以及当前候选 mask 是否支持该表达。目标存在的正表达也可能产生错误 mask；全图 presence 标签仍为正，而由人工 mask 计算的候选支持目标可以很低。这允许从原始正样本中的真实预测错误学习区域绑定，不必新增假 query 或编辑图像。所有候选低支持仅意味着没有可接受的预测 mask，不证明目标在全图中绝对不存在。
+
 像素 BCE、Dice、候选支持 BCE 和正样本残差保持项共同训练；修正幅度限制在 parent prompt RMS 的 10%。初始残差为零，支持门槛固定为 0.5，初始支持偏置为 2。冻结模型不产生候选的表达仍输出空结果，因此本 pilot 不解决原有语言层漏检。
 
 ## 对照与验收
