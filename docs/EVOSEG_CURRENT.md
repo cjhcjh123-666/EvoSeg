@@ -103,7 +103,7 @@ small sample and high query-only score cannot establish causal visual grounding
 or method superiority. Larger matched training and neutral-view controls remain
 required even though the new SAM prompt path is now connected.
 
-## Fresh public training until the user deadline
+## First completed public training run
 
 The user confirmed **2026-10-07 14:00 Asia/Shanghai** as the stop/monitoring
 deadline. `hallucination/nightly.py --detach` owns the detached supervisor,
@@ -148,6 +148,46 @@ are attempted within the remaining deadline; incomplete coverage is flagged.
 Artifacts: `/9950backfile/chenjiahui/evo_artifacts/results/evoseg_hallucination_20261007/new_public_run`.
 `NIGHTLY_STATUS.json`, `FIRST_RUN_REPORT.json` and any `FAILURE_REPORT.json`
 are execution evidence. Execution completion is not a SOTA claim.
+
+## Current optimization until 22:00
+
+The user extended the deadline to **2026-10-07 22:00 Asia/Shanghai**. Pure
+continuation stopped at 300 updates after positive-target degradation on the
+expanded 687-case train holdout. The 100-update model and all reports remain
+preserved. A separate original-data mix includes 239 published ReasonSeg TRAIN
+images, verified against pinned public parquet bytes and original polygon
+annotations; ignore regions are preserved. Its published text includes author
+paraphrases, and no new query, pseudo mask or edited-image training is added.
+
+The native-proposal-input experiment trained 20 and 100 extra updates. Its
+parent-100 and extra-100 diagnostic directories collided and the identity
+guard stopped evaluation; no model/OOM failure caused that stop. Fork milestone
+names now use `updated_all_holdout`, and the saved same-step weights are being
+evaluated through the recovered supervision chain rather than retrained.
+
+Recovered training: `extended_public_run/optimized_training/CONTINUE_STATUS.json`.
+Recovered full evaluation: `extended_recovery_run/EXTENDED_STATUS.json`.
+The run roots are under `results/evoseg_hallucination_20261007` in evo_artifacts.
+
+[The region evidence pilot](HALLUCINATION_REGION_PILOT.md) records the research
+comparison, model/data boundary and acceptance rule. It freezes the preserved
+100-update language/grounding/SAM parent, conditions a bounded prompt residual
+and support score on a predicted mask's local and surrounding visual tokens,
+and compares against an equal-capacity spatially unaware global control.
+Only the new interface is trained, so native empty-answer generation cannot
+drift during this experiment. Candidate regions never use GT; supervision is
+derived from original public human masks. Real two-update gradient and native
+inference checks passed; this is not evidence of benchmark improvement.
+
+`run_region_pilot.py --detach` prepares its frozen cache only when all GPU
+processes belong to our read-only public inference and each GPU has at least
+55GB free; its lightweight SAM/head training and private cached diagnostics
+can then overlap that inference. Full public retesting waits for the existing
+queue and recomputes features from actual image/query-only native inference.
+Its `region_public_pilot/REGION_STATUS.json` records actual
+waiting/training/evaluation state. Insufficient time before 22:00 is reported
+as deferred or incomplete, not a full result. Visual-counterfactual and
+reasoning improvements must accompany positive segmentation/recall preservation.
 
 ## Historical multi turn interaction experiments
 

@@ -45,6 +45,7 @@ class FreshRuntime(NativeRuntime):
         self.variant = None
         self.controls = {}
         self.checkpoint = checkpoint
+        self.regional = None
         if directory:
             config = json.loads((directory / 'CONFIG.json').read_text())
             if config['old_faithful_inherited'] or config['generated_data']:
@@ -55,6 +56,13 @@ class FreshRuntime(NativeRuntime):
             self.empty_threshold = config['empty_threshold']
             head_digest = hashlib.sha256((directory / 'GROUNDING.pth').read_bytes()).hexdigest()
             self.adapter_fingerprint += ':' + head_digest + ':' + self.variant + ':' + str(self.empty_threshold)
+            if config.get('region_evidence_mode'):
+                from .region_evidence import RegionEvidenceAdapter
+                self.region_mode = config['region_evidence_mode']
+                self.regional = RegionEvidenceAdapter(config['language_dim'], config['prompt_dim']).cuda().eval()
+                self.regional.load_state_dict(torch.load(directory / 'REGION.pth', map_location='cpu', weights_only=True), strict=True)
+                digest = hashlib.sha256((directory / 'REGION.pth').read_bytes()).hexdigest()
+                self.adapter_fingerprint += ':' + digest + ':' + self.region_mode
 
     @torch.inference_mode()
     def prefix_feature(self, image, query):
@@ -65,6 +73,10 @@ class FreshRuntime(NativeRuntime):
     @torch.inference_mode()
     def predict(self, image_path, query):
         # Public image/query only. No GT mask, target code or target ID input.
+        if self.regional is not None:
+            from .region_evidence import predict_regions
+            mask, information, _ = predict_regions(self, image_path, query, self.regional, self.region_mode)
+            return mask, information
         self.set_image(image_path)
         inputs = prefix_inputs(self.processor, self.image, query).to(self.model.device)
         generated = self.model.generate(**inputs, max_new_tokens=128, do_sample=False,

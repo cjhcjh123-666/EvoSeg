@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from projects.evoseg.hallucination.continue_training import preservation_guard
+from projects.evoseg.hallucination.continue_training import preservation_guard, milestone_name
 from projects.evoseg.hallucination import eval_fresh
 from projects.evoseg.hallucination.run_extended import matched_candidate
 
@@ -32,6 +32,12 @@ def test_guard_requires_exact_paired_coverage():
     b.pop('0')
     with pytest.raises(ValueError, match='coverage'):
         preservation_guard(a, b, ids)
+
+
+def test_parent_and_additional_100_updates_never_share_prediction_cache():
+    assert milestone_name('interaction', 100) == 'interaction_all_holdout_100'
+    assert milestone_name('interaction', 100, True) == 'interaction_updated_all_holdout_100'
+    assert milestone_name('interaction', 100) != milestone_name('interaction', 100, True)
 
 
 def test_expanded_holdout_does_not_trim_unequal_buckets(monkeypatch):

@@ -15,6 +15,25 @@ from projects.evoseg.restart.overnight import available_gpu_indices
 from projects.evoseg.restart.prepare_foundation import atomic_json
 
 
+def milestone_name(variant, step, fork_objective=False):
+    return f'{variant}_{"updated_" if fork_objective else ""}all_holdout_{step}'
+
+
+def check_relaunch(output, resume):
+    marker = output / 'LAUNCH.json'
+    if not marker.exists():
+        return
+    if not resume:
+        raise RuntimeError('queue already launched; inspect or explicitly resume supervision')
+    previous = json.loads(marker.read_text())
+    try:
+        os.kill(previous['pid'], 0)
+    except ProcessLookupError:
+        atomic_json(output / f'LAUNCH_previous_{previous["pid"]}.json', previous)
+    else:
+        raise RuntimeError('previous supervisor is alive; cannot launch a duplicate')
+
+
 def preservation_guard(reference, candidate, image_ids, seed=42):
     """Paired image-cluster bootstrap, not a public-validation selection rule.
 
@@ -60,6 +79,7 @@ def execute(args):
     source, output = Path(args.source_run), Path(args.output)
     cache = Path(args.train_cache) if args.train_cache else source / 'cache'
     output.mkdir(parents=True, exist_ok=True)
+    recovered = json.loads((output / 'CONTINUE_STATUS.json').read_text()) if args.recover_completed_training else {}
     lock = (output / 'CONTINUE.lock').open('a')
     fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     deadline = datetime.fromisoformat(args.deadline).timestamp()
@@ -142,6 +162,14 @@ def execute(args):
         if previous['old_faithful_inherited'] or previous['generated_training_data']:
             raise RuntimeError('requires the public-only fresh-model parent')
         latest = dict(previous['checkpoints'])
+        completed_step = 0
+        if args.recover_completed_training:
+            saved = {v: json.loads((output / 'training' / v / 'LATEST.json').read_text())
+                     for v in ('full_view', 'interaction')}
+            if len({value['step'] for value in saved.values()}) != 1:
+                raise RuntimeError('recovery requires both matched arms saved at the same step')
+            completed_step = saved['interaction']['step']
+            latest = {v: value['checkpoint'] for v, value in saved.items()}
         from .train_fresh import cached_records
         image_ids = {r['id']: r['image_id'] for r in cached_records(cache) if r['holdout']}
         allocated = devices()
@@ -152,26 +180,34 @@ def execute(args):
         update(holdout_cases=len(image_ids), reference=released)
         # Preserve 100-step parents as candidates. No score from public val/test
         # is consulted by this script, including its checkpoint selection.
-        best, best_scores = {}, {}
+        best = dict(recovered.get('best_checkpoints', {}))
+        best_scores = {}
+        history = list(recovered.get('history', []))
+        for item in history:
+            for variant in ('full_view', 'interaction'):
+                if item['guards'][variant]['qualified'] and (variant not in best_scores or
+                        item['scores'][variant]['gIoU'] > best_scores[variant]['gIoU']):
+                    best[variant], best_scores[variant] = item['checkpoints'][variant], item['scores'][variant]
         for variant in ('full_view', 'interaction'):
             name = variant + '_all_holdout_100'
-            score = evaluate(name, latest[variant], allocated)
+            score = evaluate(name, previous['checkpoints'][variant], allocated)
             guard = preservation_guard(reference, case_metrics(name), image_ids)
             if guard['qualified'] and not args.fork_objective:
                 best[variant], best_scores[variant] = latest[variant], score
             update(initial_guard={**state.get('initial_guard', {}), variant: guard})
-        history = []
         for step in args.milestones:
+            if step < completed_step:
+                continue
             if time.time() >= train_stop:
                 break
             allocated = devices()
             jobs, progress = [], []
-            for index, variant in enumerate(('full_view', 'interaction')):
+            for index, variant in enumerate(('full_view', 'interaction')) if step > completed_step else ():
                 destination = output / 'training' / variant
                 arguments = ['--variant', variant, '--cache', str(cache), '--output', str(destination),
                              '--steps', str(step), '--stop-at', str(train_stop), '--save-every', '100',
                              '--prompt-rollout-rate', str(args.prompt_rollout_rate),
-                             '--init-from' if args.fork_objective and not history else '--resume', latest[variant]]
+                             '--init-from' if args.fork_objective and not history and not completed_step else '--resume', latest[variant]]
                 group = allocated[index * 4:(index + 1) * 4]
                 jobs.append(launch(f'train_{variant}_{step}',
                                    distributed('projects.evoseg.hallucination.train_fresh', arguments, group), group))
@@ -181,13 +217,16 @@ def execute(args):
             for variant in ('full_view', 'interaction'):
                 saved = json.loads((output / 'training' / variant / 'LATEST.json').read_text())
                 latest[variant] = saved['checkpoint']
-                name = f'{variant}_all_holdout_{saved["step"]}'
+                # Parent 100 and extra/fork update 100 are DIFFERENT weights.
+                # Never reuse the parent's prediction directory for this stage.
+                name = milestone_name(variant, saved['step'], args.fork_objective)
                 scores[variant] = evaluate(name, latest[variant], allocated)
                 guards[variant] = preservation_guard(reference, case_metrics(name), image_ids)
                 if guards[variant]['qualified'] and (variant not in best_scores or
                         scores[variant]['gIoU'] > best_scores[variant]['gIoU']):
                     best[variant], best_scores[variant] = latest[variant], scores[variant]
             history.append({'requested_step': step, 'scores': scores, 'guards': guards, 'checkpoints': dict(latest)})
+            completed_step = step
             update(latest_checkpoints=latest, best_checkpoints=best, history=history)
             if not all(v['qualified'] for v in guards.values()):
                 update(status='EXPANDED_HOLDOUT_GUARD_STOPPED_LONGER_TRAINING')
@@ -229,6 +268,7 @@ def main():
     p.add_argument('--fork-objective', action='store_true', help='initialize weights; reset optimizer for changed objective/data')
     p.add_argument('--skip-public', action='store_true', help='leave full public retest to the shared queued evaluation stage')
     p.add_argument('--resume-supervision', action='store_true', help='relaunch only after previous supervisor has exited')
+    p.add_argument('--recover-completed-training', action='store_true', help='reuse saved matched weights and evaluate the interrupted milestone')
     p.add_argument('--detach', action='store_true')
     args = p.parse_args()
     if args.milestones != sorted(set(args.milestones)) or min(args.milestones) < (1 if args.fork_objective else 101):
@@ -252,7 +292,7 @@ def main():
         command = [args.python, '-m', 'projects.evoseg.hallucination.continue_training',
                    '--source-run', args.source_run, '--output', args.output, '--deadline', args.deadline,
                    '--reserve-minutes', str(args.reserve_minutes), '--milestones', *map(str, args.milestones)]
-        for option in ('fork_objective', 'skip_public'):
+        for option in ('fork_objective', 'skip_public', 'recover_completed_training'):
             if getattr(args, option):
                 command += ['--' + option.replace('_', '-')]
         if args.train_cache:
@@ -262,6 +302,9 @@ def main():
             child = subprocess.Popen(command, cwd=Path(__file__).resolve().parents[3], stdout=log,
                                      stderr=subprocess.STDOUT, start_new_session=True)
         atomic_json(output / 'LAUNCH.json', {'pid': child.pid, 'command': command, 'deadline': args.deadline})
+        starting = json.loads((output / 'CONTINUE_STATUS.json').read_text()) if (output / 'CONTINUE_STATUS.json').exists() else {}
+        atomic_json(output / 'CONTINUE_STATUS.json', {**starting, 'pid': child.pid,
+                    'status': 'SUPERVISOR_STARTING', 'deadline': args.deadline, 'updated_at_unix': time.time()})
         print(json.dumps({'supervisor_pid': child.pid, 'deadline': args.deadline}))
     else:
         execute(args)

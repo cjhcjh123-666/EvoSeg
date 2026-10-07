@@ -11,6 +11,7 @@ import time
 
 from projects.evoseg.restart.overnight import available_gpu_indices
 from projects.evoseg.restart.prepare_foundation import atomic_json
+from .continue_training import check_relaunch
 
 
 def matched_candidate(report):
@@ -92,18 +93,22 @@ def execute(args):
                 raise RuntimeError('reasoning-source audit did not complete before the reserved evaluation window')
             update(status='WAITING_FOR_PUBLIC_REASONING_SOURCE_AUDIT')
             time.sleep(20)
-        devices = GPUs()
-        child('ENCODING_PUBLISHED_REASONING_GT', ['-m', 'projects.evoseg.hallucination.prepare_reasoning',
-                                               '--output', str(mix), '--encode'], devices[:1])
+        if not (mix / 'CACHE_READY.json').exists():
+            devices = GPUs()
+            child('ENCODING_PUBLISHED_REASONING_GT', ['-m', 'projects.evoseg.hallucination.prepare_reasoning',
+                                                   '--output', str(mix), '--encode'], devices[:1])
         ready = json.loads((mix / 'CACHE_READY.json').read_text())
         if ready['records'] != 16623 or ready['generated_queries'] or ready['pseudo_labels']:
             raise RuntimeError('audited original-data cache coverage failed')
-        optimized = output / 'optimized_training'
-        child('REASONING_AND_NATIVE_PROPOSAL_TRAINING', ['-m', 'projects.evoseg.hallucination.continue_training',
+        optimized = Path(args.existing_optimized_run) if args.existing_optimized_run else output / 'optimized_training'
+        if args.existing_optimized_run:
+            report = wait_report(optimized, 'CONTINUE_REPORT.json', 'CONTINUE_STATUS.json')
+        else:
+            child('REASONING_AND_NATIVE_PROPOSAL_TRAINING', ['-m', 'projects.evoseg.hallucination.continue_training',
             '--source-run', args.source_run, '--output', str(optimized), '--train-cache', str(mix / 'cache'),
             '--deadline', args.deadline, '--reserve-minutes', '300', '--fork-objective',
             '--prompt-rollout-rate', '.25', '--milestones', '20', '100', '300', '600', '1200', '--skip-public'])
-        report = json.loads((optimized / 'CONTINUE_REPORT.json').read_text())
+            report = json.loads((optimized / 'CONTINUE_REPORT.json').read_text())
         candidate = matched_candidate(report)
         selected_route = 'public_reasoning_native_proposal'
         if candidate is None:
@@ -171,20 +176,25 @@ def main():
     p.add_argument('--output', default=folder + '/extended_public_run')
     p.add_argument('--deadline', default='2026-10-07T22:00:00+08:00')
     p.add_argument('--python', default=base + '/envs/qwen_process_seg/bin/python')
+    p.add_argument('--existing-optimized-run', help='wait for a separately recovered owned training chain')
+    p.add_argument('--resume-supervision', action='store_true')
     p.add_argument('--detach', action='store_true')
     args = p.parse_args()
     if args.detach:
         output = Path(args.output)
         output.mkdir(parents=True, exist_ok=True)
-        if (output / 'LAUNCH.json').exists():
-            raise RuntimeError('extended queue already launched')
+        check_relaunch(output, args.resume_supervision)
         command = [args.python, '-m', 'projects.evoseg.hallucination.run_extended',
                    '--source-run', args.source_run, '--longer-run', args.longer_run,
                    '--reasoning-mix', args.reasoning_mix, '--output', args.output, '--deadline', args.deadline]
+        if args.existing_optimized_run:
+            command += ['--existing-optimized-run', args.existing_optimized_run]
         with (output / 'DRIVER.log').open('a') as log:
             process = subprocess.Popen(command, cwd=Path(__file__).resolve().parents[3], stdout=log,
                                        stderr=subprocess.STDOUT, start_new_session=True)
         atomic_json(output / 'LAUNCH.json', {'pid': process.pid, 'command': command, 'deadline': args.deadline})
+        atomic_json(output / 'EXTENDED_STATUS.json', {'pid': process.pid, 'status': 'SUPERVISOR_STARTING',
+                    'deadline': args.deadline, 'updated_at_unix': time.time()})
         print(json.dumps({'queue_pid': process.pid, 'deadline': args.deadline}))
     else:
         execute(args)
