@@ -57,7 +57,29 @@ class CoupledGrounding(nn.Module):
         self.interface = InteractionGroundingAdapter(language.config.text_config.hidden_size)
         self.variant = variant
 
-    def forward(self, full_inputs, labels, prefix, neutral_inputs, sam_states, target_codes, gt, empty):
+    def forward(self, full_inputs, labels, prefix, neutral_inputs, sam_states, target_codes, gt, empty,
+                rollout_inputs=None, valid_pixels=None):
+        # Optional proposal-input curriculum: predictions are INPUTS only.
+        # The query, CE target, presence label and pixel supervision remain the
+        # original public annotations. No model prediction becomes a label.
+        prompt_codes = target_codes
+        if rollout_inputs is not None:
+            from .eval_fresh import parse_native_codes
+            training = self.language.training
+            self.language.eval()
+            try:
+                with torch.no_grad():
+                    generated = self.language.generate(**rollout_inputs, max_new_tokens=128,
+                        do_sample=False, use_cache=True)
+                answer_ids = generated[0, rollout_inputs.input_ids.shape[1]:].tolist()
+                answer = self.rollout_processor.decode(answer_ids, skip_special_tokens=False)
+                proposals, _ = parse_native_codes(answer)
+                # One prompt is corrected toward the human union-mask target.
+                # Multiple proposals are deterministically sampled, not chosen
+                # using mask overlap or GT. Empty/invalid output uses zero base.
+                prompt_codes = proposals[self.rollout_index % len(proposals)] if proposals else None
+            finally:
+                self.language.train(training)
         output = self.language(**full_inputs, labels=labels, output_hidden_states=True, use_cache=False)
         full = output.hidden_states[-1][:, prefix - 1]
         controls = [self.language(**value, output_hidden_states=True, use_cache=False, logits_to_keep=1).hidden_states[-1][:, -1]
@@ -67,10 +89,10 @@ class CoupledGrounding(nn.Module):
             # Equal forward budget; zero-weight controls leave full features
             # intact and make the gradient structure explicit in this control.
             visual, query, neither = [value * 0. for value in controls]
-        if target_codes is None:
+        if prompt_codes is None:
             base = torch.zeros((1, 256), device=full.device)
         else:
-            values = torch.tensor([target_codes], device=full.device)
+            values = torch.tensor([prompt_codes], device=full.device)
             embedding = self.codec.quantizer.embed_code(values)[:, None]
             base = self.codec.deconcate_quant_embed(embedding).reshape(1, -1)
             if base.shape[-1] != 256:
@@ -79,9 +101,15 @@ class CoupledGrounding(nn.Module):
         prompt = result['grounding_prompt'][:, None]
         mask_logits = self.codec.model.inject_language_embd(sam_states, prompt, nf_nobj=(1, 1))
         resized = F.interpolate(gt, size=mask_logits.shape[-2:], mode='nearest')
-        mask_loss = F.binary_cross_entropy_with_logits(mask_logits.float(), resized)
+        valid = torch.ones_like(resized) if valid_pixels is None else F.interpolate(
+            valid_pixels, size=mask_logits.shape[-2:], mode='nearest')
+        if not valid.any():
+            raise RuntimeError('no supervised pixels remain after ignore-region handling')
+        mask_loss = (F.binary_cross_entropy_with_logits(mask_logits.float(), resized,
+                     reduction='none') * valid).sum() / valid.sum()
         probability = mask_logits.float().sigmoid()
-        dice = 1 - (2 * (probability * resized).sum() + 1) / (probability.sum() + resized.sum() + 1)
+        dice = 1 - (2 * (probability * resized * valid).sum() + 1) / (
+            (probability * valid).sum() + (resized * valid).sum() + 1)
         empty_loss = F.binary_cross_entropy_with_logits(result['empty_logit'].float(),
                                                        torch.tensor([float(empty)], device=full.device))
         loss = output.loss + .1 * empty_loss + .1 * mask_loss + .05 * dice
@@ -89,7 +117,7 @@ class CoupledGrounding(nn.Module):
                       'mask': mask_loss.detach(), 'dice': dice.detach()}
 
 
-def prepare(record, processor):
+def prepare(record, processor, rollout=False):
     with Image.open(record['image']) as original:
         image = original.convert('RGB')
     full, labels, prefix = teacher_inputs(processor, image, record['query'], record['assistant_target'])
@@ -105,8 +133,16 @@ def prepare(record, processor):
     if bool(array.any()) == record['private_no_target']:
         raise RuntimeError('cached human mask/no-target label mismatch')
     gt = torch.from_numpy(array.astype(np.float32))[None, None].cuda()
+    valid_pixels = None
+    if record.get('human_valid_mask'):
+        with Image.open(record['human_valid_mask']) as valid_image:
+            valid = np.asarray(valid_image.convert('L')) > 0
+        if valid.shape != array.shape or not valid.any():
+            raise RuntimeError('invalid public ignore-region mask')
+        valid_pixels = torch.from_numpy(valid.astype(np.float32))[None, None].cuda()
     return (full.to('cuda'), labels.cuda(), prefix, [value.to('cuda') for value in controls], states,
-            record['private_target_codes'], gt, record['private_no_target'])
+            record['private_target_codes'], gt, record['private_no_target'],
+            prefix_inputs(processor, image, record['query']).to('cuda') if rollout else None, valid_pixels)
 
 
 def run(args):
@@ -123,7 +159,7 @@ def run(args):
     if not records or any(r['generated_query'] or r['pseudo_label'] or r['source_split'] != 'train' for r in records):
         raise RuntimeError('requires original public TRAIN cache')
     buckets = {kind: [r for r in records if r['bucket'] == kind]
-               for kind in ('ref_positive', 'gref_positive', 'gref_empty')}
+               for kind in ('ref_positive', 'gref_positive', 'gref_empty', 'reason_positive')}
     source_digest = records[0]['source_manifest_sha256']
     if any(r['source_manifest_sha256'] != source_digest for r in records):
         raise RuntimeError('mixed data manifests in training cache')
@@ -132,8 +168,12 @@ def run(args):
     if any(loading.get(k) for k in ('missing_keys', 'unexpected_keys', 'mismatched_keys', 'error_msgs')):
         raise RuntimeError('incomplete released language checkpoint')
     language.requires_grad_(False)
-    if args.resume:
-        language = PeftModel.from_pretrained(language, Path(args.resume) / 'adapter',
+    parent = args.resume or args.init_from
+    if parent:
+        parent_config = json.loads((Path(parent) / 'CONFIG.json').read_text())
+        if parent_config['variant'] != args.variant:
+            raise RuntimeError('cannot initialize from a different interface variant')
+        language = PeftModel.from_pretrained(language, Path(parent) / 'adapter',
                                              is_trainable=True, torch_device='cpu')
     else:
         language = get_peft_model(language, LoraConfig(r=8, lora_alpha=16, lora_dropout=0.,
@@ -145,10 +185,12 @@ def run(args):
     codec = NativeRuntime(args.model_dir, args.assets, load_language=False).tokenizer
     module = CoupledGrounding(language, codec, args.variant).cuda().train()
     module.codec.eval()
-    if args.resume:
-        module.interface.load_state_dict(torch.load(Path(args.resume) / 'GROUNDING.pth',
+    if parent:
+        module.interface.load_state_dict(torch.load(Path(parent) / 'GROUNDING.pth',
                                                     map_location='cpu', weights_only=True), strict=True)
     processor = AutoProcessor.from_pretrained(args.model_dir, local_files_only=True)
+    module.rollout_processor = processor
+    module.rollout_index = 0
     language_parameters = [p for p in module.language.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW([{'params': language_parameters, 'lr': args.lr},
                                   {'params': module.interface.parameters(), 'lr': args.head_lr}], weight_decay=.01)
@@ -157,7 +199,8 @@ def run(args):
     if args.resume:
         saved = torch.load(Path(args.resume) / 'TRAINING_STATE.pth', map_location='cpu', weights_only=True)
         if (saved['parameter_names'] != parameter_names or saved['variant'] != args.variant or
-            saved['effective_batch'] != world * args.accumulation or saved['source_manifest_sha256'] != source_digest):
+            saved['effective_batch'] != world * args.accumulation or saved['source_manifest_sha256'] != source_digest or
+            saved.get('prompt_rollout_rate', 0.) != args.prompt_rollout_rate):
             raise RuntimeError('cannot resume different method/optimizer/data budget')
         optimizer.load_state_dict(saved['optimizer'])
         start = saved['step']
@@ -175,12 +218,16 @@ def run(args):
             temporary = directory / 'STATE.tmp'
             torch.save({'optimizer': optimizer.state_dict(), 'parameter_names': parameter_names,
                         'variant': args.variant, 'step': step, 'effective_batch': world * args.accumulation,
-                        'source_manifest_sha256': source_digest}, temporary)
+                        'source_manifest_sha256': source_digest,
+                        'prompt_rollout_rate': args.prompt_rollout_rate}, temporary)
             temporary.replace(directory / 'TRAINING_STATE.pth')
             atomic_json(directory / 'CONFIG.json', {'variant': args.variant, 'step': step,
                 'language_dim': module.language.config.text_config.hidden_size, 'prompt_dim': 256,
                 'head_used_at_inference': True, 'cache': args.cache, 'model_dir': args.model_dir,
-                'old_faithful_inherited': False, 'generated_data': False, 'empty_threshold': .5})
+                'old_faithful_inherited': False, 'generated_data': False, 'empty_threshold': .5,
+                'initialization_checkpoint': args.init_from,
+                'prompt_rollout_rate': args.prompt_rollout_rate,
+                'proposal_predictions_are_inputs_not_labels': True})
             atomic_json(output / 'LATEST.json', {'checkpoint': str(directory), 'step': step})
         if world > 1:
             dist.barrier()
@@ -193,9 +240,17 @@ def run(args):
             slot = ((step - 1) * args.accumulation + micro) * world + rank
             rng = random.Random(42 + slot)
             kind = ('ref_positive', 'gref_positive', 'ref_positive', 'gref_empty')[slot % 4]
+            if buckets['reason_positive'] and slot % 20 in (0, 9):
+                # 10% published implicit-query supervision; maintain 25% of
+                # official no-target examples, and do not paraphrase queries.
+                kind = 'reason_positive'
             record = rng.choice(buckets[kind])
             trace.update(record['id'].encode())
-            prepared = prepare(record, processor)
+            # Separate RNG stream preserves the same sampled original records
+            # across the rollout curriculum and teacher-only training control.
+            rollout = random.Random(1042 + slot).random() < args.prompt_rollout_rate
+            module.rollout_index = slot
+            prepared = prepare(record, processor, rollout=rollout)
             sync = model.no_sync() if world > 1 and micro + 1 < args.accumulation else nullcontext()
             with sync:
                 with torch.autocast('cuda', dtype=torch.bfloat16, cache_enabled=False):
@@ -221,7 +276,8 @@ def run(args):
                     'variant': args.variant, 'step': step, 'planned_steps': args.steps, 'loss': float(loss_sum),
                     'loss_parts': parts_sum, 'gradient_l1': gradient, 'sample_trace_sha256': trace.hexdigest(),
                     'gpu_peak_gb': torch.cuda.max_memory_allocated() / 1e9, 'updated_at_unix': time.time(),
-                    'elapsed_seconds': time.time() - started, 'head_used_at_inference': True})
+                    'elapsed_seconds': time.time() - started, 'head_used_at_inference': True,
+                    'prompt_rollout_rate': args.prompt_rollout_rate})
         if rank == 0:
             print(json.dumps({'step': step, 'variant': args.variant, 'loss': float(loss_sum), 'gradient': gradient}), flush=True)
         if step % args.save_every == 0 or step == args.steps or time.time() >= args.stop_at:
@@ -247,8 +303,16 @@ def main():
     p.add_argument('--head-lr', type=float, default=5e-5)
     p.add_argument('--save-every', type=int, default=100)
     p.add_argument('--resume')
+    p.add_argument('--init-from', help='fork weights into a new objective/data experiment; reset optimizer and step')
+    p.add_argument('--prompt-rollout-rate', type=float, default=0.,
+                   help='fraction of original samples decoded from model proposal INPUTS, never pseudo labels')
     p.add_argument('--stop-at', type=float, default=float('inf'))
-    run(p.parse_args())
+    args = p.parse_args()
+    if args.resume and args.init_from:
+        p.error('--resume and --init-from are mutually exclusive')
+    if not 0 <= args.prompt_rollout_rate <= 1:
+        p.error('prompt-rollout-rate must be in [0, 1]')
+    run(args)
 
 
 if __name__ == '__main__':

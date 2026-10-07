@@ -111,11 +111,14 @@ class FreshRuntime(NativeRuntime):
 def evaluation_records(args):
     if args.benchmark == 'holdout':
         rows = [r for r in cached_records(args.cache) if r['holdout']]
+        if args.limit is None:
+            # Use every held-out original query; do not discard larger buckets.
+            return sorted(rows, key=lambda r: r['id'])
         # Equal number per source bucket, without reading any benchmark scores.
         by_bucket = defaultdict(list)
         for row in rows:
             by_bucket[row['bucket']].append(row)
-        each = args.limit // 3 if args.limit else min(len(v) for v in by_bucket.values())
+        each = args.limit // 3
         if each < 1:
             raise RuntimeError('empty diagnostic')
         return sorted([r for values in by_bucket.values() for r in values[:each]], key=lambda r: r['id'])
@@ -134,12 +137,15 @@ def evaluation_records(args):
     return [{**pair, 'id': f'{pair["subset"]}_{pair["index"]}'} for pair in pairs]
 
 
-def metric_values(target, prediction, malformed):
+def metric_values(target, prediction, malformed, valid=None):
     if target.shape != prediction.shape:
         raise RuntimeError('prediction/GT shape mismatch')
-    intersection, union = int((target & prediction).sum()), int((target | prediction).sum())
+    valid = np.ones_like(target, dtype=bool) if valid is None else valid
+    if valid.shape != target.shape or not valid.any():
+        raise RuntimeError('invalid evaluation ignore mask')
+    intersection, union = int((target & prediction & valid).sum()), int(((target | prediction) & valid).sum())
     empty = not target.any()
-    prediction_empty = not prediction.any()
+    prediction_empty = not (prediction & valid).any()
     return {'intersection': intersection, 'union': union,
             'iou': intersection / union if union else 1., 'empty_gt': bool(empty),
             'predicted_empty': bool(prediction_empty), 'malformed': bool(malformed)}
@@ -174,12 +180,14 @@ def run(args):
                 prediction, information = runtime.predict(record['image'], record['query'])
                 if args.benchmark == 'holdout':
                     target = read_mask(record['human_gt_mask'])
+                    valid = read_mask(record['human_valid_mask']) if record.get('human_valid_mask') else None
                 else:
+                    valid = None
                     target = np.zeros_like(prediction)
                     if not record['private_no_target']:
                         for annotation_id in record['private_annotation_ids']:
                             target |= decode_annotation(annotations[annotation_id], *target.shape, record['image_id'])
-                metrics = metric_values(target, prediction, information['malformed_codes'])
+                metrics = metric_values(target, prediction, information['malformed_codes'], valid)
                 predictions, info = {'mask': prediction}, {'mask': information}
             directory = output / 'masks' / record['id']
             directory.mkdir(parents=True, exist_ok=True)
