@@ -165,6 +165,12 @@ def metric_values(target, prediction, malformed, valid=None):
 
 def run(args):
     torch.cuda.set_device(int(os.environ.get('LOCAL_RANK', 0)))
+    memory_fraction = os.environ.get('EVOSEG_EVAL_GPU_MEMORY_FRACTION')
+    if memory_fraction is not None:
+        memory_fraction = float(memory_fraction)
+        if not 0 < memory_fraction <= 1:
+            raise ValueError('invalid evaluation GPU memory fraction')
+        torch.cuda.set_per_process_memory_fraction(memory_fraction, torch.cuda.current_device())
     rank, world = int(os.environ.get('RANK', 0)), int(os.environ.get('WORLD_SIZE', 1))
     records = evaluation_records(args)
     runtime = FreshRuntime(args.model_dir, args.assets, args.checkpoint)

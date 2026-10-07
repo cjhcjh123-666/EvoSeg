@@ -47,6 +47,7 @@ def execute(args):
     output, public = map(Path, (args.output, args.public_output))
     cpu = Path(args.cpu_output) if args.cpu_output else None
     job = getattr(args, 'job', 'read_alignment')
+    allow_other = getattr(args, 'allow_other_jobs', False)
     output.mkdir(parents=True, exist_ok=True)
     lock = (output / 'SHARE.lock').open('a')
     fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -55,7 +56,8 @@ def execute(args):
                    else 'projects.evoseg.hallucination.run_read_alignment')
     state = {'pid': os.getpid(), 'status': 'CHECKING_OWNERSHIP', 'gpu': args.gpu,
              'public_supervisor_pid': args.public_supervisor, 'deadline': args.deadline,
-             'public_workers_paused': False, 'training_performed': False, 'job': job, 'success': False}
+             'public_workers_paused': False, 'training_performed': False, 'job': job,
+             'allow_memory_safe_other_jobs': allow_other, 'success': False}
     paused, child = False, None
 
     def update(**values):
@@ -87,8 +89,8 @@ def execute(args):
         processes = gpu_processes()
         public_pids = {pid for uuid, pid, memory in processes if uuid in selected_uuids and
                        owns_command(pid, 'projects.evoseg.hallucination.eval_fresh', destination)}
-        if any(uuid in selected_uuids and memory >= 1024 and pid not in public_pids
-               for uuid, pid, memory in processes):
+        if not allow_other and any(uuid in selected_uuids and memory >= 1024 and pid not in public_pids
+                                   for uuid, pid, memory in processes):
             raise RuntimeError('foreign GPU task present; no sharing started')
         if cpu:
             cpu_status = json.loads((cpu / 'QUEUE_STATUS.json').read_text())
@@ -133,21 +135,25 @@ def execute(args):
                 for uuid, pid, memory in gpu_processes():
                     if uuid not in selected_uuids or memory < 1024:
                         continue
-                    if pid in public_pids and owns_command(pid, 'projects.evoseg.hallucination.eval_fresh', destination):
+                    if owns_command(pid, 'projects.evoseg.hallucination.eval_fresh', destination):
                         continue
                     if pid == child.pid and owns_command(pid, read_module, diagnostic):
                         continue
                     foreign.append(pid)
-                if foreign:
+                if foreign and not allow_other:
                     raise RuntimeError('foreign GPU task detected; yield private test: ' + str(foreign))
-                if gpu_inventory()[args.gpu][1] < 8192:
-                    raise RuntimeError('less than 8 GiB shared-card headroom; yield private test')
+                current_inventory = gpu_inventory()
+                minimum = 16384 if allow_other else 8192
+                pressured = [device for device in old['devices'] if current_inventory[device][1] < minimum]
+                if pressured:
+                    raise RuntimeError('insufficient shared-GPU headroom; yield private test: ' + str(pressured))
                 worker_path = diagnostic / 'STATUS.json'
                 worker = json.loads(worker_path.read_text()) if worker_path.exists() else {}
                 update(status='GPU_PRIVATE_DIAGNOSTIC', child_pid=child.pid,
                        cases_done=worker.get('cases_done', 0), expected_cases=args.limit,
                        peak_cuda_allocated_mib=worker.get('peak_cuda_allocated_mib'),
                        worker_status=worker.get('status'), training_step=worker.get('step'),
+                       concurrent_gpu_pids=foreign if allow_other else [],
                        input_features_done=worker.get('input_features_done'))
                 time.sleep(5)
             if child.returncode:
@@ -176,6 +182,7 @@ def main():
     p.add_argument('--train-limit', type=int, default=128)
     p.add_argument('--steps', type=int, default=100)
     p.add_argument('--reuse-inputs')
+    p.add_argument('--allow-other-jobs', action='store_true', help='user-authorized sharing with sufficient measured headroom')
     p.add_argument('--gpu', type=int, default=0)
     p.add_argument('--limit', type=int, default=96)
     p.add_argument('--deadline', required=True)
@@ -192,6 +199,8 @@ def main():
                      'gpu', 'limit', 'deadline', 'max_seconds', 'job', 'train_limit', 'steps', 'reuse_inputs'):
             if getattr(args, name) is not None:
                 command += ['--' + name.replace('_', '-'), str(getattr(args, name))]
+        if args.allow_other_jobs:
+            command += ['--allow-other-jobs']
         with (output / 'DRIVER.log').open('a') as log:
             process = subprocess.Popen(command, cwd=Path(__file__).resolve().parents[3],
                                        stdout=log, stderr=subprocess.STDOUT, start_new_session=True)

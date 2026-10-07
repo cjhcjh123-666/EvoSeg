@@ -13,15 +13,22 @@ from projects.evoseg.restart.prepare_foundation import atomic_json
 from .continue_training import check_relaunch
 
 
-def free_devices():
+def free_devices(min_free_mib=76000):
     result = subprocess.run(['nvidia-smi', '--query-gpu=index,memory.free',
                              '--format=csv,noheader,nounits'], capture_output=True, text=True, check=True)
     available = [int(line.split(',')[0]) for line in result.stdout.splitlines()
-                 if int(line.split(',')[1]) >= 76000]
+                 if int(line.split(',')[1]) >= min_free_mib]
     for size in (8, 4, 2):
         if len(available) >= size:
             return available[:size]
     return None
+
+
+def low_headroom(devices, minimum_mib=16384):
+    result = subprocess.run(['nvidia-smi', '--query-gpu=index,memory.free',
+                             '--format=csv,noheader,nounits'], capture_output=True, text=True, check=True)
+    free = {int(line.split(',')[0]): int(line.split(',')[1]) for line in result.stdout.splitlines()}
+    return [device for device in devices if free.get(device, 0) < minimum_mib]
 
 
 def foreign_gpu_processes(destination, devices):
@@ -59,6 +66,7 @@ def execute(args):
     lock = (output / 'RECOVERY.lock').open('a')
     fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     deadline = datetime.fromisoformat(args.deadline).timestamp()
+    shared = getattr(args, 'shared_gpus', False)
     source_cache = base / 'reasoning_public_mix/cache'
     selection = json.loads((base / 'extended_recovery_run/SELECTION.json').read_text())
     regional = json.loads((base / 'region_public_pilot/REGION_STATUS.json').read_text())['selected']
@@ -82,9 +90,13 @@ def execute(args):
                OMP_NUM_THREADS='4', PYTHONUNBUFFERED='1', HF_HUB_OFFLINE='1',
                TOKENIZERS_PARALLELISM='false', MASK_TOKENIZER_NUM_MASK_TOKEN='1',
                PYTORCH_CUDA_ALLOC_CONF='expandable_segments:True')
+    if shared:
+        env['EVOSEG_EVAL_GPU_MEMORY_FRACTION'] = '.45'
     state = {'pid': os.getpid(), 'deadline': args.deadline, 'status': 'STARTING',
              'serial_gpu_jobs': True, 'retraining': False, 'weights_changed': False,
              'selection_uses_public_benchmark': False, 'success': False, 'sota_claimed': False}
+    state.update(shared_gpus=shared, minimum_start_free_mib=48000 if shared else 76000,
+                 torch_memory_fraction=.45 if shared else None)
     finished = {}
     active = None
 
@@ -121,7 +133,7 @@ def execute(args):
             while True:
                 if time.time() >= deadline:
                     raise TimeoutError('user deadline reached; incomplete predictions are preserved')
-                devices = free_devices()
+                devices = free_devices(48000 if shared else 76000)
                 if not devices:
                     update(status='WAITING_FOR_FREE_GPUS', stage=name, child_pid=None)
                     time.sleep(20)
@@ -141,14 +153,17 @@ def execute(args):
                             stop_owned(active)
                             raise TimeoutError('deadline reached during ' + name)
                         other = foreign_gpu_processes(destination, devices)
-                        if other:
+                        pressure = low_headroom(devices) if shared else []
+                        if (other and not shared) or pressure:
                             # Only our own worker process group is terminated.
                             # Never pause, kill or modify another GPU task.
                             stop_owned(active)
-                            update(status='DEFERRED_GPU_CONFLICT', foreign_pids=other, child_pid=None)
+                            update(status='DEFERRED_GPU_CONFLICT', foreign_pids=other,
+                                   low_headroom_devices=pressure, child_pid=None)
                             conflict = True
                             break
                         update(status='EVALUATING', stage=name, child_pid=active.pid,
+                               concurrent_gpu_pids=other if shared else [],
                                case_files=len(list((destination / 'cases').glob('*.json'))))
                         time.sleep(15)
                 if conflict:
@@ -199,6 +214,7 @@ def main():
     p.add_argument('--deadline', default='2026-10-08T09:00:00+08:00')
     p.add_argument('--detach', action='store_true')
     p.add_argument('--resume-supervision', action='store_true')
+    p.add_argument('--shared-gpus', action='store_true', help='user-authorized memory-capped sharing; never signal other tasks')
     args = p.parse_args()
     if args.detach:
         output = Path(args.output)
@@ -206,6 +222,8 @@ def main():
         check_relaunch(output, args.resume_supervision)
         command = [args.python, '-m', 'projects.evoseg.hallucination.recover_evaluations',
                    '--output', args.output, '--deadline', args.deadline]
+        if args.shared_gpus:
+            command += ['--shared-gpus']
         with (output / 'DRIVER.log').open('a') as log:
             process = subprocess.Popen(command, cwd=Path(__file__).resolve().parents[3], stdout=log,
                                        stderr=subprocess.STDOUT, start_new_session=True)
