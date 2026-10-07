@@ -1,0 +1,47 @@
+{
+  "status": "IMPLEMENTED_PRIVATE_PILOT_NOT_VALIDATED_PAPER_METHOD",
+  "task": "image referring/reasoning segmentation under false-premise and counterfactual queries",
+  "problem": "poor candidate localization is not evidence that the referred object is absent",
+  "frozen_parent": "fresh publicly trained Qwen3-VL-8B-SAMTok interaction step100, NOT retired Faithful",
+  "frozen_pixel_decoder": "original published SAMTok/SAM2.1",
+  "interface": {
+    "query_state": "frozen full image-query prefill representation; not native mask-end state",
+    "spatial_evidence": "learned query-to-SAM-feature alignment under original human mask supervision",
+    "existence": "whole-image evidence plus a learnable native binary prior; no candidate mask/quality input",
+    "quality": "human foreground precision of a native model proposal, not object presence",
+    "correction": "quality-conditioned bounded prompt residual, zero initialized",
+    "native_empty": "query/whole-image evidence branch can produce a learned fallback prompt; no irreversible early exit",
+    "points": "no raw SasP or neutral/padding points injected",
+    "initialization": "pixel-exact parent predictions required on every selected held-out case"
+  },
+  "public_original_training_sources": ["RefCOCO TRAIN", "RefCOCO+ TRAIN", "RefCOCOg TRAIN", "gRefCOCO TRAIN", "ReasonSeg TRAIN"],
+  "training_labels": "original human target masks, ignore masks and official no-target labels only",
+  "model_proposals": "inference-derived inputs, never pseudo-labels",
+  "generated_queries": false,
+  "edited_training_images": false,
+  "small_v1_pilot": {
+    "training_records": 128,
+    "heldout_records": 64,
+    "steps": 100,
+    "native_positive_gIoU": 0.6840872644883524,
+    "spatial_positive_gIoU": 0.6844279453891985,
+    "positive_gain_significant": false,
+    "presence_accuracy_unchanged": true,
+    "initial_native_exact": true,
+    "interpretation": "stable but insufficient gain; fixed +/-4 presence prior dominated learned evidence"
+  },
+  "v2_pilot": {
+    "training_records": 1024,
+    "heldout_records": 695,
+    "maximum_steps": 500,
+    "matched_modes": ["global", "spatial"],
+    "presence_prior": "learnable positive weight, initialized 0.1; initial native decision preserved",
+    "alignment_loss": "foreground-balanced BCE and Dice",
+    "private_guard_steps": [100, 300, 500],
+    "stop_if_either_arm_regresses": true,
+    "public_benchmark_selection": false,
+    "automatic_public_evaluation": false
+  },
+  "novelty_established": false,
+  "sota_claimed": false
+}

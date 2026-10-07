@@ -44,15 +44,18 @@ def gpu_processes():
 
 
 def execute(args):
-    output, public, cpu = map(Path, (args.output, args.public_output, args.cpu_output))
+    output, public = map(Path, (args.output, args.public_output))
+    cpu = Path(args.cpu_output) if args.cpu_output else None
+    job = getattr(args, 'job', 'read_alignment')
     output.mkdir(parents=True, exist_ok=True)
     lock = (output / 'SHARE.lock').open('a')
     fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     public_module = 'projects.evoseg.hallucination.recover_evaluations'
-    read_module = 'projects.evoseg.hallucination.run_read_alignment'
+    read_module = ('projects.evoseg.hallucination.evidence_pilot' if job == 'evidence_pilot'
+                   else 'projects.evoseg.hallucination.run_read_alignment')
     state = {'pid': os.getpid(), 'status': 'CHECKING_OWNERSHIP', 'gpu': args.gpu,
              'public_supervisor_pid': args.public_supervisor, 'deadline': args.deadline,
-             'public_workers_paused': False, 'training_performed': False, 'success': False}
+             'public_workers_paused': False, 'training_performed': False, 'job': job, 'success': False}
     paused, child = False, None
 
     def update(**values):
@@ -71,7 +74,9 @@ def execute(args):
             raise RuntimeError('sharing deadline already reached; no process signalled')
         if not owns_command(args.public_supervisor, public_module, public):
             raise RuntimeError('public supervisor identity mismatch; no process signalled')
-        if not owns_command(args.cpu_supervisor, 'projects.evoseg.hallucination.queue_read_alignment', cpu):
+        if bool(args.cpu_supervisor) != bool(cpu):
+            raise RuntimeError('CPU supervisor/output must be supplied together')
+        if cpu and not owns_command(args.cpu_supervisor, 'projects.evoseg.hallucination.queue_read_alignment', cpu):
             raise RuntimeError('CPU supervisor identity mismatch; no process signalled')
         old = json.loads((public / 'RECOVERY_STATUS.json').read_text())
         destination = Path(old['prediction_directory'])
@@ -85,26 +90,33 @@ def execute(args):
         if any(uuid in selected_uuids and memory >= 1024 and pid not in public_pids
                for uuid, pid, memory in processes):
             raise RuntimeError('foreign GPU task present; no sharing started')
-        cpu_status = json.loads((cpu / 'QUEUE_STATUS.json').read_text())
-        cpu_child = cpu_status.get('child_pid')
-        if cpu_child and not owns_command(cpu_child, read_module, cpu / 'diagnostic'):
-            raise RuntimeError('CPU worker identity mismatch; no process signalled')
-        # Exact, verified task PIDs only. Preserve every completed CPU case.
-        os.kill(args.cpu_supervisor, signal.SIGTERM)
-        if cpu_child:
-            os.kill(cpu_child, signal.SIGTERM)
-        atomic_json(cpu / 'QUEUE_STATUS.json', {**cpu_status, 'status': 'STOPPED_FOR_GPU_SWITCH',
-                    'child_pid': None, 'success': False, 'predictions_preserved': True,
-                    'updated_at_unix': time.time()})
+        if cpu:
+            cpu_status = json.loads((cpu / 'QUEUE_STATUS.json').read_text())
+            cpu_child = cpu_status.get('child_pid')
+            if cpu_child and not owns_command(cpu_child, 'projects.evoseg.hallucination.run_read_alignment', cpu / 'diagnostic'):
+                raise RuntimeError('CPU worker identity mismatch; no process signalled')
+            # Exact, verified task PIDs only. Preserve every completed CPU case.
+            os.kill(args.cpu_supervisor, signal.SIGTERM)
+            if cpu_child:
+                os.kill(cpu_child, signal.SIGTERM)
+            atomic_json(cpu / 'QUEUE_STATUS.json', {**cpu_status, 'status': 'STOPPED_FOR_GPU_SWITCH',
+                        'child_pid': None, 'success': False, 'predictions_preserved': True,
+                        'updated_at_unix': time.time()})
         # This transfers monitoring; it does NOT pause public GPU computation.
         paused = True
         os.kill(args.public_supervisor, signal.SIGSTOP)
         update(status='MONITORING_HANDOFF', public_supervisor_paused=True,
-               public_worker_pids=sorted(public_pids), cpu_stopped=True)
+               public_worker_pids=sorted(public_pids), cpu_stopped=bool(cpu))
         root = Path(__file__).resolve().parents[3]
         diagnostic = output / 'diagnostic'
-        command = [args.python, '-m', read_module, '--output', str(diagnostic),
-                   '--device', 'cuda', '--limit', str(args.limit), '--gpu-memory-fraction', '.42']
+        command = [args.python, '-m', read_module, '--output', str(diagnostic), '--gpu-memory-fraction', '.4']
+        if job == 'evidence_pilot':
+            command += ['--train-limit', str(args.train_limit), '--holdout-limit', str(args.limit),
+                        '--steps', str(args.steps)]
+            if args.reuse_inputs:
+                command += ['--reuse-inputs', args.reuse_inputs]
+        else:
+            command += ['--device', 'cuda', '--limit', str(args.limit)]
         env = dict(os.environ, CUDA_VISIBLE_DEVICES=str(args.gpu), OMP_NUM_THREADS='4',
                    PYTHONPATH=str(root) + ':/9950backfile/chenjiahui/evo_artifacts/envs/hallucination_public_overlay',
                    MASK_TOKENIZER_NUM_MASK_TOKEN='1', HF_HUB_OFFLINE='1',
@@ -134,13 +146,16 @@ def execute(args):
                 worker = json.loads(worker_path.read_text()) if worker_path.exists() else {}
                 update(status='GPU_PRIVATE_DIAGNOSTIC', child_pid=child.pid,
                        cases_done=worker.get('cases_done', 0), expected_cases=args.limit,
-                       peak_cuda_allocated_mib=worker.get('peak_cuda_allocated_mib'))
+                       peak_cuda_allocated_mib=worker.get('peak_cuda_allocated_mib'),
+                       worker_status=worker.get('status'), training_step=worker.get('step'),
+                       input_features_done=worker.get('input_features_done'))
                 time.sleep(5)
             if child.returncode:
                 raise RuntimeError('GPU interface diagnostic failed; inspect GPU_WORKER.log')
         report = json.loads((diagnostic / 'REPORT.json').read_text())
         update(status='GPU_PRIVATE_DIAGNOSTIC_COMPLETE', success=True,
-               cases_done=report['cases'], child_pid=None)
+               cases_done=report.get('cases', report.get('reference', {}).get('cases')), child_pid=None,
+               training_performed=report.get('training_performed', False))
     except Exception as error:
         stop_owned(child)
         update(status='PARTIAL_PREDICTIONS_PRESERVED', error=str(error), child_pid=None)
@@ -154,9 +169,13 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--output', required=True)
     p.add_argument('--public-output', required=True)
-    p.add_argument('--cpu-output', required=True)
+    p.add_argument('--cpu-output')
     p.add_argument('--public-supervisor', type=int, required=True)
-    p.add_argument('--cpu-supervisor', type=int, required=True)
+    p.add_argument('--cpu-supervisor', type=int)
+    p.add_argument('--job', choices=['read_alignment', 'evidence_pilot'], default='read_alignment')
+    p.add_argument('--train-limit', type=int, default=128)
+    p.add_argument('--steps', type=int, default=100)
+    p.add_argument('--reuse-inputs')
     p.add_argument('--gpu', type=int, default=0)
     p.add_argument('--limit', type=int, default=96)
     p.add_argument('--deadline', required=True)
@@ -170,8 +189,9 @@ def main():
         check_relaunch(output, False)
         command = [args.python, '-m', 'projects.evoseg.hallucination.share_read_gpu']
         for name in ('output', 'public_output', 'cpu_output', 'public_supervisor', 'cpu_supervisor',
-                     'gpu', 'limit', 'deadline', 'max_seconds'):
-            command += ['--' + name.replace('_', '-'), str(getattr(args, name))]
+                     'gpu', 'limit', 'deadline', 'max_seconds', 'job', 'train_limit', 'steps', 'reuse_inputs'):
+            if getattr(args, name) is not None:
+                command += ['--' + name.replace('_', '-'), str(getattr(args, name))]
         with (output / 'DRIVER.log').open('a') as log:
             process = subprocess.Popen(command, cwd=Path(__file__).resolve().parents[3],
                                        stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
