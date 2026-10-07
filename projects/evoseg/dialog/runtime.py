@@ -51,7 +51,10 @@ def adapter_fingerprint(directory):
 
 
 class NativeRuntime:
-    def __init__(self, model_dir, assets_file, *, load_language=True, adapter_dir=None):
+    def __init__(self, model_dir, assets_file, *, load_language=True, adapter_dir=None, device='cuda'):
+        # CPU support is for interface diagnostics when GPU jobs must not be
+        # interrupted. Default CUDA placement still respects LOCAL_RANK.
+        self.device = torch.device(device)
         directory = Path(model_dir)
         assets = json.loads(Path(assets_file).read_text())
         if assets['status'] != 'ASSETS_DOWNLOADED':
@@ -76,7 +79,7 @@ class NativeRuntime:
                 # Bare 'cuda' in safetensors resolves to GPU 0 even when the
                 # current rank uses another GPU. Load on CPU then move once.
                 model = PeftModel.from_pretrained(model, adapter_dir, is_trainable=False, torch_device='cpu')
-            self.model = model.cuda().eval()
+            self.model = model.to(self.device).eval()
             self.processor = AutoProcessor.from_pretrained(directory, local_files_only=True)
             self.loading = loading
         config = VQ_SAM2Config(sam2_config=SAM2Config(ckpt_path=str(directory / 'sam2.1_hiera_large.pt')),
@@ -85,7 +88,7 @@ class NativeRuntime:
         state = torch.load(directory / 'mask_tokenizer_256x2.pth', map_location='cpu', weights_only=True)
         tokenizer.load_state_dict(state, strict=True)
         del state
-        self.tokenizer = tokenizer.cuda().eval().requires_grad_(False)
+        self.tokenizer = tokenizer.to(self.device).eval().requires_grad_(False)
         self.image_path = None
         self.image = self.sam_states = None
 
@@ -96,7 +99,7 @@ class NativeRuntime:
         with Image.open(path) as image:
             self.image = image.convert('RGB')
         values = DirectResize(1024).apply_image(np.asarray(self.image))
-        pixels = torch.from_numpy(values.copy()).permute(2, 0, 1)[None].to('cuda', dtype=self.tokenizer.dtype)
+        pixels = torch.from_numpy(values.copy()).permute(2, 0, 1)[None].to(self.device, dtype=self.tokenizer.dtype)
         pixels = torch.stack([self.tokenizer.model.preprocess_image(pixel) for pixel in pixels])
         self.sam_states = self.tokenizer.model.get_sam2_embeddings(pixels, expand_size=1)
         self.image_path = str(path)
@@ -111,8 +114,8 @@ class NativeRuntime:
         # Same inclusive pixel-extrema convention as torchvision.masks_to_boxes.
         boxes = torch.tensor([[xx.min()/self.image.width, yy.min()/self.image.height,
                                xx.max()/self.image.width, yy.max()/self.image.height]],
-                              device='cuda', dtype=torch.float32)
-        target = torch.from_numpy(mask.astype(np.float32))[None].cuda()
+                              device=self.device, dtype=torch.float32)
+        target = torch.from_numpy(mask.astype(np.float32))[None].to(self.device)
         embeddings = self.tokenizer.model.encode_mask_box_input(self.sam_states, [target], boxes)
         embeddings = embeddings.reshape(1, 1, -1)
         embeddings = self.tokenizer.concate_mask_embeds(embeddings)
@@ -128,7 +131,7 @@ class NativeRuntime:
         if codes is None:
             return np.zeros((self.image.height, self.image.width), dtype=bool)
         token_string(codes)
-        values = torch.tensor([codes], device='cuda')
+        values = torch.tensor([codes], device=self.device)
         embeddings = self.tokenizer.quantizer.embed_code(values)[:, None]
         embeddings = self.tokenizer.deconcate_quant_embed(embeddings)
         embeddings = embeddings.reshape(1, self.tokenizer.num_mask_tokens, -1)

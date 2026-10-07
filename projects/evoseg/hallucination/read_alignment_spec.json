@@ -1,0 +1,42 @@
+{
+  "status": "INTERFACE_ALIGNMENT_BEFORE_NEW_METHOD",
+  "foundation": "zhouyik/Qwen3-VL-8B-SAMTok",
+  "foundation_revision": "b78aef1105d6a94049a2ba109f814dfcf21bec8e",
+  "pixel_decoder": "published original SAM2.1; no SAM3.1 swap",
+  "alignment": {
+    "reference": "READ, CVPR 2025",
+    "paper": "https://arxiv.org/abs/2412.17741",
+    "official_code": "https://github.com/rui-qian/READ",
+    "code_revision": "254924020ec4d33ace8575eb1e2a515390530594",
+    "retained": ["raw dot-product similarity", "downsample=2", "min-max normalization", "thresholds 0.8/0.2", "positive-first budget of 30", "differentiable exp(-squared-distance) point interpolation"],
+    "adaptations": ["Qwen rectangular uncropped visual grid instead of LLaVA center crop", "native mask-end prediction state instead of SEG prediction state", "DirectResize coordinates instead of SAM1 longest-side padding", "unchanged native multimask selection in both arms", "flat/nonfinite safeguards"],
+    "scope": "published-interface-inspired frozen-backbone diagnostic, NOT original model/score reproduction",
+    "no_target_limitation": "native empty outputs remain empty; report all cases, not just nonempty candidates"
+  },
+  "data_constraints": {
+    "training_sources": ["RefCOCO TRAIN", "RefCOCO+ TRAIN", "RefCOCOg TRAIN", "gRefCOCO TRAIN", "ReasonSeg TRAIN"],
+    "interface_diagnostic": "score-independent stratification of held-out TRAIN images and unchanged original queries",
+    "no_new_generated_queries": true,
+    "no_edited_training_images": true,
+    "no_pseudo_ground_truth": true,
+    "hallusegbench": "evaluation only"
+  },
+  "provisional_method_hypothesis": {
+    "problem": "candidate grounding error is not evidence of referred-object absence",
+    "principle": "separate whole-image object existence from candidate localization quality",
+    "research_direction": "use query-conditioned spatial evidence to repair localization before deciding to reject; preserve reasoning features rather than replacing them by four-view differences",
+    "published_components_are_not_our_contribution": ["READ spatial point prompts", "F-LMM frozen reasoning backbone", "PropVG multiple evidence for absence"],
+    "unimplemented": ["independent whole-image existence branch", "relocalization after a poor/native-empty proposal", "joint training and corrected positive masks"],
+    "novelty_not_yet_established": true,
+    "references": ["https://github.com/wusize/F-LMM", "https://github.com/Dmmm1997/PropVG"]
+  },
+  "required_checks_before_long_training": [
+    "real source-token/grid/coordinate alignment and gradients",
+    "same native generation/weights/threshold in paired arms",
+    "private positive IoU and false-empty preservation",
+    "separate candidate repair and absence-rejection ablations",
+    "GPU confirmation before interpreting CPU diagnostics as model results"
+  ],
+  "public_evaluations_unchanged": true,
+  "sota_claimed": false
+}

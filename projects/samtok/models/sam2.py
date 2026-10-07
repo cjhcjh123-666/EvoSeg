@@ -3734,7 +3734,13 @@ class SAM2Model(PreTrainedModel):
 
         return mask_tokens
 
-    def inject_language_embd(self, sam_states, language_embed, nf_nobj=None):
+    def inject_language_embd(self, sam_states, language_embed, nf_nobj=None, point_inputs=None):
+        """Decode language prompts, optionally with explicit spatial points.
+
+        Keep the native mask-selection policy fixed even when adding points:
+        changing the multimask policy would confound an interface comparison.
+        Coordinates are absolute pixels in the native 1024-square input.
+        """
         high_res_features = [
             x.permute(1, 2, 0).view(x.size(1), x.size(2), *s)
             for x, s in zip(sam_states['current_vision_feats'][:-1], sam_states['feat_sizes'][:-1])
@@ -3753,7 +3759,7 @@ class SAM2Model(PreTrainedModel):
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             _, _, _, low_res_masks, high_res_masks, obj_ptr, _, = self.sam2_model._forward_sam_heads(
                 backbone_features=pix_feat_with_mem,
-                point_inputs=None,
+                point_inputs=point_inputs,
                 mask_inputs=None,
                 high_res_features=high_res_features,
                 multimask_output=self.sam2_model._use_multimask(is_init_cond_frame=True, point_inputs=None),
@@ -4210,4 +4216,3 @@ class VQ_SAM2(PreTrainedModel):
                 quant_mask_embeds=quant_mask_embeds,
                 quant_codes=code,
             )
-
